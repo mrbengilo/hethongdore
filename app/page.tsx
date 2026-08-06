@@ -34,12 +34,6 @@ export default function LoginPage() {
     }
   }
 
-  function fillDemo(role: "manager" | "employee") {
-    setUsername(role === "manager" ? "admin" : "nv001");
-    setPassword("dore2026");
-    setMessage("");
-  }
-
   return (
     <main className="login-page">
       <section className="login-hero">
@@ -66,8 +60,8 @@ export default function LoginPage() {
           <div className="login-options"><label className="check-label"><input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)}/> Ghi nhớ đăng nhập</label><button type="button" className="text-button" onClick={() => setMessage("Vui lòng liên hệ quản lý hệ thống để đặt lại mật khẩu an toàn.")}>Quên mật khẩu?</button></div>
           {message && <div className="form-message" role="alert">{message}</div>}
           <button className="primary-button login-submit" disabled={loading}>{loading ? "Đang xác thực..." : "Đăng nhập"}</button>
-          <div className="demo-block"><span>Tài khoản chạy thử</span><div><button type="button" onClick={() => fillDemo("manager")}>Quản lý</button><button type="button" onClick={() => fillDemo("employee")}>Nhân viên</button></div><small>Mật khẩu chung: dore2026</small></div>
-          <div className="security-note"><ShieldCheck size={20}/> Mật khẩu được băm và phiên đăng nhập được bảo vệ ở máy chủ</div>
+          <div className="login-divider"><span>hoặc</span></div>
+          <div className="security-note"><ShieldCheck size={20}/> Bảo mật thông tin tuyệt đối</div>
         </form>
       </section>
     </main>

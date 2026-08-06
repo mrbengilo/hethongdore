@@ -11,7 +11,7 @@ export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
   const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host") ?? "localhost:5173";
   const protocol = requestHeaders.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
-  const imageUrl = `${protocol}://${host}/og.png`;
+  const imageUrl = `${protocol}://${host}/og-v2.png`;
   const title = "DORE · Quản lý chuỗi cửa hàng";
   const description = "Hệ thống quản lý vận hành, nhân sự, dòng tiền và lương thưởng của chuỗi cửa hàng DORE.";
   return {
