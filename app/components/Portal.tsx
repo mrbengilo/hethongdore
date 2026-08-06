@@ -92,7 +92,7 @@ function AppShell({ brand, subtitle, menu, active, onActive, user, children, onB
     <aside className={`sidebar ${open ? "open" : ""}`}>
       <div className="sidebar-brand"><div className="mini-mark">{accent === "dark" ? <Flower2 size={27}/> : accent === "employee" ? <b>DORE</b> : <Store size={24}/>}</div><div><strong>{brand}</strong><span>{subtitle}</span></div><button className="close-menu" onClick={() => setOpen(false)} aria-label="Đóng menu"><X size={21}/></button></div>
       {onBack && <button className="back-system" onClick={onBack}><ArrowLeft size={17}/> Tổng quan hệ thống</button>}
-      <nav>{menu.map((item) => { const Icon = menuIcons[item] ?? LayoutDashboard; return <button key={item} className={active === item ? "active" : ""} onClick={() => { onActive(item); setOpen(false); }}><i><Icon size={19} strokeWidth={1.8}/></i>{item}</button>; })}</nav>
+      <nav>{menu.map((item) => { const Icon = menuIcons[item] ?? LayoutDashboard; return <button key={item} className={active === item ? "active" : ""} onClick={() => { onActive(item); setOpen(false); window.scrollTo({ top: 0, behavior: "smooth" }); }}><i><Icon size={19} strokeWidth={1.8}/></i>{item}</button>; })}</nav>
       <div className="sidebar-user"><div className="avatar"><UserRound size={20}/></div><div><b>{user.name}</b><span>{user.role === "MANAGER" ? "Quản lý hệ thống" : "NV001 · Bán hàng"}</span></div></div>
       <button className="logout-button" onClick={logout}><LogOut size={18}/> Đăng xuất</button>
     </aside>
