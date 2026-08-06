@@ -46,6 +46,16 @@ export async function initDb() {
     db.prepare("INSERT OR IGNORE INTO users (id, username, password_hash, role, name, failed_attempts, shift_active) VALUES (?, ?, ?, 'MANAGER', ?, 0, 0)").bind("user-manager", "admin", MANAGER_HASH, "Quản trị viên"),
     db.prepare("INSERT OR IGNORE INTO users (id, username, password_hash, role, name, employee_id, store_id, failed_attempts, shift_active) VALUES (?, ?, ?, 'EMPLOYEE', ?, ?, ?, 0, 0)").bind("user-employee", "nv001", EMPLOYEE_HASH, "Nguyễn Thị An", "emp-001", "st-thot-not"),
   ]);
+  const thotNotStore = await db.prepare("SELECT id FROM stores WHERE name = ? LIMIT 1").bind("DORE THỐT NỐT").first<{ id: string }>();
+  if (thotNotStore?.id) {
+    const linkedEmployees = await db.prepare("SELECT COUNT(*) AS count FROM employees WHERE store_id = ? AND status != 'ARCHIVED'").bind(thotNotStore.id).first<{ count: number }>();
+    if (Number(linkedEmployees?.count ?? 0) === 0) {
+      await db.batch([
+        db.prepare("UPDATE employees SET store_id = ? WHERE code IN ('NV001', 'NV002', 'NV003')").bind(thotNotStore.id),
+        db.prepare("UPDATE users SET store_id = ?, employee_id = (SELECT id FROM employees WHERE code = 'NV001' LIMIT 1) WHERE username = 'nv001'").bind(thotNotStore.id),
+      ]);
+    }
+  }
   await db.batch([
     db.prepare("UPDATE users SET password_hash = ? WHERE username = 'admin' AND password_hash LIKE 'pbkdf2$210000$%'").bind(MANAGER_HASH),
     db.prepare("UPDATE users SET password_hash = ? WHERE username = 'nv001' AND password_hash LIKE 'pbkdf2$210000$%'").bind(EMPLOYEE_HASH),
