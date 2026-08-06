@@ -1,7 +1,9 @@
 "use client";
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, BadgeDollarSign, Banknote, BarChart3, Bell, Calendar, CalendarDays, CalendarRange, CheckCircle2, ClipboardCheck, Clock3, Download, Eye, Flower2, Gift, History, Home, LayoutDashboard, LogOut, Menu, PackageOpen, Pencil, Percent, PieChart, Plus, ReceiptText, RefreshCw, Settings, ShoppingBag, ShoppingCart, Store, Trash2, TrendingUp, UserRound, UsersRound, WalletCards, X, type LucideIcon } from "lucide-react";
-import { FunctionalDividend, FunctionalEmployeeHistory, FunctionalEmployeeTasks, FunctionalManagerPayroll, FunctionalSettings, FunctionalTaskManager, FunctionalTransfer } from "./FunctionalModules";
+import { FunctionalEmployeeTasks, FunctionalSettings, FunctionalTaskManager } from "./FunctionalModules";
+import { ReferenceManagerCashflow, ReferenceManagerDividend, ReferenceManagerPayroll, ReferenceManagerReports, ReferenceManagerTransfer } from "./ReferenceManagerModules";
+import { ReferenceEmployeeCashflow, ReferenceEmployeePayroll, ReferenceEmployeeShiftHistory } from "./ReferenceEmployeeModules";
 import { ReferenceEmployees, ReferenceStoreModule } from "./ReferenceStoreModules";
 type Role = "MANAGER" | "EMPLOYEE";
 type User = {
@@ -52,7 +54,7 @@ export function calculateEmployeeBonus(profit: number, totalHours: number, emplo
     const rate = profitPerHour >= 30000 ? 0.07 : profitPerHour >= 15000 ? 0.05 : profitPerHour >= 7000 ? 0.03 : 0;
     return Math.round((employeeHours / totalHours) * profit * rate);
 }
-const managerMenu = ["Tá»•ng quan", "Cá»­a hÃ ng", "Giao viá»‡c", "DÃ²ng tiá»n", "LÆ°Æ¡ng thÆ°á»Ÿng quáº£n lÃ½", "BÃ¡o cÃ¡o", "Äiá»u chuyá»ƒn nhÃ¢n sá»±", "Cá»• tá»©c", "CÃ i Ä‘áº·t"];
+const managerMenu = ["Tá»•ng quan", "Cá»­a hÃ ng", "Giao viá»‡c", "DÃ²ng tiá»n", "LÆ°Æ¡ng thÆ°á»Ÿng quáº£n lÃ½", "BÃ¡o cÃ¡o", "Cá»• tá»©c", "Äiá»u chuyá»ƒn nhÃ¢n sá»±", "CÃ i Ä‘áº·t"];
 const storeMenu = ["Tá»•ng quan", "Ca lÃ m viá»‡c", "Lá»‹ch phÃ¢n ca", "NhÃ¢n viÃªn", "Nháº­p hÃ ng", "Cháº¥m cÃ´ng", "LÆ°Æ¡ng thÆ°á»Ÿng", "ÄÆ¡n hÃ ng", "DÃ²ng tiá»n", "BÃ¡o cÃ¡o", "CÃ i Ä‘áº·t"];
 const employeeMenu = ["Trang chá»§", "ÄÆ¡n hÃ ng", "Báº£ng lÆ°Æ¡ng", "DÃ²ng tiá»n", "Lá»‹ch sá»­ ca lÃ m"];
 const menuIcons: Record<string, LucideIcon> = { "Tá»•ng quan": LayoutDashboard, "Cá»­a hÃ ng": Store, "Giao viá»‡c": ClipboardCheck, "DÃ²ng tiá»n": WalletCards, "LÆ°Æ¡ng thÆ°á»Ÿng quáº£n lÃ½": BadgeDollarSign, "BÃ¡o cÃ¡o": BarChart3, "Äiá»u chuyá»ƒn nhÃ¢n sá»±": UsersRound, "Cá»• tá»©c": PieChart, "CÃ i Ä‘áº·t": Settings, "Ca lÃ m viá»‡c": CalendarDays, "Lá»‹ch phÃ¢n ca": CalendarRange, "NhÃ¢n viÃªn": UserRound, "Nháº­p hÃ ng": PackageOpen, "Cháº¥m cÃ´ng": Clock3, "LÆ°Æ¡ng thÆ°á»Ÿng": BadgeDollarSign, "ÄÆ¡n hÃ ng": ShoppingCart, "Trang chá»§": Home, "Báº£ng lÆ°Æ¡ng": BadgeDollarSign, "Lá»‹ch sá»­ ca lÃ m": History };
@@ -122,7 +124,18 @@ function ManagerPortal({ user }: {
 function ManagerHeader({ view }: {
     view: string;
 }) {
-    return <div className="page-header"><div><span className="breadcrumb">Há»† THá»NG DORE Â· 5 Cá»¬A HÃ€NG</span><h1>{view}</h1><p>{view === "Tá»•ng quan" ? "Theo dÃµi toÃ n bá»™ hoáº¡t Ä‘á»™ng cá»§a chuá»—i cá»­a hÃ ng trong má»™t nÆ¡i." : `Quáº£n lÃ½ ${view.toLowerCase()} vá»›i dá»¯ liá»‡u cáº­p nháº­t theo cá»­a hÃ ng.`}</p></div><div className="header-actions"><label className="date-control"><Calendar size={17}/><input aria-label="ThÃ¡ng bÃ¡o cÃ¡o" type="month" defaultValue="2026-08"/></label><button className="bell" aria-label="ThÃ´ng bÃ¡o" onClick={() => alert("Báº¡n cÃ³ 3 thÃ´ng bÃ¡o váº­n hÃ nh má»›i.")}><Bell size={20}/><span>3</span></button></div></div>;
+    const subtitles: Record<string, string> = {
+        "Tá»•ng quan": "Xin chÃ o, Quáº£n trá»‹ viÃªn! ÄÃ¢y lÃ  tá»•ng quan hoáº¡t Ä‘á»™ng cá»§a táº¥t cáº£ cá»­a hÃ ng.",
+        "Cá»­a hÃ ng": "Quáº£n lÃ½ thÃ´ng tin cá»­a hÃ ng, nhÃ¢n sá»± vÃ  káº¿t quáº£ hoáº¡t Ä‘á»™ng cá»§a tá»«ng cá»­a hÃ ng.",
+        "Giao viá»‡c": "Danh sÃ¡ch cÃ´ng viá»‡c cho tá»«ng ca lÃ m â€“ giÃºp nhÃ¢n viÃªn dá»… dÃ ng theo dÃµi vÃ  thá»±c hiá»‡n.",
+        "DÃ²ng tiá»n": "Theo dÃµi doanh thu, chi phÃ­ vÃ  lá»£i nhuáº­n cá»§a tá»«ng cá»­a hÃ ng.",
+        "LÆ°Æ¡ng thÆ°á»Ÿng quáº£n lÃ½": "Quáº£n lÃ½ lÆ°Æ¡ng cá»‘ Ä‘á»‹nh vÃ  thÆ°á»Ÿng 2% lá»£i nhuáº­n theo tá»«ng cá»­a hÃ ng.",
+        "BÃ¡o cÃ¡o": "Theo dÃµi vÃ  phÃ¢n tÃ­ch káº¿t quáº£ hoáº¡t Ä‘á»™ng cá»§a há»‡ thá»‘ng.",
+        "Cá»• tá»©c": "Quáº£n lÃ½ lá»£i nhuáº­n sau cÃ¹ng vÃ  phÃ¢n chia cá»• tá»©c cho cá»• Ä‘Ã´ng.",
+        "Äiá»u chuyá»ƒn nhÃ¢n sá»±": "Quáº£n lÃ½ nhÃ¢n viÃªn há»— trá»£ giá»¯a cÃ¡c cá»­a hÃ ng theo thá»i gian vÃ  ca lÃ m viá»‡c.",
+        "CÃ i Ä‘áº·t": "Quáº£n lÃ½ thÃ´ng tin tÃ i khoáº£n vÃ  cÃ¡c thiáº¿t láº­p há»‡ thá»‘ng.",
+    };
+    return <div className="page-header"><div><h1>{view}</h1><p>{subtitles[view]}</p></div><div className="header-actions"><label className="date-control"><Calendar size={17}/><input aria-label="ThÃ¡ng bÃ¡o cÃ¡o" type="month" defaultValue="2026-08"/></label><button className="bell" aria-label="ThÃ´ng bÃ¡o" onClick={() => alert("Báº¡n cÃ³ 3 thÃ´ng bÃ¡o váº­n hÃ nh má»›i.")}><Bell size={20}/><span>3</span></button></div></div>;
 }
 function StatCard({ label, value, note, tone = "green", icon = "â†—" }: {
     label: string;
@@ -149,15 +162,15 @@ function ManagerView({ view, stores, loading, reload, openStore }: {
     if (view === "Giao viá»‡c")
         return <FunctionalTaskManager stores={stores}/>;
     if (view === "DÃ²ng tiá»n")
-        return <CashflowView stores={stores} totals={totals}/>;
+        return <ReferenceManagerCashflow stores={stores} totals={totals}/>;
     if (view === "LÆ°Æ¡ng thÆ°á»Ÿng quáº£n lÃ½")
-        return <FunctionalManagerPayroll stores={stores}/>;
+        return <ReferenceManagerPayroll stores={stores}/>;
     if (view === "BÃ¡o cÃ¡o")
-        return <ReportsView stores={stores} totals={totals}/>;
+        return <ReferenceManagerReports stores={stores} totals={totals}/>;
     if (view === "Äiá»u chuyá»ƒn nhÃ¢n sá»±")
-        return <FunctionalTransfer stores={stores}/>;
+        return <ReferenceManagerTransfer stores={stores}/>;
     if (view === "Cá»• tá»©c")
-        return <FunctionalDividend totals={totals}/>;
+        return <ReferenceManagerDividend totals={totals}/>;
     return <FunctionalSettings name="Quáº£n trá»‹ viÃªn" email="admin@dore.vn"/>;
 }
 function DashboardOverview({ stores, totals, loading, openStore }: {
@@ -198,4 +211,192 @@ function StoresView({ stores, totals, reload, openStore }: {
         return setMessage(data.message); setShowForm(false); await reload(); }
     async function archive(store: Store) { if (!confirm(`LÆ°u trá»¯ ${store.name}? Dá»¯ liá»‡u lá»‹ch sá»­ váº«n Ä‘Æ°á»£c giá»¯ láº¡i.`))
         return; await fetch(`/api/stores?id=${store.id}`, { method: "DELETE" }); await reload(); }
-    return <div className="page-content"><div className="toolbar"><div className="stats-inline"><b>{stores.length}</b> cá»­a hÃ ng Â· <b>{money(totals.revenue)}</b> doanh thu</div><button className="primary-button" onClick={() => beginEdit()}>ï¼‹ ThÃªm cá»­a hÃ ng</button></div><×]¼âÚ$z{-®éÜj×FW&VBæÖ‚†÷&FW"Â–æFW‚’Óâ¶–æFW‚²Â÷&FW"æ6öFRÂ÷&FW"æ7W7FöÖW%öæÖRóò""Â÷&FW"ç†öæRóò""Â÷&FW"ævRóò""Â÷&FW"æV×Æ÷–VTæÖRÂ6†–gBç6†–gD6öFRóò""Â÷&FW"æÖ÷VçBÂ÷&FW"ç–ÖVçEöÖWF†öBÓÓÒ$44‚"ò%F¸âŞ«wB"¢$6‡W¸6â¶†şª6â"ÂFFUF–ÖR†÷&FW"æ7&VFVEöB’Â÷&FW"ç7FGW2ÓÓÒ$4ôÕÄUDTB"ò$†ü:âNªWB"¢,I:2ºw’%Ò’ÀĞ¢Ó°Ğ¢6öç7B&Æö"ÒæWr&Æö"…²%ÇTdTdb"²&÷w2æÖ‡&÷rÓâ&÷ræÖ†77d6VÆÂ’æ¦ö–â‚"Â"’’æ¦ö–â‚%Ç%Æâ"•ÒÂ²G—S¢'FW‡Bö77c¶6†'6WC×WFbÓ‚"Ò“°Ğ¢6öç7BW&ÂÒU$Âæ7&VFTö&¦V7EU$Â†&Æö"“°Ğ¢6öç7BÆ–æ²ÒFö7VÖVçBæ7&VFTVÆVÖVçB‚&"“°Ğ¢Æ–æ²æ‡&VbÒW&Ã°Ğ¢Æ–æ²æF÷væÆöBÒFöâÖ†ærÒG·6†–gBç6†–gD6öFRóò&6Ö†–Vâ×F’'Òæ77f°Ğ¢Æ–æ²æ6Æ–6²‚“°Ğ¢U$Âç&Wfö¶Tö&¦V7EU$Â‡W&Â“°Ğ¢ĞĞ¢gVæ7F–öâWFFTf÷&Ò†f–VÆC¢¶W–öbG—Vöbf÷&ÒÂfÇVS¢7G&–ær’°Ğ¢6WDf÷&Ò†7W'&VçBÓâ‡²ââæ7W'&VçBÂ¶f–VÆEÓ¢fÇVRÒ’“°Ğ¢ĞĞ Ğ¢&WGW&âÇ6V7F–öâ6Æ74æÖSÒ&V×Æ÷–VRÖ÷&FW'2×67&VVâ#àĞ¢²6†–gBæ7F—fRbbÆF—b6Æ74æÖSÒ&Æö6¶VBÖ&ææW"#ï	ùI"Æ#ä.ªâ6Œk.ª÷BIªwR6Ì:Òf¸v3Âö#ãÇ7ãäŒ:7’I¸6ÒFæ‚Nª’G&ær6ºrI¸2Ş¹ò6º–2ìH6ærFŒ:¦ÒIjâŒ:ærãÂ÷7ããÂöF—cçĞĞ¢ÆF—b6Æ74æÖSÒ&÷&FW'2×æVÂ#àĞ¢ÆF—b6Æ74æÖSÒ&÷&FW'2×æVÂÖ†VB#àĞ¢ÆF—b6Æ74æÖSÒ&÷&FW'2Ö†VF–ær#ãÇ7â6Æ74æÖSÒ&÷&FW'2Ö†VF–ærÖ–6öâ#ãÅ6†÷–æt6'B6—¦S×³#7ÒóãÂ÷7ããÆF—cãÆƒ#ìIjâŒ8äsÂöƒ#ãÇå^ª6âÌ;ÒFæ‚<:6‚IjâŒ:æsÂ÷ãÂöF—cãÂöF—càĞ¢ÆF—b6Æ74æÖSÒ&÷&FW'2Ö7F–öç2#ãÆ'WGFöâ6Æ74æÖSÒ'6V6öæF'’Ö'WGFöâ"öä6Æ–6³×¶W‡÷'D77gÒF—6&ÆVC×¶f–ÇFW&VBæÆVæwF‚ÓÓÒÓãÄF÷væÆöB6—¦S×³wÒóâ‡^ªWBW†6VÃÂö'WGFöããÆ'WGFöâ6Æ74æÖSÒ'&–Ö'’Ö'WGFöâ"F—6&ÆVC×²6†–gBæ7F—fWÒöä6Æ–6³×¶&Vv–äFGÓãÅÇW26—¦S×³‡ÒóâFŒ:¦ÒIjâŒ:æsÂö'WGFöããÂöF—càĞ¢ÂöF—càĞ¢ÆF—b6Æ74æÖSÒ&÷&FW"×7FG2#àĞ¢ÆF—b6Æ74æÖSÒ&÷&FW"×7FBÖ6&B#ãÆ“ãÅ6†÷–æt&r6—¦S×³#gÒóãÂö“ãÇ7ãåN¹Vær>¹IjãÇ7G&öæsç¶6ö×ÆWFVBæÆVæwF‡ÓÂ÷7G&öæsãÂ÷7ããÂöF—càĞ¢ÆF—b6Æ74æÖSÒ&÷&FW"×7FBÖ6&B#ãÆ“ãÄ&FvTFöÆÆ%6–vâ6—¦S×³#gÒóãÂö“ãÇ7ãåN¹VærF¸â4³Ç7G&öæsç¶ÖöæW’†&æ²—ÓÂ÷7G&öæsãÂ÷7ããÂöF—càĞ¢ÆF—b6Æ74æÖSÒ&÷&FW"×7FBÖ6&B#ãÆ“ãÄ&æ¶æ÷FR6—¦S×³#gÒóãÂö“ãÇ7ãåN¹VærF¸âDÓÇ7G&öæsç¶ÖöæW’†66‚—ÓÂ÷7G&öæsãÂ÷7ããÂöF—càĞ¢ÆF—b6Æ74æÖSÒ&÷&FW"×7FBÖ6&B#ãÆ“ãÅvÆÆWD6&G26—¦S×³#gÒóãÂö“ãÇ7ãåN¹VærF¸ãÇ7G&öæsç¶ÖöæW’†66‚²&æ²—ÓÂ÷7G&öæsãÂ÷7ããÂöF—càĞ¢ÂöF—càĞ¢ÆF—b6Æ74æÖSÒ&÷&FW"Öf–ÇFW'2#àĞ¢ÆÆ&VÂ6Æ74æÖSÒ&÷&FW"×6V&6‚#ãÇ7â6Æ74æÖSÒ'7"ÖöæÇ’#åL:ÆÒ¶«öÒIjâŒ:æsÂ÷7ããÆ–çWBfÇVS×·6V&6‡Òöä6†ævS×¶WfVçBÓâ²6WE6V&6‚†WfVçBçF&vWBçfÇVR“²6WEvRƒ“²×ÒÆ6V†öÆFW#Ò%L:ÆÒ¶«öÒÜ:2IjâŒ:ærÂL:¦â¶Œ:6‚Œ:ærÂ<IBâââ"óãÂöÆ&VÃàĞ¢ÆÆ&VÃãÇ7â6Æ74æÖSÒ'7"ÖöæÇ’#åNº²æ|:“Â÷7ããÆ–çWBG—SÒ&FFR"fÇVS×¶g&öÔFFWÒöä6†ævS×¶WfVçBÓâ²6WDg&öÔFFR†WfVçBçF&vWBçfÇVR“²6WEvRƒ“²×ÒóãÂöÆ&VÃàĞ¢ÆÆ&VÃãÇ7â6Æ74æÖSÒ'7"ÖöæÇ’#ìI«öâæ|:“Â÷7ããÆ–çWBG—SÒ&FFR"fÇVS×·FôFFWÒöä6†ævS×¶WfVçBÓâ²6WEFôFFR†WfVçBçF&vWBçfÇVR“²6WEvRƒ“²×ÒóãÂöÆ&VÃàĞ¢ÆÆ&VÃãÇ7ãäŒ:Ææ‚Fº–2F†æ‚Fü:ãÂ÷7ããÇ6VÆV7BfÇVS×·–ÖVçGÒöä6†ævS×¶WfVçBÓâ²6WE–ÖVçB†WfVçBçF&vWBçfÇVR“²6WEvRƒ“²×ÓãÆ÷F–öâfÇVSÒ$ÄÂ#åNªWB>ª3Âö÷F–öããÆ÷F–öâfÇVSÒ$44‚#åF¸âŞ«wCÂö÷F–öããÆ÷F–öâfÇVSÒ$$äµõE$å4dU"#ä6‡W¸6â¶†şª6ãÂö÷F–öããÂ÷6VÆV7CãÂöÆ&VÃàĞ¢Æ'WGFöâ6Æ74æÖSÒ'&Vg&W6‚Ö'WGFöâ"öä6Æ–6³×·&W6WDf–ÇFW'7ÓãÅ&Vg&W6„7r6—¦S×³wÒóâÌ:ÒŞ¹¶“Âö'WGFöãàĞ¢ÂöF—càĞ¢ÆF—b6Æ74æÖSÒ&FF×F&ÆR×w&#àĞ¢ÇF&ÆR6Æ74æÖSÒ&÷&FW"×F&ÆR#ãÇF†VCãÇG#ãÇFƒå5ECÂ÷FƒãÇFƒäÜ:2IjâŒ:æsÂ÷FƒãÇFƒåL:¦â¶Œ:6‚Œ:æsÂ÷FƒãÇFƒå<ICÂ÷FƒãÇFƒåG^¹V“Â÷FƒãÇFƒäåb,:âŒ:æsÂ÷FƒãÇFƒävœ:G.¸²IjâŒ:æsÂ÷FƒãÇFƒäŒ:Ææ‚Fº–2F†æ‚Fü:ãÂ÷FƒãÇFƒåF¹Ö’v–âNªóÂ÷FƒãÇFƒåF†òL:3Â÷FƒãÂ÷G#ãÂ÷F†VCàĞ¢ÇF&öG“ç·vVBæÆVæwF‚ÓÓÒòÇG#ãÇFB6öÅ7ã×³Ò6Æ74æÖSÒ&V×G’Ö6VÆÂ#ç·6†–gBæ7F—fRò$6Œk<;2IjâŒ:ærŒ;’º7G&öær6†¸vâNª’â"¢$.ªâ6Œk.ª÷BIªwR6Ì:Òf¸v2'ÓÂ÷FCãÂ÷G#â¢vVBæÖ‚†÷&FW"Â–æFW‚’ÓâÇG"¶W“×¶÷&FW"æ–GÒ6Æ74æÖS×¶÷&FW"ç7FGW2ÓÓÒ%dô”B"ò'fö–BÖ÷&FW""¢"'ÓãÇFCç²„ÖF‚æÖ–â‡vRÂvW2’Ò’¢vU6—¦R²–æFW‚²ÓÂ÷FCãÇFCãÆ"6Æ74æÖSÒ&÷&FW"Ö6öFR#ç¶÷&FW"æ6öFWÓÂö#ãÂ÷FCãÇFCç¶÷&FW"æ7W7FöÖW%öæÖRÇÂ.(	B'ÓÂ÷FCãÇFCç¶÷&FW"ç†öæRÇÂ.(	B'ÓÂ÷FCãÇFCç¶÷&FW"ævRóò.(	B'ÓÂ÷FCãÇFCãÆ#ç¶÷&FW"æV×Æ÷–VTæÖWÓÂö#ãÇ6ÖÆÃç·6†–gBç6†–gD6öFRò‚G·6†–gBç6†–gD6öFWÒ–¢"'ÓÂ÷6ÖÆÃãÂ÷FCãÇFCãÆ#ç¶ÖöæW’†÷&FW"æÖ÷VçB—ÓÂö#ãÂ÷FCãÇFCãÇ7â6Æ74æÖS×¶÷&FW"×–ÖVçBG¶÷&FW"ç–ÖVçEöÖWF†öBÓÓÒ$44‚"ò&66‚"¢&&æ²'ÖÓç¶÷&FW"ç–ÖVçEöÖWF†öBÓÓÒ$44‚"ò%F¸âŞ«wB"¢$6‡W¸6â¶†şª6â'ÓÂ÷7ããÂ÷FCãÇFCç¶FFUF–ÖR†÷&FW"æ7&VFVEöB—ÓÂ÷FCãÇFCãÆF—b6Æ74æÖSÒ&÷&FW"×&÷rÖ7F–öç2#ãÆ'WGFöâF—FÆSÒ%†VÒ6†’F«÷B"öä6Æ–6³×²‚’Óâ6WDFWF–Â†÷&FW"—ÓãÄW–R6—¦S×³WÒóãÂö'WGFöããÆ'WGFöâF—FÆSÒ%>ºÖIjâ"F—6&ÆVC×²6†–gBæ7F—fRÇÂ÷&FW"ç7FGW2ÓÒ$4ôÕÄUDTB'Òöä6Æ–6³×²‚’Óâ&Vv–äVF—B†÷&FW"—ÓãÅVæ6–Â6—¦S×³WÒóãÂö'WGFöããÆ'WGFöâ6Æ74æÖSÒ&FævW""F—FÆSÒ$ºw’Ijâ"F—6&ÆVC×²6†–gBæ7F—fRÇÂ÷&FW"ç7FGW2ÓÒ$4ôÕÄUDTB'Òöä6Æ–6³×²‚’Óâ6æ6VÂ†÷&FW"æ–B—ÓãÅG&6ƒ"6—¦S×³WÒóãÂö'WGFöããÂöF—cãÂ÷FCãÂ÷G#â—ÓÂ÷F&öG“àĞ¢Â÷F&ÆSàĞ¢ÂöF—càĞ¢ÆF—b6Æ74æÖSÒ&÷&FW"×v–æF–öâ#ãÇ7ãä†¸6âF¸²¶f–ÇFW&VBæÆVæwF‚ÓÓÒò¢„ÖF‚æÖ–â‡vRÂvW2’Ò’¢vU6—¦R²ÒÒ´ÖF‚æÖ–â„ÖF‚æÖ–â‡vRÂvW2’¢vU6—¦RÂf–ÇFW&VBæÆVæwF‚—Ò>ºv¶f–ÇFW&VBæÆVæwF‡ÒIjâŒ:æsÂ÷7ããÆF—cãÆ'WGFöâF—6&ÆVC×·vRÃÒÒöä6Æ–6³×²‚’Óâ6WEvR†7W'&VçBÓâÖF‚æÖ‚ƒÂ7W'&VçBÒ’—Óî(“Âö'WGFöãç´'&’æg&öÒ‡²ÆVæwFƒ¢vW2ÒÂ…òÂ–æFW‚’Óâ–æFW‚²’ç6Æ–6RƒÂR’æÖ†çVÖ&W"ÓâÆ'WGFöâ¶W“×¶çVÖ&W'Ò6Æ74æÖS×´ÖF‚æÖ–â‡vRÂvW2’ÓÓÒçVÖ&W"ò&7F—fR"¢"'Òöä6Æ–6³×²‚’Óâ6WEvR†çVÖ&W"—Óç¶çVÖ&W'ÓÂö'WGFöãâ—ÓÆ'WGFöâF—6&ÆVC×·vRãÒvW7Òöä6Æ–6³×²‚’Óâ6WEvR†7W'&VçBÓâÖF‚æÖ–â‡vW2Â7W'&VçB²’—Óî(£Âö'WGFöããÂöF—cãÂöF—càĞ¢ÂöF—càĞ¢ÆF—b6Æ74æÖSÒ&÷&FW"Öf÷&ÒÖ6&B"&Vc×¶f÷&Õ&VgÓàĞ¢ÆF—b6Æ74æÖSÒ&÷&FW"Öf÷&Ò×F—FÆR#ãÅ6†÷–æt6'B6—¦S×³#ÒóãÆƒ#ç¶VF—F–ærò>ºÄIjâŒ8ärG¶VF—F–æræ6öFWÖ¢%DŒ8¤ÒIjâŒ8ärŞ¹¤’'ÓÂöƒ#ãÂöF—càĞ¢Æf÷&Òöå7V&Ö—C×·6fWÓàĞ¢Æf–VÆG6WBF—6&ÆVC×²6†–gBæ7F—fWÓàĞ¢ÆF—b6Æ74æÖSÒ&÷&FW"Öf÷&ÒÖw&–B#àĞ¢ÆÆ&VÃäÜ:2IjâŒ:æsÆ–çWBfÇVS×¶VF—F–æsòæ6öFRóò%N»I¹–ær¶†’ÌkR'ÒF—6&ÆVBóãÇ6ÖÆÃäÜ:2IjâŒ:ærIkº62NªòN»I¹–æsÂ÷6ÖÆÃãÂöÆ&VÃàĞ¢ÆÆ&VÃåL:¦â¶Œ:6‚Œ:ærÇ6ÖÆÃâ†¶Œ;Fær.ª÷B'^¹–2“Â÷6ÖÆÃãÆ–çWBfÇVS×¶f÷&Òæ7W7FöÖW$æÖWÒöä6†ævS×¶WfVçBÓâWFFTf÷&Ò‚&7W7FöÖW$æÖR"ÂWfVçBçF&vWBçfÇVR—ÒÆ6V†öÆFW#Ò$æª×L:¦â¶Œ:6‚Œ:ær"Ö„ÆVæwFƒ×³ÒóãÂöÆ&VÃàĞ¢ÆÆ&VÃå<IBÇ6ÖÆÃâ†¶Œ;Fær.ª÷B'^¹–2“Â÷6ÖÆÃãÆ–çWBfÇVS×¶f÷&Òç†öæWÒöä6†ævS×¶WfVçBÓâWFFTf÷&Ò‚'†öæR"ÂWfVçBçF&vWBçfÇVR—ÒÆ6V†öÆFW#Ò$æª×>¹I¸vâF†şª’"–çWDÖöFSÒ'FVÂ"Ö„ÆVæwFƒ×³#ÒóãÂöÆ&VÃàĞ¢ÆÆ&VÃåG^¹V’Ç6ÖÆÃâ†¶Œ;Fær.ª÷B'^¹–2“Â÷6ÖÆÃãÆ–çWBfÇVS×¶f÷&ÒævWÒöä6†ævS×¶WfVçBÓâWFFTf÷&Ò‚&vR"ÂWfVçBçF&vWBçfÇVR—ÒÆ6V†öÆFW#Ò$æª×G^¹V’"G—SÒ&çVÖ&W""Ö–ãÒ#"ÖƒÒ##"óãÂöÆ&VÃàĞ¢ÆÆ&VÃäåb,:âŒ:æsÆ–çWBfÇVS×¶æwW¸VâF¸²âG·6†–gBç6†–gD6öFRò‚G·6†–gBç6†–gD6öFWÒ–¢"'ÖÒF—6&ÆVBóãÇ6ÖÆÃåN»I¹–ær~ªöâF†VòL:’¶†şª6âl:6†¸vâNª“Â÷6ÖÆÃãÂöÆ&VÃàĞ¢ÆÆ&VÃävœ:G.¸²IjâŒ:æsÆ–çWBfÇVS×¶f÷&ÒæÖ÷VçGÒöä6†ævS×¶WfVçBÓâWFFTf÷&Ò‚&Ö÷VçB"ÂWfVçBçF&vWBçfÇVR—ÒÆ6V†öÆFW#Ò$æª×vœ:G.¸²IjâŒ:ær"G—SÒ&çVÖ&W""Ö–ãÒ#"7FWÒ#"&WV—&VBóãÂöÆ&VÃàĞ¢ÆÆ&VÃäŒ:Ææ‚Fº–2F†æ‚Fü:ãÇ6VÆV7BfÇVS×¶f÷&Òç–ÖVçDÖWF†öGÒöä6†ævS×¶WfVçBÓâWFFTf÷&Ò‚'–ÖVçDÖWF†öB"ÂWfVçBçF&vWBçfÇVR—Ò&WV—&VCãÆ÷F–öâfÇVSÒ$44‚#åF¸âŞ«wCÂö÷F–öããÆ÷F–öâfÇVSÒ$$äµõE$å4dU"#ä6‡W¸6â¶†şª6ãÂö÷F–öããÂ÷6VÆV7CãÂöÆ&VÃàĞ¢ÂöF—càĞ¢Âöf–VÆG6WCàĞ¢¶ÖW76vRbbÆF—b6Æ74æÖSÒ&f÷&ÒÖÖW76vR#ç¶ÖW76vWÓÂöF—cçĞĞ¢·7V66W72bbÆF—b6Æ74æÖSÒ&÷&FW"×7V66W72#î)É2·7V66W77ÓÂöF—cçĞĞ¢ÆF—b6Æ74æÖSÒ&÷&FW"Öf÷&ÒÖ7F–öç2#ãÆ'WGFöâG—SÒ&'WGFöâ"6Æ74æÖSÒ'6V6öæF'’Ö'WGFöâ"öä6Æ–6³×·&W6WDf÷&×Óäºw“Âö'WGFöããÆ'WGFöâ6Æ74æÖSÒ'&–Ö'’Ö'WGFöâ"F—6&ÆVC×²6†–gBæ7F—fWÓç¶VF—F–ærò$ÌkRF†’I¹V’"¢$ÌkRIjâŒ:ær'ÓÂö'WGFöããÂöF—càĞ¢Âöf÷&ÓàĞ¢ÂöF—càĞ¢¶FWF–ÂbbÆF—b6Æ74æÖSÒ&ÖöFÂÖ&6¶G&÷#ãÆF—b6Æ74æÖSÒ&ÖöFÂ÷&FW"ÖFWF–ÂÖÖöFÂ#ãÆF—b6Æ74æÖSÒ&ÖöFÂ×F—FÆR#ãÆƒ#ä6†’F«÷BIjâ¶FWF–Âæ6öFWÓÂöƒ#ãÆ'WGFöâöä6Æ–6³×²‚’Óâ6WDFWF–Â†çVÆÂ—Óì9sÂö'WGFöããÂöF—cãÆFÃãÆF—cãÆGCä¶Œ:6‚Œ:æsÂöGCãÆFCç¶FWF–Âæ7W7FöÖW%öæÖRÇÂ$¶Œ:6‚Î«²'ÓÂöFCãÂöF—cãÆF—cãÆGCå>¹I¸vâF†şª“ÂöGCãÆFCç¶FWF–Âç†öæRÇÂ$¶Œ;Fær7Vær>ªW'ÓÂöFCãÂöF—cãÆF—cãÆGCåG^¹V“ÂöGCãÆFCç¶FWF–ÂævRóò$¶Œ;Fær7Vær>ªW'ÓÂöFCãÂöF—cãÆF—cãÆGCäæŒ:&âfœ:¦âò6ÂöGCãÆFCç¶FWF–ÂæV×Æ÷–VTæÖWÒ+r·6†–gBç6†–gD6öFWÓÂöFCãÂöF—cãÆF—cãÆGCåF†æ‚Fü:ãÂöGCãÆFCç¶FWF–Âç–ÖVçEöÖWF†öBÓÓÒ$44‚"ò%F¸âŞ«wB"¢$6‡W¸6â¶†şª6â'ÓÂöFCãÂöF—cãÆF—cãÆGCävœ:G.¸³ÂöGCãÆFCç¶ÖöæW’†FWF–ÂæÖ÷VçB—ÓÂöFCãÂöF—cãÆF—cãÆGCåF¹Ö’v–âNªóÂöGCãÆFCç¶FFUF–ÖR†FWF–Âæ7&VFVEöB—ÓÂöFCãÂöF—cãÆF—cãÆGCåG.ªærFŒ:“ÂöGCãÆFCç¶FWF–Âç7FGW2ÓÓÒ$4ôÕÄUDTB"ò$†ü:âNªWB"¢,I:2ºw’'ÓÂöFCãÂöF—cãÂöFÃãÂöF—cãÂöF—cçĞĞ¢Â÷6V7F–öãã°Ğ§ĞĞ¦gVæ7F–öâ÷&FW%F&ÆR‡²÷&FW'2Âöä6æ6VÂÓ¢°Ğ¢÷&FW'3¢÷&FW%µÓ°Ğ¢öä6æ6VÃó¢†–C¢7G&–ær’Óâfö–C°Ğ§Ò’²&WGW&âÆF—b6Æ74æÖSÒ'F&ÆRÖ6&B#ãÆF—b6Æ74æÖSÒ'F&ÆRÖ†VB#ãÆƒ#äFæ‚<:6‚IjãÂöƒ#ãÇ7ãç¶÷&FW'2æÆVæwF‡ÒIjâG&öær6Â÷7ããÂöF—cãÆF—b6Æ74æÖSÒ&FF×F&ÆR×w&#ãÇF&ÆR6Æ74æÖSÒ&FF×F&ÆR#ãÇF†VCãÇG#ãÇFƒäÜ:2IjãÂ÷FƒãÇFƒåF¹Ö’v–ãÂ÷FƒãÇFƒä¶Œ:6‚Œ:æsÂ÷FƒãÇFƒäæŒ:&âfœ:¦ãÂ÷FƒãÇFƒåF†æ‚Fü:ãÂ÷FƒãÇFƒävœ:G.¸³Â÷FƒãÇFƒåG.ªærFŒ:“Â÷Fƒç¶öä6æ6VÂbbÇF‚óçÓÂ÷G#ãÂ÷F†VCãÇF&öG“ç¶÷&FW'2æÆVæwF‚ÓÓÒòÇG#ãÇFB6öÅ7ã×³‡Ò6Æ74æÖSÒ&V×G’Ö6VÆÂ#ä6Œk<;2IjâŒ:ærG&öær6†¸vâNª’ãÂ÷FCãÂ÷G#â¢÷&FW'2æÖ†òÓâÇG"¶W“×¶òæ–GÓãÇFCãÆ#ç¶òæ6öFWÓÂö#ãÂ÷FCãÇFCç¶FFUF–ÖR†òæ7&VFVEöB—ÓÂ÷FCãÇFCç¶òæ7W7FöÖW%öæÖRÇÂ$¶Œ:6‚Î«²'ÓÂ÷FCãÇFCç¶òæV×Æ÷–VTæÖWÓÂ÷FCãÇFCç¶òç–ÖVçEöÖWF†öBÓÓÒ$44‚"ò%F¸âŞ«wB"¢$6‡W¸6â¶†şª6â'ÓÂ÷FCãÇFCãÆ#ç¶ÖöæW’†òæÖ÷VçB—ÓÂö#ãÂ÷FCãÇFCãÇ7â6Æ74æÖS×¶òç7FGW2ÓÓÒ$4ôÕÄUDTB"ò'7FGW2×–ÆÂ"¢'fö–B×–ÆÂ'Óç¶òç7FGW2ÓÓÒ$4ôÕÄUDTB"ò$†ü:âNªWB"¢,I:2ºw’'ÓÂ÷7ããÂ÷FCç¶öä6æ6VÂbbÇFCãÆ'WGFöâ6Æ74æÖSÒ&FævW"ÖÆ–æ²"F—6&ÆVC×¶òç7FGW2ÓÒ$4ôÕÄUDTB'Òöä6Æ–6³×²‚’Óâöä6æ6VÂ†òæ–B—Óäºw“Âö'WGFöããÂ÷FCçÓÂ÷G#â—ÓÂ÷F&öG“ãÂ÷F&ÆSãÂöF—cãÂöF—cã²ĞĞ¦gVæ7F–öâV×Æ÷–VU—&öÆÂ‚’²&WGW&âÃãÆF—b6Æ74æÖSÒ&f–ÇFW"Ö6&B#ãÆÆ&VÃåFŒ:æsÆ–çWBG—SÒ&ÖöçF‚"FVfVÇEfÇVSÒ###bÓ‚"óãÂöÆ&VÃãÆÆ&VÃìI«öâæ|:“Æ–çWBG—SÒ&FFR"FVfVÇEfÇVSÒ###bÓ‚Ób"óãÂöÆ&VÃãÆ'WGFöâ6Æ74æÖSÒ'&–Ö'’Ö'WGFöâ#å†VÒF¹ær¼:£Âö'WGFöããÂöF—cãÆF—b6Æ74æÖSÒ'7FG2Öw&–Bf÷W"#ãÅ7FD6&BÆ&VÃÒ%N¹DärD…RäªÅ"fÇVSÒ#Rã#SãI"óãÅ7FD6&BÆ&VÃÒ%N¹DärÌjüjär"fÇVSÒ#BãƒãI"FöæSÒ&&ÇVR"óãÅ7FD6&BÆ&VÃÒ%N¹DärDŒjş¹äär"fÇVSÒ#CSãI"FöæSÒ&÷&ævR"óãÅ7FD6&BÆ&VÃÒ$„ü8âDŒ8ä‚4"fÇVSÒ#R"–6öãÒ.)É2"óãÂöF—cãÆF—b6Æ74æÖSÒ'F&ÆRÖ6&B#ãÆF—b6Æ74æÖSÒ'F&ÆRÖ†VB#ãÆƒ#ä6†’F«÷BÌkjærF†Vò6Âöƒ#ãÇ7ãìIjâvœ:#ãIöv¹ÓÂ÷7ããÂöF—cãÇF&ÆR6Æ74æÖSÒ&FF×F&ÆR#ãÇF†VCãÇG#ãÇFƒäæ|:’Ì:ÓÂ÷FƒãÇFƒä6Â÷FƒãÇFƒäv¹Òl:óÂ÷FƒãÇFƒäv¹Ò¾«÷CÂ÷FƒãÇFƒå>¹v¹ÓÂ÷FƒãÇFƒäÌkjær>º–æsÂ÷FƒãÇFƒåFŒk¹öæsÂ÷FƒãÇFƒåFŒ:æ‚F¸ãÂ÷FƒãÂ÷G#ãÂ÷F†VCãÇF&öG“çµµ²#Ró‚ó##b"Â$6"Â#s£""Â##£R"Â#RÃR"Â#ãI"Â#SãI"Â#SãI%ÒÂ²#Bó‚ó##b"Â$6""Â##£"Â#s£2"Â#RÃ2"Â#ãcI"Â#I"Â#ãcI%ÒÂ²#2ó‚ó##b"Â$62"Â#s£"Â##3£2"Â#bÃR"Â##ãI"Â#ƒãI"Â##ãI%ÕÒæÖ‚‡"Â’’ÓâÇG"¶W“×¶—Óç·"æÖ‚‡‚Â¢’ÓâÇFB¶W“×¶§Ò6Æ74æÖS×¶¢ÓÓÒrò&ÖöæW’Öw&VVâ"¢"'Óç·‡ÓÂ÷FCâ—ÓÂ÷G#â—ÓÂ÷F&öG“ãÂ÷F&ÆSãÂöF—cãÂóã²ĞĞ¦gVæ7F–öâV×Æ÷–VT66†fÆ÷r‡²6†–gBÂ÷&FW'2Ó¢°Ğ¢6†–gC¢°Ğ¢7F—fS¢&ööÆVã°Ğ¢Ó°Ğ¢÷&FW'3¢÷&FW%µÓ°Ğ§Ò’²6öç7B7F—fRÒ÷&FW'2æf–ÇFW"†òÓâòç7FGW2ÓÓÒ$4ôÕÄUDTB"“²6öç7B&WfVçVRÒ7F—fRç&VGV6R‚†Âò’Óâ²òæÖ÷VçBÂ“²6öç7B6÷7BÒ6†–gBæ7F—fRò3S¢²&WGW&âÃç²6†–gBæ7F—fRbbÆF—b6Æ74æÖSÒ&Æö6¶VBÖ&ææW"#ãÆ#ä.ªâ6Œk.ª÷BIªwR6Ì:Òf¸v3Âö#ãÇ7ãå>¹Æ¸wRL;&ærF¸â>«Ò‡^ªWB†¸vâ¶†’6Ikº62¼:Ö6‚†şªBãÂ÷7ããÂöF—cçÓÆF—b6Æ74æÖSÒ'7FG2Öw&–BF‡&VR#ãÅ7FD6&BÆ&VÃÒ$Dôä‚D…R4"fÇVS×¶ÖöæW’‡&WfVçVR—Òæ÷FS×¶G¶7F—fRæÆVæwF‡ÒIjâŒ:ævÒóãÅ7FD6&BÆ&VÃÒ$4„’Œ8Ò4"fÇVS×¶ÖöæW’†6÷7B—ÒFöæSÒ&÷&ævR"æ÷FSÒ$6†’Œ:ÒŒ:B6–æ‚"óãÅ7FD6&BÆ&VÃÒ$Îº$’ä…^ªÄâNªÒL8Ôä‚"fÇVS×¶ÖöæW’„ÖF‚æÖ‚ƒÂ&WfVçVRÒ6÷7B’—ÒFöæSÒ&&ÇVR"æ÷FSÒ$Föæ‚F‡RÒ6†’Œ:Ò"óãÂöF—cãÆF—b6Æ74æÖSÒ'F&ÆRÖ6&B#ãÆF—b6Æ74æÖSÒ'F&ÆRÖ†VB#ãÆƒ#äÎ¸¶6‚>ºÒL;&ærF¸â<:26Âöƒ#ãÆ'WGFöãå‡^ªWBW†6VÂ(i3Âö'WGFöããÂöF—cãÇF&ÆR6Æ74æÖSÒ&FF×F&ÆR#ãÇF†VCãÇG#ãÇFƒäæ|:“Â÷FƒãÇFƒä6Â÷FƒãÇFƒå>¹IjãÂ÷FƒãÇFƒäFöæ‚F‡SÂ÷FƒãÇFƒä6†’Œ:ÓÂ÷FƒãÇFƒäÎº6’æ‡^ªÖãÂ÷FƒãÇFƒåG.ªærFŒ:“Â÷FƒãÂ÷G#ãÂ÷F†VCãÇF&öG“ãÇG#ãÇFCãRó‚ó##cÂ÷FCãÇFCä6Â÷FCãÇFCãScÂ÷FCãÇFCã"ã3SãIÂ÷FCãÇFCã3#ãIÂ÷FCãÇFB6Æ74æÖSÒ&ÖöæW’Öw&VVâ#ã"ã3ãIÂ÷FCãÇFCãÇ7â6Æ74æÖSÒ'7FGW2×–ÆÂ#ìI:2¾«÷B6Â÷7ããÂ÷FCãÂ÷G#ãÇG#ãÇFCãBó‚ó##cÂ÷FCãÇFCä6#Â÷FCãÇFCãC“Â÷FCãÇFCã"ããIÂ÷FCãÇFCã3ãIÂ÷FCãÇFB6Æ74æÖSÒ&ÖöæW’Öw&VVâ#ããs“ãIÂ÷FCãÇFCãÇ7â6Æ74æÖSÒ'7FGW2×–ÆÂ#ìI:2¾«÷B6Â÷7ããÂ÷FCãÂ÷G#ãÂ÷F&öG“ãÂ÷F&ÆSãÂöF—cãÂóã²ĞĞ¦gVæ7F–öâV×Æ÷–VT†—7F÷'’‚’²&WGW&âÃãÆF—b6Æ74æÖSÒ&f–ÇFW"Ö6&B#ãÆÆ&VÃåNº²æ|:“Æ–çWBG—SÒ&FFR"FVfVÇEfÇVSÒ###bÓ‚Ó"óãÂöÆ&VÃãÆÆ&VÃìI«öâæ|:“Æ–çWBG—SÒ&FFR"FVfVÇEfÇVSÒ###bÓ‚Ó3"óãÂöÆ&VÃãÆÆ&VÃä6Ì:ÓÇ6VÆV7CãÆ÷F–öãåNªWB>ª3Âö÷F–öããÆ÷F–öãä6Âö÷F–öããÆ÷F–öãä6#Âö÷F–öããÂ÷6VÆV7CãÂöÆ&VÃãÆ'WGFöâ6Æ74æÖSÒ'&–Ö'’Ö'WGFöâ#åL:ÆÒ¶«öÓÂö'WGFöããÂöF—cãÆF—b6Æ74æÖSÒ'F&ÆRÖ6&B#ãÆF—b6Æ74æÖSÒ'F&ÆRÖ†VB#ãÆƒ#äÎ¸¶6‚>ºÒ6Ì:ÓÂöƒ#ãÆ'WGFöãå‡^ªWBW†6VÂ(i3Âö'WGFöããÂöF—cãÇF&ÆR6Æ74æÖSÒ&FF×F&ÆR#ãÇF†VCãÇG#ãÇFƒäæ|:’Ì:ÓÂ÷FƒãÇFƒäÜ:2æŒ:&âfœ:¦ãÂ÷FƒãÇFƒä6Â÷FƒãÇFƒäv¹Òl:óÂ÷FƒãÇFƒäv¹Ò¾«÷CÂ÷FƒãÇFƒå>¹v¹ÓÂ÷FƒãÇFƒäÌkjærv¹ÓÂ÷FƒãÇFƒäÌkjærN»L:ÖæƒÂ÷FƒãÂ÷G#ãÂ÷F†VCãÇF&öG“çµµ²#Ró‚ó##b"Â$åc"Â$6"Â#s£""Â##£R"Â#RÃRv¹Ò"Â##ãI"Â#ãI%ÒÂ²#Bó‚ó##b"Â$åc"Â$6""Â##£"Â#s£2"Â#RÃ2v¹Ò"Â##ãI"Â#ãcI%ÒÂ²#2ó‚ó##b"Â$åc"Â$62"Â#s£"Â##3£2"Â#bÃRv¹Ò"Â##ãI"Â##ãI%ÒÂ²#"ó‚ó##b"Â$åc"Â$6"Â#s£"Â##£"Â#RÃv¹Ò"Â##ãI"Â#ãI%ÕÒæÖ‚‡"Â’’ÓâÇG"¶W“×¶—Óç·"æÖ‚‡‚Â¢’ÓâÇFB¶W“×¶§Ò6Æ74æÖS×¶¢ÓÓÒrò&ÖöæW’Öw&VVâ"¢"'Óç·‡ÓÂ÷FCâ—ÓÂ÷G#â—ÓÂ÷F&öG“ãÂ÷F&ÆSãÂöF—cãÂóã²ĞĞ Ğ¢òò¶WB2f—7VÂfÆÆ&6·2v†–ÆRF†RgVæ7F–öæÂÖöGVÆW2&÷fR†æFÆRÆÂ7F—fR&÷WFW2àĞ§fö–BµF6·5f–WrÂÖævW%—&öÆÂÂG&ç6fW%f–WrÂF—f–FVæEf–WrÂV×Æ÷–VU—&öÆÂÂV×Æ÷–VT†—7F÷'•Ó°Ğ 
+    return <div className="page-content"><div className="store-admin-metrics"><StatCard label="Tá»”NG Sá» Cá»¬A HÃ€NG" value={String(stores.length)} note="cá»­a hÃ ng Ä‘ang hoáº¡t Ä‘á»™ng" icon="â–§"/><StatCard label="Tá»”NG NHÃ‚N VIÃŠN" value="14" note="toÃ n há»‡ thá»‘ng" icon="âœ“"/><StatCard label="Tá»”NG DOANH THU" value={money(totals.revenue)} note="trong khoáº£ng thá»i gian chá»n" icon="â†—"/><StatCard label="Tá»”NG CHI PHÃ" value={money(totals.expense)} note="trong khoáº£ng thá»i gian chá»n" tone="orange" icon="â–¤"/><StatCard label="Tá»”NG Lá»¢I NHUáº¬N" value={money(totals.profit)} note="trong khoáº£ng thá»i gian chá»n" tone="blue" icon="â–¥"/></div><div className="toolbar"><div className="stats-inline"><b>{stores.length}</b> cá»­a hÃ ng Â· <b>{money(totals.revenue)}</b> doanh thu</div><div className="store-toolbar-actions"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="TÃ¬m kiáº¿m cá»­a hÃ ng..."/><button className="primary-button" onClick={() => beginEdit()}>ï¼‹ ThÃªm cá»­a hÃ ng</button></div></div><div className="table-card"><div className="table-head"><h2>Danh sÃ¡ch cá»­a hÃ ng</h2></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>#</th><th>Cá»­a hÃ ng</th><th>Äá»‹a chá»‰</th><th>NhÃ¢n viÃªn</th><th>Doanh thu</th><th>Chi phÃ­</th><th>Lá»£i nhuáº­n</th><th>Tráº¡ng thÃ¡i</th><th>Thao tÃ¡c</th></tr></thead><tbody>{filteredStores.map((store, index) => <tr key={store.id}><td>{index + 1}</td><td><button className="table-link" onClick={() => openStore(store)}>{store.name}</button></td><td>{store.address}</td><td><b>{index % 2 ? 4 : 3}</b> nhÃ¢n viÃªn</td><td className="money-green">{money(store.revenue)}</td><td className="money-orange">{money(store.expense)}</td><td className="money-blue">{money(store.profit)}</td><td><span className="status-pill">Hoáº¡t Ä‘á»™ng</span></td><td><div className="row-actions"><button onClick={() => beginEdit(store)}>Sá»­a</button><button className="danger" onClick={() => archive(store)}>XÃ³a</button></div></td></tr>)}</tbody></table></div></div>{showForm && <div className="modal-backdrop"><form className="modal" onSubmit={save}><div className="modal-title"><h2>{editing ? "Cáº­p nháº­t cá»­a hÃ ng" : "ThÃªm cá»­a hÃ ng má»›i"}</h2><button type="button" onClick={() => setShowForm(false)}>Ã—</button></div><label>TÃªn cá»­a hÃ ng<input value={name} onChange={e => setName(e.target.value)} required/></label><label>Äá»‹a chá»‰<input value={address} onChange={e => setAddress(e.target.value)} required/></label><div className="info-box">Há»‡ thá»‘ng sáº½ tá»± táº¡o ca lÃ m, danh má»¥c chi phÃ­, lÆ°Æ¡ng thÆ°á»Ÿng, nhÃ¢n viÃªn, Ä‘Æ¡n hÃ ng, dÃ²ng tiá»n vÃ  bÃ¡o cÃ¡o cho cá»­a hÃ ng má»›i.</div>{message && <div className="form-message">{message}</div>}<div className="modal-actions"><button type="button" onClick={() => setShowForm(false)}>Há»§y</button><button className="primary-button">{editing ? "LÆ°u thay Ä‘á»•i" : "Táº¡o cá»­a hÃ ng"}</button></div></form></div>}</div>;
+}
+function TasksView({ stores }: {
+    stores: Store[];
+}) { const [tasks, setTasks] = useState(["Má»Ÿ cá»­a hÃ ng, kiá»ƒm tra vá»‡ sinh", "Sáº¯p xáº¿p vÃ  bá»• sung hÃ ng trÃªn ká»‡", "TÆ° váº¥n vÃ  há»— trá»£ khÃ¡ch hÃ ng", "BÃ¡o cÃ¡o doanh thu cuá»‘i ca"]); const [sent, setSent] = useState(false); return <div className="page-content split-layout"><section className="form-card"><div className="form-grid three"><label>Cá»­a hÃ ng<select>{stores.map(s => <option key={s.id}>{s.name}</option>)}</select></label><label>Ca lÃ m<select><option>Ca 1 Â· 07:00 - 12:00</option><option>Ca 2 Â· 12:00 - 17:00</option><option>Ca 3 Â· 17:00 - 23:00</option></select></label><label>NgÃ y Ã¡p dá»¥ng<input type="date" defaultValue="2026-08-06"/></label></div><h2>Danh sÃ¡ch cÃ´ng viá»‡c</h2><div className="task-editor">{tasks.map((task, index) => <div key={index}><span>{index + 1}</span><input value={task} onChange={e => setTasks(tasks.map((t, i) => i === index ? e.target.value : t))}/><button onClick={() => setTasks(tasks.filter((_, i) => i !== index))}>Ã—</button></div>)}</div><button className="ghost-button" onClick={() => setTasks([...tasks, ""])}>ï¼‹ ThÃªm cÃ´ng viá»‡c</button><button className="primary-button send-button" onClick={() => setSent(true)}>â¤ LÆ°u vÃ  gá»­i</button>{sent && <div className="success-banner">âœ“ ÄÃ£ gá»­i {tâ€¦6299 tokens truncatedâ€¦ype="checkbox" checked={tiktok} onChange={e => setTiktok(e.target.checked)}/> Ca nÃ y cÃ³ lÃ m clip TikTok (+25.000 Ä‘)</span></label></section></>; }
+function EmployeeOrders({ shift, orders, reload }: {
+    shift: {
+        active: boolean;
+        shiftCode: string | null;
+        startedAt: string | null;
+    };
+    orders: Order[];
+    reload: () => void;
+}) {
+    const emptyForm = { customerName: "", phone: "", age: "", amount: "", paymentMethod: "CASH" };
+    const [search, setSearch] = useState("");
+    const [fromDate, setFromDate] = useState("");
+    const [toDate, setToDate] = useState("");
+    const [payment, setPayment] = useState("ALL");
+    const [page, setPage] = useState(1);
+    const [message, setMessage] = useState("");
+    const [success, setSuccess] = useState("");
+    const [editing, setEditing] = useState<Order | null>(null);
+    const [detail, setDetail] = useState<Order | null>(null);
+    const [form, setForm] = useState(emptyForm);
+    const formRef = useRef<HTMLDivElement | null>(null);
+    const pageSize = 5;
+    const filtered = useMemo(() => orders.filter(order => {
+        const keyword = search.trim().toLocaleLowerCase("vi-VN");
+        const matchesSearch = !keyword || [order.code, order.customer_name ?? "", order.phone ?? ""].some(value => value.toLocaleLowerCase("vi-VN").includes(keyword));
+        const createdDate = localDate(order.created_at);
+        return matchesSearch && (!fromDate || createdDate >= fromDate) && (!toDate || createdDate <= toDate) && (payment === "ALL" || order.payment_method === payment);
+    }), [orders, search, fromDate, toDate, payment]);
+    const completed = filtered.filter(order => order.status === "COMPLETED");
+    const cash = completed.filter(order => order.payment_method === "CASH").reduce((sum, order) => sum + order.amount, 0);
+    const bank = completed.filter(order => order.payment_method === "BANK_TRANSFER").reduce((sum, order) => sum + order.amount, 0);
+    const pages = Math.max(1, Math.ceil(filtered.length / pageSize));
+    const paged = filtered.slice((Math.min(page, pages) - 1) * pageSize, Math.min(page, pages) * pageSize);
+
+    function scrollToForm() {
+        setTimeout(() => formRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 0);
+    }
+    function beginAdd() {
+        if (!shift.active)
+            return;
+        setEditing(null);
+        setForm(emptyForm);
+        setMessage("");
+        setSuccess("");
+        scrollToForm();
+    }
+    function beginEdit(order: Order) {
+        if (!shift.active || order.status !== "COMPLETED")
+            return;
+        setEditing(order);
+        setForm({ customerName: order.customer_name ?? "", phone: order.phone ?? "", age: order.age?.toString() ?? "", amount: order.amount.toString(), paymentMethod: order.payment_method });
+        setMessage("");
+        setSuccess("");
+        scrollToForm();
+    }
+    function resetForm() {
+        setEditing(null);
+        setForm(emptyForm);
+        setMessage("");
+    }
+    async function save(event: FormEvent<HTMLFormElement>) {
+        event.preventDefault();
+        if (!shift.active)
+            return setMessage("Báº¡n chÆ°a báº¯t Ä‘áº§u ca lÃ m viá»‡c");
+        setMessage("");
+        setSuccess("");
+        const response = await fetch("/api/orders", {
+            method: editing ? "PATCH" : "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(editing ? { id: editing.id, ...form } : form),
+        });
+        const result = await response.json();
+        if (!response.ok)
+            return setMessage(result.message ?? "KhÃ´ng thá»ƒ lÆ°u Ä‘Æ¡n hÃ ng.");
+        setSuccess(editing ? `ÄÃ£ cáº­p nháº­t Ä‘Æ¡n ${editing.code}.` : `ÄÃ£ táº¡o Ä‘Æ¡n ${result.code}.`);
+        resetForm();
+        reload();
+    }
+    async function cancel(id: string) {
+        if (!confirm("Há»§y Ä‘Æ¡n nÃ y? Dá»¯ liá»‡u váº«n Ä‘Æ°á»£c giá»¯ láº¡i Ä‘á»ƒ Ä‘á»‘i soÃ¡t."))
+            return;
+        const response = await fetch(`/api/orders?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+        const result = await response.json();
+        if (!response.ok)
+            return setMessage(result.message ?? "KhÃ´ng thá»ƒ há»§y Ä‘Æ¡n hÃ ng.");
+        if (editing?.id === id)
+            resetForm();
+        setSuccess("ÄÆ¡n hÃ ng Ä‘Ã£ Ä‘Æ°á»£c há»§y vÃ  lÆ°u trong lá»‹ch sá»­.");
+        reload();
+    }
+    function resetFilters() {
+        setSearch("");
+        setFromDate("");
+        setToDate("");
+        setPayment("ALL");
+        setPage(1);
+        reload();
+    }
+    function exportCsv() {
+        const csvCell = (value: string | number | null) => {
+            const raw = String(value ?? "");
+            const safe = /^[=+\-@]/.test(raw) ? `'${raw}` : raw;
+            return `"${safe.replaceAll('"', '""')}"`;
+        };
+        const rows = [
+            ["STT", "MÃ£ Ä‘Æ¡n hÃ ng", "TÃªn khÃ¡ch hÃ ng", "SÄT", "Tuá»•i", "NV bÃ¡n hÃ ng", "Ca", "GiÃ¡ trá»‹ Ä‘Æ¡n hÃ ng", "HÃ¬nh thá»©c thanh toÃ¡n", "Thá»i gian táº¡o", "Tráº¡ng thÃ¡i"],
+            ...filtered.map((order, index) => [index + 1, order.code, order.customer_name ?? "", order.phone ?? "", order.age ?? "", order.employeeName, shift.shiftCode ?? "", order.amount, order.payment_method === "CASH" ? "Tiá»n máº·t" : "Chuyá»ƒn khoáº£n", dateTime(order.created_at), order.status === "COMPLETED" ? "HoÃ n táº¥t" : "ÄÃ£ há»§y"]),
+        ];
+        const blob = new Blob(["\uFEFF" + rows.map(row => row.map(csvCell).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `don-hang-${shift.shiftCode ?? "ca-hien-tai"}.csv`;
+        link.click();
+        URL.revokeObjectURL(url);
+    }
+    function updateForm(field: keyof typeof form, value: string) {
+        setForm(current => ({ ...current, [field]: value }));
+    }
+
+    return <section className="employee-orders-screen">
+        {!shift.active && <div className="locked-banner">ğŸ”’ <b>Báº¡n chÆ°a báº¯t Ä‘áº§u ca lÃ m viá»‡c</b><span>HÃ£y Ä‘iá»ƒm danh táº¡i Trang chá»§ Ä‘á»ƒ má»Ÿ chá»©c nÄƒng thÃªm Ä‘Æ¡n hÃ ng.</span></div>}
+        <div className="orders-panel">
+            <div className="orders-panel-head">
+                <div className="orders-heading"><span className="orders-heading-icon"><ShoppingCart size={23}/></span><div><h2>ÄÆ N HÃ€NG</h2><p>Quáº£n lÃ½ danh sÃ¡ch Ä‘Æ¡n hÃ ng</p></div></div>
+                <div className="orders-actions"><button className="secondary-button" onClick={exportCsv} disabled={filtered.length === 0}><Download size={17}/> Xuáº¥t Excel</button><button className="primary-button" disabled={!shift.active} onClick={beginAdd}><Plus size={18}/> ThÃªm Ä‘Æ¡n hÃ ng</button></div>
+            </div>
+            <div className="order-stats">
+                <div className="order-stat-card"><i><ShoppingBag size={26}/></i><span>Tá»•ng sá»‘ Ä‘Æ¡n<strong>{completed.length}</strong></span></div>
+                <div className="order-stat-card"><i><BadgeDollarSign size={26}/></i><span>Tá»•ng tiá»n CK<strong>{money(bank)}</strong></span></div>
+                <div className="order-stat-card"><i><Banknote size={26}/></i><span>Tá»•ng tiá»n TM<strong>{money(cash)}</strong></span></div>
+                <div className="order-stat-card"><i><WalletCards size={26}/></i><span>Tá»•ng tiá»n<strong>{money(cash + bank)}</strong></span></div>
+            </div>
+            <div className="order-filters">
+                <label className="order-search"><span className="sr-only">TÃ¬m kiáº¿m Ä‘Æ¡n hÃ ng</span><input value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} placeholder="TÃ¬m kiáº¿m mÃ£ Ä‘Æ¡n hÃ ng, tÃªn khÃ¡ch hÃ ng, SÄT..."/></label>
+                <label><span className="sr-only">Tá»« ngÃ y</span><input type="date" value={fromDate} onChange={event => { setFromDate(event.target.value); setPage(1); }}/></label>
+                <label><span className="sr-only">Äáº¿n ngÃ y</span><input type="date" value={toDate} onChange={event => { setToDate(event.target.value); setPage(1); }}/></label>
+                <label><span>HÃ¬nh thá»©c thanh toÃ¡n</span><select value={payment} onChange={event => { setPayment(event.target.value); setPage(1); }}><option value="ALL">Táº¥t cáº£</option><option value="CASH">Tiá»n máº·t</option><option value="BANK_TRANSFER">Chuyá»ƒn khoáº£n</option></select></label>
+                <button className="refresh-button" onClick={resetFilters}><RefreshCw size={17}/> LÃ m má»›i</button>
+            </div>
+            <div className="data-table-wrap">
+                <table className="order-table"><thead><tr><th>STT</th><th>MÃ£ Ä‘Æ¡n hÃ ng</th><th>TÃªn khÃ¡ch hÃ ng</th><th>SÄT</th><th>Tuá»•i</th><th>NV bÃ¡n hÃ ng</th><th>GiÃ¡ trá»‹ Ä‘Æ¡n hÃ ng</th><th>HÃ¬nh thá»©c thanh toÃ¡n</th><th>Thá»i gian táº¡o</th><th>Thao tÃ¡c</th></tr></thead>
+                    <tbody>{paged.length === 0 ? <tr><td colSpan={10} className="empty-cell">{shift.active ? "ChÆ°a cÃ³ Ä‘Æ¡n hÃ ng phÃ¹ há»£p trong ca hiá»‡n táº¡i." : "Báº¡n chÆ°a báº¯t Ä‘áº§u ca lÃ m viá»‡c"}</td></tr> : paged.map((order, index) => <tr key={order.id} className={order.status === "VOID" ? "void-order" : ""}><td>{(Math.min(page, pages) - 1) * pageSize + index + 1}</td><td><b className="order-code">{order.code}</b></td><td>{order.customer_name || "â€”"}</td><td>{order.phone || "â€”"}</td><td>{order.age ?? "â€”"}</td><td><b>{order.employeeName}</b><small>{shift.shiftCode ? `(${shift.shiftCode})` : ""}</small></td><td><b>{money(order.amount)}</b></td><td><span className={`order-payment ${order.payment_method === "CASH" ? "cash" : "bank"}`}>{order.payment_method === "CASH" ? "Tiá»n máº·t" : "Chuyá»ƒn khoáº£n"}</span></td><td>{dateTime(order.created_at)}</td><td><div className="order-row-actions"><button title="Xem chi tiáº¿t" onClick={() => setDetail(order)}><Eye size={15}/></button><button title="Sá»­a Ä‘Æ¡n" disabled={!shift.active || order.status !== "COMPLETED"} onClick={() => beginEdit(order)}><Pencil size={15}/></button><button className="danger" title="Há»§y Ä‘Æ¡n" disabled={!shift.active || order.status !== "COMPLETED"} onClick={() => cancel(order.id)}><Trash2 size={15}/></button></div></td></tr>)}</tbody>
+                </table>
+            </div>
+            <div className="order-pagination"><span>Hiá»ƒn thá»‹ {filtered.length === 0 ? 0 : (Math.min(page, pages) - 1) * pageSize + 1} - {Math.min(Math.min(page, pages) * pageSize, filtered.length)} cá»§a {filtered.length} Ä‘Æ¡n hÃ ng</span><div><button disabled={page <= 1} onClick={() => setPage(current => Math.max(1, current - 1))}>â€¹</button>{Array.from({ length: pages }, (_, index) => index + 1).slice(0, 5).map(number => <button key={number} className={Math.min(page, pages) === number ? "active" : ""} onClick={() => setPage(number)}>{number}</button>)}<button disabled={page >= pages} onClick={() => setPage(current => Math.min(pages, current + 1))}>â€º</button></div></div>
+        </div>
+        <div className="order-form-card" ref={formRef}>
+            <div className="order-form-title"><ShoppingCart size={21}/><h2>{editing ? `Sá»¬A ÄÆ N HÃ€NG ${editing.code}` : "THÃŠM ÄÆ N HÃ€NG Má»šI"}</h2></div>
+            <form onSubmit={save}>
+                <fieldset disabled={!shift.active}>
+                    <div className="order-form-grid">
+                        <label>MÃ£ Ä‘Æ¡n hÃ ng<input value={editing?.code ?? "Tá»± Ä‘á»™ng khi lÆ°u"} disabled/><small>MÃ£ Ä‘Æ¡n hÃ ng Ä‘Æ°á»£c táº¡o tá»± Ä‘á»™ng</small></label>
+                        <label>TÃªn khÃ¡ch hÃ ng <small>(khÃ´ng báº¯t buá»™c)</small><input value={form.customerName} onChange={event => updateForm("customerName", event.target.value)} placeholder="Nháº­p tÃªn khÃ¡ch hÃ ng" maxLength={100}/></label>
+                        <label>SÄT <small>(khÃ´ng báº¯t buá»™c)</small><input value={form.phone} onChange={event => updateForm("phone", event.target.value)} placeholder="Nháº­p sá»‘ Ä‘iá»‡n thoáº¡i" inputMode="tel" maxLength={20}/></label>
+                        <label>Tuá»•i <small>(khÃ´ng báº¯t buá»™c)</small><input value={form.age} onChange={event => updateForm("age", event.target.value)} placeholder="Nháº­p tuá»•i" type="number" min="1" max="120"/></label>
+                        <label>NV bÃ¡n hÃ ng<input value={`Nguyá»…n Thá»‹ An${shift.shiftCode ? ` (${shift.shiftCode})` : ""}`} disabled/><small>Tá»± Ä‘á»™ng gáº¯n theo tÃ i khoáº£n vÃ  ca hiá»‡n táº¡i</small></label>
+                        <label>GiÃ¡ trá»‹ Ä‘Æ¡n hÃ ng<input value={form.amount} onChange={event => updateForm("amount", event.target.value)} placeholder="Nháº­p giÃ¡ trá»‹ Ä‘Æ¡n hÃ ng" type="number" min="1" step="1" required/></label>
+                        <label>HÃ¬nh thá»©c thanh toÃ¡n<select value={form.paymentMethod} onChange={event => updateForm("paymentMethod", event.target.value)} required><option value="CASH">Tiá»n máº·t</option><option value="BANK_TRANSFER">Chuyá»ƒn khoáº£n</option></select></label>
+                    </div>
+                </fieldset>
+                {message && <div className="form-message">{message}</div>}
+                {success && <div className="order-success">âœ“ {success}</div>}
+                <div className="order-form-actions"><button type="button" className="secondary-button" onClick={resetForm}>Há»§y</button><button className="primary-button" disabled={!shift.active}>{editing ? "LÆ°u thay Ä‘á»•i" : "LÆ°u Ä‘Æ¡n hÃ ng"}</button></div>
+            </form>
+        </div>
+        {detail && <div className="modal-backdrop"><div className="modal order-detail-modal"><div className="modal-title"><h2>Chi tiáº¿t Ä‘Æ¡n {detail.code}</h2><button onClick={() => setDetail(null)}>Ã—</button></div><dl><div><dt>KhÃ¡ch hÃ ng</dt><dd>{detail.customer_name || "KhÃ¡ch láº»"}</dd></div><div><dt>Sá»‘ Ä‘iá»‡n thoáº¡i</dt><dd>{detail.phone || "KhÃ´ng cung cáº¥p"}</dd></div><div><dt>Tuá»•i</dt><dd>{detail.age ?? "KhÃ´ng cung cáº¥p"}</dd></div><div><dt>NhÃ¢n viÃªn / ca</dt><dd>{detail.employeeName} Â· {shift.shiftCode}</dd></div><div><dt>Thanh toÃ¡n</dt><dd>{detail.payment_method === "CASH" ? "Tiá»n máº·t" : "Chuyá»ƒn khoáº£n"}</dd></div><div><dt>GiÃ¡ trá»‹</dt><dd>{money(detail.amount)}</dd></div><div><dt>Thá»i gian táº¡o</dt><dd>{dateTime(detail.created_at)}</dd></div><div><dt>Tráº¡ng thÃ¡i</dt><dd>{detail.status === "COMPLETED" ? "HoÃ n táº¥t" : "ÄÃ£ há»§y"}</dd></div></dl></div></div>}
+    </section>;
+}
+function OrderTable({ orders, onCancel }: {
+    orders: Order[];
+    onCancel?: (id: string) => void;
+}) { return <div className="table-card"><div className="table-head"><h2>Danh sÃ¡ch Ä‘Æ¡n</h2><span>{orders.length} Ä‘Æ¡n trong ca</span></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>MÃ£ Ä‘Æ¡n</th><th>Thá»i gian</th><th>KhÃ¡ch hÃ ng</th><th>NhÃ¢n viÃªn</th><th>Thanh toÃ¡n</th><th>GiÃ¡ trá»‹</th><th>Tráº¡ng thÃ¡i</th>{onCancel && <th />}</tr></thead><tbody>{orders.length === 0 ? <tr><td colSpan={8} className="empty-cell">ChÆ°a cÃ³ Ä‘Æ¡n hÃ ng trong ca hiá»‡n táº¡i.</td></tr> : orders.map(o => <tr key={o.id}><td><b>{o.code}</b></td><td>{dateTime(o.created_at)}</td><td>{o.customer_name || "KhÃ¡ch láº»"}</td><td>{o.employeeName}</td><td>{o.payment_method === "CASH" ? "Tiá»n máº·t" : "Chuyá»ƒn khoáº£n"}</td><td><b>{money(o.amount)}</b></td><td><span className={o.status === "COMPLETED" ? "status-pill" : "void-pill"}>{o.status === "COMPLETED" ? "HoÃ n táº¥t" : "ÄÃ£ há»§y"}</span></td>{onCancel && <td><button className="danger-link" disabled={o.status !== "COMPLETED"} onClick={() => onCancel(o.id)}>Há»§y</button></td>}</tr>)}</tbody></table></div></div>; }
+function EmployeePayroll() { return <><div className="filter-card"><label>ThÃ¡ng<input type="month" defaultValue="2026-08"/></label><label>Äáº¿n ngÃ y<input type="date" defaultValue="2026-08-06"/></label><button className="primary-button">Xem thá»‘ng kÃª</button></div><div className="stats-grid four"><StatCard label="Tá»”NG THU NHáº¬P" value="5.250.000 Ä‘"/><StatCard label="Tá»”NG LÆ¯Æ NG" value="4.800.000 Ä‘" tone="blue"/><StatCard label="Tá»”NG THÆ¯á»NG" value="450.000 Ä‘" tone="orange"/><StatCard label="HOÃ€N THÃ€NH CA" value="100%" icon="âœ“"/></div><div className="table-card"><div className="table-head"><h2>Chi tiáº¿t lÆ°Æ¡ng theo ca</h2><span>ÄÆ¡n giÃ¡ 20.000 Ä‘/giá»</span></div><table className="data-table"><thead><tr><th>NgÃ y lÃ m</th><th>Ca</th><th>Giá» vÃ o</th><th>Giá» káº¿t</th><th>Sá»‘ giá»</th><th>LÆ°Æ¡ng cá»©ng</th><th>ThÆ°á»Ÿng</th><th>ThÃ nh tiá»n</th></tr></thead><tbody>{[["05/08/2026", "Ca 1", "07:02", "12:05", "5,05", "101.000 Ä‘", "50.000 Ä‘", "151.000 Ä‘"], ["04/08/2026", "Ca 2", "12:01", "17:03", "5,03", "100.600 Ä‘", "0 Ä‘", "100.600 Ä‘"], ["03/08/2026", "Ca 3", "17:00", "23:03", "6,05", "121.000 Ä‘", "80.000 Ä‘", "201.000 Ä‘"]].map((r, i) => <tr key={i}>{r.map((x, j) => <td key={j} className={j === 7 ? "money-green" : ""}>{x}</td>)}</tr>)}</tbody></table></div></>; }
+export function EmployeeCashflow({ shift, orders }: {
+    shift: {
+        active: boolean;
+    };
+    orders: Order[];
+}) { const active = orders.filter(o => o.status === "COMPLETED"); const revenue = active.reduce((a, o) => a + o.amount, 0); const cost = shift.active ? 350000 : 0; return <>{!shift.active && <div className="locked-banner"><b>Báº¡n chÆ°a báº¯t Ä‘áº§u ca lÃ m viá»‡c</b><span>Sá»‘ liá»‡u dÃ²ng tiá»n sáº½ xuáº¥t hiá»‡n khi ca Ä‘Æ°á»£c kÃ­ch hoáº¡t.</span></div>}<div className="stats-grid three"><StatCard label="DOANH THU CA" value={money(revenue)} note={`${active.length} Ä‘Æ¡n hÃ ng`}/><StatCard label="CHI PHÃ CA" value={money(cost)} tone="orange" note="Chi phÃ­ phÃ¡t sinh"/><StatCard label="Lá»¢I NHUáº¬N Táº M TÃNH" value={money(Math.max(0, revenue - cost))} tone="blue" note="Doanh thu - Chi phÃ­"/></div><div className="table-card"><div className="table-head"><h2>Lá»‹ch sá»­ dÃ²ng tiá»n cÃ¡c ca</h2><button>Xuáº¥t Excel â†“</button></div><table className="data-table"><thead><tr><th>NgÃ y</th><th>Ca</th><th>Sá»‘ Ä‘Æ¡n</th><th>Doanh thu</th><th>Chi phÃ­</th><th>Lá»£i nhuáº­n</th><th>Tráº¡ng thÃ¡i</th></tr></thead><tbody><tr><td>05/08/2026</td><td>Ca 1</td><td>56</td><td>2.350.000 Ä‘</td><td>320.000 Ä‘</td><td className="money-green">2.030.000 Ä‘</td><td><span className="status-pill">ÄÃ£ káº¿t ca</span></td></tr><tr><td>04/08/2026</td><td>Ca 2</td><td>49</td><td>2.100.000 Ä‘</td><td>310.000 Ä‘</td><td className="money-green">1.790.000 Ä‘</td><td><span className="status-pill">ÄÃ£ káº¿t ca</span></td></tr></tbody></table></div></>; }
+function EmployeeHistory() { return <><div className="filter-card"><label>Tá»« ngÃ y<input type="date" defaultValue="2026-08-01"/></label><label>Äáº¿n ngÃ y<input type="date" defaultValue="2026-08-31"/></label><label>Ca lÃ m<select><option>Táº¥t cáº£</option><option>Ca 1</option><option>Ca 2</option></select></label><button className="primary-button">TÃ¬m kiáº¿m</button></div><div className="table-card"><div className="table-head"><h2>Lá»‹ch sá»­ ca lÃ m</h2><button>Xuáº¥t Excel â†“</button></div><table className="data-table"><thead><tr><th>NgÃ y lÃ m</th><th>MÃ£ nhÃ¢n viÃªn</th><th>Ca</th><th>Giá» vÃ o</th><th>Giá» káº¿t</th><th>Sá»‘ giá»</th><th>LÆ°Æ¡ng giá»</th><th>LÆ°Æ¡ng dá»± tÃ­nh</th></tr></thead><tbody>{[["05/08/2026", "NV001", "Ca 1", "07:02", "12:05", "5,05 giá»", "20.000 Ä‘", "101.000 Ä‘"], ["04/08/2026", "NV001", "Ca 2", "12:01", "17:03", "5,03 giá»", "20.000 Ä‘", "100.600 Ä‘"], ["03/08/2026", "NV001", "Ca 3", "17:00", "23:03", "6,05 giá»", "20.000 Ä‘", "121.000 Ä‘"], ["02/08/2026", "NV001", "Ca 1", "07:00", "12:00", "5,00 giá»", "20.000 Ä‘", "100.000 Ä‘"]].map((r, i) => <tr key={i}>{r.map((x, j) => <td key={j} className={j === 7 ? "money-green" : ""}>{x}</td>)}</tr>)}</tbody></table></div></>; }
+
+// Kept as visual fallbacks while the functional modules above handle all active routes.
+void [TasksView, ManagerPayroll, TransferView, DividendView, EmployeePayroll, EmployeeHistory];
