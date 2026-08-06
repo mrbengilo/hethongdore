@@ -172,3 +172,29 @@ Ca làm tại cửa hàng nhận hỗ trợ chịu lương, thưởng và phụ 
 - Khóa kỳ cổ tức ngăn chỉnh sửa sau xác nhận.
 - Giao diện dùng tốt ở 360 px, máy tính bảng và desktop.
 
+## 12. Ma trận giao diện tham chiếu
+
+### Quản lý toàn hệ thống
+
+- Tổng quan: `ql_giaodienchinh.png`.
+- Cửa hàng: `ql_qlch.png`.
+- Giao việc: `ql_giaoviec.png`.
+- Dòng tiền: `ql_dongtien.png`.
+- Lương thưởng quản lý: `ql_luongthuong.png` (không có phụ cấp; lương cố định 3.000.000 đ/cửa hàng và thưởng 2% lợi nhuận).
+- Báo cáo: `ql_chinh.png`.
+- Cổ tức: `ql_cotuc.png`.
+- Điều chuyển nhân sự: `ql_nvhotro.png`.
+- Cài đặt: `ql_caidat.png`.
+
+### Không gian quản lý từng cửa hàng
+
+- Ca làm việc: `ql_calamviec.png`; lịch phân ca: `ql_lichphanca.png`.
+- Nhân viên: `ql_nvch.png`; nhập hàng: `ql_nhaphang.png`; chấm công: `ql_chamcongnv.png`.
+- Lương thưởng: `ql_luongthuongnv.png`; dòng tiền: `ql_dongtien_CH.png`; báo cáo: `ql_baocao_CH.png`.
+- Mọi cửa hàng dùng cùng cấu trúc màn hình và chức năng nhưng dữ liệu luôn tách biệt theo `store_id`.
+
+### Nhân viên
+
+- Trang chủ: `nv_giaodienchinh.png`; đơn hàng: `nv_donhang.png`.
+- Bảng lương: `nv_bangluong.png`; dòng tiền: `nv_dongtien.png`; lịch sử ca: `nv_lichsuca.png`.
+- Mọi thống kê đơn hàng của nhân viên chỉ dùng dữ liệu thuộc ca đang hoạt động.
