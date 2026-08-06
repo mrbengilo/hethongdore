@@ -69,3 +69,26 @@ export const auditLogs = sqliteTable("audit_logs", {
   createdAt: text("created_at").notNull(),
 });
 
+export const businessRecords = sqliteTable("business_records", {
+  id: text("id").primaryKey(),
+  category: text("category").notNull(),
+  storeId: text("store_id"),
+  ownerId: text("owner_id"),
+  title: text("title").notNull(),
+  dataJson: text("data_json").notNull().default("{}"),
+  status: text("status").notNull().default("ACTIVE"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const shiftSessions = sqliteTable("shift_sessions", {
+  id: text("id").primaryKey(),
+  shiftCode: text("shift_code").notNull().unique(),
+  storeId: text("store_id").notNull(),
+  employeeId: text("employee_id").notNull(),
+  startedAt: text("started_at").notNull(),
+  endedAt: text("ended_at"),
+  tiktok: integer("tiktok").notNull().default(0),
+  tiktokAllowance: integer("tiktok_allowance").notNull().default(0),
+  status: text("status").notNull().default("ACTIVE"),
+});
