@@ -1,11 +1,23 @@
-/* DORE manager branding */
-.dark .mini-mark{
-  background:#75e41d url('/dore-manager-logo.svg') center/cover no-repeat;
+/* DORE branding */
+.mini-mark,
+.dark .mini-mark,
+.light .mini-mark{
+  background:#fff url('/dore-manager-logo.svg') center/cover no-repeat;
   color:transparent;
   overflow:hidden;
-  box-shadow:0 6px 18px rgba(0,0,0,.16);
+  box-shadow:0 6px 18px rgba(0,0,0,.14);
 }
-.dark .mini-mark svg{display:none}
+.mini-mark svg,
+.dark .mini-mark svg,
+.light .mini-mark svg{display:none}
+
+.op-brand-mark{
+  background:#fff url('/dore-manager-logo.svg') center/cover no-repeat!important;
+  color:transparent!important;
+  overflow:hidden;
+  box-shadow:0 6px 18px rgba(0,0,0,.14);
+}
+.op-brand-mark svg{display:none}
 
 .mobile-header b{
   display:flex;
@@ -18,17 +30,25 @@
   height:30px;
   flex:0 0 30px;
   border-radius:8px;
-  background:url('/dore-manager-logo.svg') center/cover no-repeat;
+  background:#fff url('/dore-manager-logo.svg') center/cover no-repeat;
 }
 
 .app-loading .pulse-logo{
   width:104px;
   height:104px;
   border-radius:24px;
-  background:url('/dore-manager-logo.svg') center/cover no-repeat;
+  background:#fff url('/dore-manager-logo.svg') center/cover no-repeat;
   color:transparent;
   overflow:hidden;
 }
+
+.brand-lockup>img,
+.login-logo img{
+  object-fit:cover;
+  border-radius:18px;
+  background:#fff;
+}
+.login-logo{background:#fff!important;padding:9px}
 
 @media (max-width: 900px){
   .sidebar-brand .mini-mark{width:44px;height:44px;flex:0 0 44px}
