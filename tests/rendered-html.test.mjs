@@ -125,10 +125,10 @@ test("implements non-stacking monthly KPI snapshots", async () => {
   assert.match(payrollRules, /0\.03/u);
   assert.match(payrollRules, /0\.05/u);
   assert.match(payrollRules, /0\.07/u);
-  assert.match(payrollRules, /employeeHours \/ totalHours/u);
+  assert.match(payrollRules, /employeeSeconds, totalSeconds/u);
   assert.match(payrollApi, /KPI_SUMMARY/u);
   assert.match(payrollApi, /LOCKED/u);
-  assert.match(payrollApi, /distributeEmployeeKpi/u);
+  assert.match(payrollApi, /employeeKpiBonusFromSeconds/u);
   assert.match(payrollApi, /user\.employeeId/u);
   assert.match(payrollTests, /6_999/u);
   assert.match(payrollTests, /7_000/u);
@@ -174,4 +174,32 @@ test("wires persistent functional modules", async () => {
   assert.match(functionalUi, /FunctionalEmployees/u);
   assert.match(functionalUi, /FunctionalDividend/u);
   assert.match(functionalUi, /FunctionalEmployeeHistory/u);
+});
+
+test("provides reference-style store shift and schedule modules", async () => {
+  const [component, scheduling, stylesheet, schedulingTests] = await Promise.all([
+    readFile(new URL("../app/components/StoreSchedulingModules.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/lib/scheduling.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/StoreSchedulingModules.module.css", import.meta.url), "utf8"),
+    readFile(new URL("./scheduling.test.mjs", import.meta.url), "utf8"),
+  ]);
+  assert.match(component, /export function StoreShiftManagement/u);
+  assert.match(component, /export function StoreScheduleManagement/u);
+  assert.match(component, /CA_LAM_VIEC/u);
+  assert.match(component, /LICH_PHAN_CA/u);
+  assert.match(component, /Lịch theo tuần/u);
+  assert.match(component, /Theo nhân viên/u);
+  assert.match(component, /Chọn ca trước/u);
+  assert.match(component, /Chọn nhân viên/u);
+  assert.match(component, /shiftsOverlap/u);
+  assert.match(component, /startAt: utcRange\.startAt/u);
+  assert.match(component, /endAt: utcRange\.endAt/u);
+  assert.match(component, /store\.status === "INACTIVE"/u);
+  assert.match(scheduling, /isOvernightShift/u);
+  assert.match(scheduling, /shiftUtcRange/u);
+  assert.match(scheduling, /first\.from < second\.to/u);
+  assert.match(stylesheet, /\.shiftCards/u);
+  assert.match(stylesheet, /\.weekTable/u);
+  assert.match(stylesheet, /@media \(max-width: 600px\)/u);
+  assert.match(schedulingTests, /overnight shift crossing/u);
 });

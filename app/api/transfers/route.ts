@@ -1,5 +1,5 @@
 import { initDb, writeAudit } from "../../../db/runtime";
-import { getSessionUser, json } from "../_lib/auth";
+import { getSessionUser, INACTIVE_STORE_MESSAGE, isStoreActive, json } from "../_lib/auth";
 
 const validShifts = new Set(["Ca sáng", "Ca chiều", "Ca tối", "Cả ngày"]);
 
@@ -113,8 +113,9 @@ export async function POST(request: Request) {
   const db = await initDb();
   const employee = await db.prepare("SELECT id, store_id, status FROM employees WHERE id = ? AND status != 'ARCHIVED'").bind(body.employeeId).first<{ id: string; store_id: string; status: string }>();
   if (!employee) return json({ message: "Không tìm thấy nhân viên đang hoạt động." }, 404);
+  if (!await isStoreActive(employee.store_id)) return json({ message: INACTIVE_STORE_MESSAGE }, 409);
   if (employee.store_id === body.targetStoreId) return json({ message: "Cửa hàng nhận hỗ trợ phải khác cửa hàng chính của nhân viên." }, 400);
-  const target = await db.prepare("SELECT id FROM stores WHERE id = ? AND status != 'ARCHIVED'").bind(body.targetStoreId).first<{ id: string }>();
+  const target = await db.prepare("SELECT id FROM stores WHERE id = ? AND status = 'ACTIVE'").bind(body.targetStoreId).first<{ id: string }>();
   if (!target) return json({ message: "Cửa hàng nhận hỗ trợ không tồn tại hoặc đã ngừng hoạt động." }, 404);
   const overlap = await db.prepare(`
     SELECT id FROM employee_transfers

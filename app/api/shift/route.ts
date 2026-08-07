@@ -1,5 +1,6 @@
 import { initDb, writeAudit } from "../../../db/runtime";
-import { getSessionUser, json } from "../_lib/auth";
+import { durationMinutes, durationSeconds, formatVnd, isVnd, tenderDifferences, utcTimestamp } from "../../lib/finance";
+import { getSessionUser, INACTIVE_STORE_MESSAGE, isStoreActive, json } from "../_lib/auth";
 
 type ScheduleSnapshot = {
   name: string;
@@ -89,6 +90,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const user = await getSessionUser(request);
   if (!user || user.role !== "EMPLOYEE") return json({ message: "Không có quyền" }, 403);
+  if (!await isStoreActive(user.storeId)) return json({ message: INACTIVE_STORE_MESSAGE }, 409);
   const body = await request.json().catch(() => ({})) as {
     action?: "start" | "end";
     tiktok?: boolean;
@@ -105,7 +107,7 @@ export async function POST(request: Request) {
     if (user.shiftActive) return json({ message: "Bạn đã có một ca đang hoạt động." }, 409);
     const schedule = await resolveSchedule(db, user.storeId, user.employeeId);
     const shiftCode = `CA-${schedule.workDate}-${crypto.randomUUID().slice(0, 6).toUpperCase()}`;
-    const startedAt = new Date().toISOString();
+    const startedAt = utcTimestamp();
     const transfer = user.activeTransferId
       ? await db.prepare("SELECT support_hourly_rate AS rate, shifts_json AS shiftsJson FROM employee_transfers WHERE id = ? AND status IN ('SCHEDULED', 'ACTIVE') LIMIT 1")
         .bind(user.activeTransferId).first<{ rate: number; shiftsJson: string }>()
@@ -132,8 +134,8 @@ export async function POST(request: Request) {
 
   if (body.action === "end") {
     if (!user.shiftActive || !user.currentShift || !user.employeeId) return json({ message: "Bạn chưa bắt đầu ca làm việc." }, 409);
-    const activeSession = await db.prepare("SELECT id, store_id AS storeId, work_date AS workDate, shift_name AS shiftName FROM shift_sessions WHERE shift_code = ? AND employee_id = ? AND status = 'ACTIVE' LIMIT 1")
-      .bind(user.currentShift, user.employeeId).first<{ id: string; storeId: string; workDate: string | null; shiftName: string | null }>();
+    const activeSession = await db.prepare("SELECT id, store_id AS storeId, work_date AS workDate, shift_name AS shiftName, started_at AS startedAt FROM shift_sessions WHERE shift_code = ? AND employee_id = ? AND status = 'ACTIVE' LIMIT 1")
+      .bind(user.currentShift, user.employeeId).first<{ id: string; storeId: string; workDate: string | null; shiftName: string | null; startedAt: string }>();
     if (!activeSession) return json({ message: "Không tìm thấy phiên ca đang hoạt động. Vui lòng tải lại trang hoặc liên hệ quản lý." }, 409);
     if (!body.tasksCompleted) return json({ message: "Bạn phải hoàn thành tất cả công việc trước khi kết ca." }, 400);
     if (body.expenseAmount === undefined || body.expenseAmount === null || body.cashRevenue === undefined || body.cashRevenue === null || body.transferRevenue === undefined || body.transferRevenue === null) {
@@ -142,7 +144,7 @@ export async function POST(request: Request) {
     const expenseAmount = Number(body.expenseAmount);
     const cashRevenue = Number(body.cashRevenue);
     const transferRevenue = Number(body.transferRevenue);
-    if (![expenseAmount, cashRevenue, transferRevenue].every((value) => Number.isFinite(value) && value >= 0)) return json({ message: "Doanh thu và chi phí phải là số không âm." }, 400);
+    if (![expenseAmount, cashRevenue, transferRevenue].every((value) => isVnd(value) && value >= 0)) return json({ message: "Doanh thu và chi phí phải là số nguyên VND không âm." }, 400);
     if (expenseAmount > 0 && !body.expenseNote?.trim()) return json({ message: "Vui lòng nhập nội dung chi phí phát sinh." }, 400);
 
     // Verify persisted manager-assigned tasks whenever they exist. The client flag
@@ -159,20 +161,45 @@ export async function POST(request: Request) {
     });
     if (assignedItems.some((item) => !item.completedBy?.includes(user.id))) return json({ message: "Bạn phải hoàn thành tất cả công việc được giao trước khi kết ca." }, 400);
 
-    const orderCount = await db.prepare("SELECT COUNT(*) AS count FROM orders WHERE store_id = ? AND employee_id = ? AND shift_code = ? AND status = 'COMPLETED'")
-      .bind(activeSession.storeId, user.employeeId, user.currentShift).first<{ count: number }>();
-    if (cashRevenue + transferRevenue > 0 && Number(orderCount?.count ?? 0) === 0) {
+    const orderRows = await db.prepare(`
+      SELECT payment_method AS paymentMethod, COUNT(*) AS count, COALESCE(SUM(amount), 0) AS amount
+      FROM orders
+      WHERE store_id = ? AND employee_id = ? AND shift_code = ? AND status = 'COMPLETED'
+      GROUP BY payment_method
+    `).bind(activeSession.storeId, user.employeeId, user.currentShift)
+      .all<{ paymentMethod: string; count: number; amount: number }>();
+    const orderCount = orderRows.results.reduce((total, row) => total + Number(row.count), 0);
+    const expectedTender = orderRows.results.reduce((totals, row) => {
+      if (row.paymentMethod === "CASH") totals.cash += Number(row.amount);
+      if (row.paymentMethod === "BANK_TRANSFER") totals.bankTransfer += Number(row.amount);
+      return totals;
+    }, { cash: 0, bankTransfer: 0 });
+    if (cashRevenue + transferRevenue > 0 && orderCount === 0) {
       return json({ message: "Doanh thu lớn hơn 0. Vui lòng nhập ít nhất một đơn hàng trước khi kết ca." }, 400);
+    }
+    const enteredTender = { cash: cashRevenue, bankTransfer: transferRevenue };
+    const differences = tenderDifferences(expectedTender, enteredTender);
+    if (differences.cash !== 0 || differences.bankTransfer !== 0) {
+      return json({
+        message: [
+          "Đối soát doanh thu chưa khớp với đơn hàng trong ca.",
+          `Tiền mặt: đơn hàng ${formatVnd(expectedTender.cash)}, đã nhập ${formatVnd(enteredTender.cash)}, chênh lệch ${formatVnd(differences.cash)}.`,
+          `Chuyển khoản: đơn hàng ${formatVnd(expectedTender.bankTransfer)}, đã nhập ${formatVnd(enteredTender.bankTransfer)}, chênh lệch ${formatVnd(differences.bankTransfer)}.`,
+        ].join(" "),
+        reconciliation: { expected: expectedTender, entered: enteredTender, differences, orderCount },
+      }, 409);
     }
 
     const allowance = body.tiktok ? 25000 : 0;
-    const endedAt = new Date().toISOString();
+    const endedAt = utcTimestamp();
+    const workedSeconds = durationSeconds(activeSession.startedAt, endedAt);
+    const workedMinutes = durationMinutes(workedSeconds);
     await db.batch([
-      db.prepare("UPDATE shift_sessions SET ended_at = ?, tiktok = ?, tiktok_allowance = ?, tasks_completed = 1, expense_amount = ?, expense_note = ?, cash_revenue = ?, transfer_revenue = ?, status = 'COMPLETED' WHERE id = ? AND status = 'ACTIVE'")
-        .bind(endedAt, body.tiktok ? 1 : 0, allowance, expenseAmount, body.expenseNote?.trim() || null, cashRevenue, transferRevenue, activeSession.id),
+      db.prepare("UPDATE shift_sessions SET ended_at = ?, duration_seconds = ?, tiktok = ?, tiktok_allowance = ?, tasks_completed = 1, expense_amount = ?, expense_note = ?, cash_revenue = ?, transfer_revenue = ?, status = 'COMPLETED' WHERE id = ? AND status = 'ACTIVE'")
+        .bind(endedAt, workedSeconds, body.tiktok ? 1 : 0, allowance, expenseAmount, body.expenseNote?.trim() || null, cashRevenue, transferRevenue, activeSession.id),
       db.prepare("UPDATE users SET shift_active = 0, current_shift = NULL, shift_started_at = NULL WHERE id = ? AND current_shift = ?").bind(user.id, user.currentShift),
     ]);
-    await writeAudit(user.id, "SHIFT_END", "SHIFT", user.currentShift, JSON.stringify({ tiktok: Boolean(body.tiktok), expenseAmount, cashRevenue, transferRevenue, orderCount: Number(orderCount?.count ?? 0) }));
+    await writeAudit(user.id, "SHIFT_END", "SHIFT", user.currentShift, JSON.stringify({ tiktok: Boolean(body.tiktok), expenseAmount, cashRevenue, transferRevenue, orderCount, workedSeconds, workedMinutes }));
     return json({
       active: false,
       endedAt,
@@ -182,6 +209,8 @@ export async function POST(request: Request) {
       cashRevenue,
       transferRevenue,
       totalRevenue: cashRevenue + transferRevenue,
+      workedSeconds,
+      workedMinutes,
     });
   }
 

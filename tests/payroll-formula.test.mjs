@@ -4,7 +4,13 @@ import test from "node:test";
 import ts from "typescript";
 
 async function payrollModule() {
-  const source = await readFile(new URL("../app/lib/payroll.ts", import.meta.url), "utf8");
+  const financeSource = await readFile(new URL("../app/lib/finance.ts", import.meta.url), "utf8");
+  const financeOutput = ts.transpileModule(financeSource, {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const financeUrl = `data:text/javascript;base64,${Buffer.from(financeOutput).toString("base64")}`;
+  const source = (await readFile(new URL("../app/lib/payroll.ts", import.meta.url), "utf8"))
+    .replace('from "./finance"', `from "${financeUrl}"`);
   const output = ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
   }).outputText;

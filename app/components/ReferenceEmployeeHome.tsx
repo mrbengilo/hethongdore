@@ -66,9 +66,15 @@ export function ReferenceEmployeeHome({ user, shift, orders, onShift, tiktok, se
   const allTasksDone = taskProgress.total > 0 && taskProgress.done === taskProgress.total;
   const revenueEntered = cashRevenue !== "" && transferRevenue !== "";
   const expenseEntered = expenseAmount !== "";
-  const expenseValid = Number(expenseAmount || 0) === 0 || expenseNote.trim().length > 0;
-  const canEnd = shift.active && allTasksDone && expenseEntered && revenueEntered && expenseValid;
-  const revenueTotal = Number(cashRevenue || 0) + Number(transferRevenue || 0);
+  const enteredCash = Number(cashRevenue || 0);
+  const enteredTransfer = Number(transferRevenue || 0);
+  const enteredExpense = Number(expenseAmount || 0);
+  const amountsValid = [enteredCash, enteredTransfer, enteredExpense].every((value) => Number.isSafeInteger(value) && value >= 0);
+  const expenseValid = enteredExpense === 0 || expenseNote.trim().length > 0;
+  const tendersMatch = revenueEntered && enteredCash === orderCash && enteredTransfer === orderTransfer;
+  const orderRequirementMet = enteredCash + enteredTransfer === 0 || activeOrders.length > 0;
+  const canEnd = shift.active && allTasksDone && expenseEntered && revenueEntered && amountsValid && expenseValid && tendersMatch && orderRequirementMet;
+  const revenueTotal = enteredCash + enteredTransfer;
   const shiftName = shift.shiftName?.trim() || legacyShiftName(shift.shiftCode);
   const scheduledTime = shift.scheduledStart && shift.scheduledEnd
     ? `${shift.scheduledStart} - ${shift.scheduledEnd}`
@@ -107,10 +113,10 @@ export function ReferenceEmployeeHome({ user, shift, orders, onShift, tiktok, se
     setClosingMessage("");
     onShift("end", {
       tasksCompleted: true,
-      expenseAmount: Number(expenseAmount || 0),
+      expenseAmount: enteredExpense,
       expenseNote: expenseNote.trim(),
-      cashRevenue: Number(cashRevenue || 0),
-      transferRevenue: Number(transferRevenue || 0),
+      cashRevenue: enteredCash,
+      transferRevenue: enteredTransfer,
     });
   }
 
@@ -146,20 +152,21 @@ export function ReferenceEmployeeHome({ user, shift, orders, onShift, tiktok, se
       <div className="closing-grid">
         <div className="closing-expense">
           <h3>Chi phí trong ca <em>(bắt buộc nhập)</em></h3>
-          <label>Số tiền<input type="number" min="0" required placeholder="Nhập 0 nếu không có chi phí" value={expenseAmount} onChange={(event) => setExpenseAmount(event.target.value)}/></label>
+          <label>Số tiền<input type="number" min="0" step="1" required placeholder="Nhập 0 nếu không có chi phí" value={expenseAmount} onChange={(event) => setExpenseAmount(event.target.value)}/></label>
           <label>Nội dung chi<textarea placeholder="Nhập nội dung chi..." value={expenseNote} onChange={(event) => setExpenseNote(event.target.value)}/></label>
           <div className="wage-note">Số giờ làm dự kiến: <b>5 giờ</b><br/>Lương dự kiến: <b>100.000 đ</b> (20.000 đ/giờ)</div>
         </div>
         <div className="closing-revenue">
           <h3>Doanh thu ca <em>(bắt buộc)</em></h3>
           <div className="revenue-inputs">
-            <label>Tiền mặt<input type="number" min="0" required placeholder="Nhập số tiền" value={cashRevenue} onChange={(event) => setCashRevenue(event.target.value)}/><small>Theo đơn: {money(orderCash)}</small></label>
-            <label>Chuyển khoản<input type="number" min="0" required placeholder="Nhập số tiền" value={transferRevenue} onChange={(event) => setTransferRevenue(event.target.value)}/><small>Theo đơn: {money(orderTransfer)}</small></label>
+            <label>Tiền mặt<input type="number" min="0" step="1" required placeholder="Nhập số tiền" value={cashRevenue} onChange={(event) => setCashRevenue(event.target.value)}/><small>Theo đơn: {money(orderCash)}</small></label>
+            <label>Chuyển khoản<input type="number" min="0" step="1" required placeholder="Nhập số tiền" value={transferRevenue} onChange={(event) => setTransferRevenue(event.target.value)}/><small>Theo đơn: {money(orderTransfer)}</small></label>
             <div><span>Tổng tiền</span><b>{money(revenueTotal)}</b><small>{activeOrders.length} đơn trong ca</small></div>
           </div>
+          {revenueEntered && !tendersMatch && <div className="reconciliation-message"><b>Doanh thu chưa khớp với đơn hàng trong ca</b><span>Tiền mặt: cần {money(orderCash)}, đã nhập {money(enteredCash)}, chênh lệch {money(enteredCash - orderCash)}.</span><span>Chuyển khoản: cần {money(orderTransfer)}, đã nhập {money(enteredTransfer)}, chênh lệch {money(enteredTransfer - orderTransfer)}.</span></div>}
           <button className="end-shift-button" disabled={!canEnd} onClick={finishShift}><CheckCircle2 size={19}/> KẾT CA</button>
           {closingMessage && <p className={closingMessage.startsWith("✓") ? "success-banner" : "closing-error"}>{closingMessage}</p>}
-          <small className="closing-hint">{!shift.active ? "Bạn chưa bắt đầu ca làm việc" : !allTasksDone ? "Vui lòng hoàn thành tất cả công việc trước khi kết ca" : !expenseEntered ? "Vui lòng nhập chi phí trong ca, nhập 0 nếu không có" : !revenueEntered ? "Vui lòng nhập doanh thu tiền mặt và chuyển khoản" : !expenseValid ? "Vui lòng nhập nội dung chi phí phát sinh" : revenueTotal > 0 && activeOrders.length === 0 ? "Doanh thu lớn hơn 0 cần có ít nhất một đơn hàng" : "Đã đủ điều kiện kết ca"}</small>
+          <small className="closing-hint">{!shift.active ? "Bạn chưa bắt đầu ca làm việc" : !allTasksDone ? "Vui lòng hoàn thành tất cả công việc trước khi kết ca" : !expenseEntered ? "Vui lòng nhập chi phí trong ca, nhập 0 nếu không có" : !revenueEntered ? "Vui lòng nhập doanh thu tiền mặt và chuyển khoản" : !amountsValid ? "Tiền phải là số nguyên VND không âm" : !expenseValid ? "Vui lòng nhập nội dung chi phí phát sinh" : !orderRequirementMet ? "Doanh thu lớn hơn 0 cần có ít nhất một đơn hàng" : !tendersMatch ? "Tiền mặt hoặc chuyển khoản chưa khớp với đơn hàng" : "Đã đủ điều kiện kết ca"}</small>
         </div>
         <label className="tiktok-box">
           <b>♪ CLIP TIKTOK</b>

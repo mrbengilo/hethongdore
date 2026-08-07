@@ -12,14 +12,14 @@ Xây dựng một hệ thống thống nhất để quản lý chuỗi cửa hà
 4. DORE VĨNH LONG.
 5. DORE SÓC TRĂNG.
 
-Quản lý được thêm, sửa, ngừng hoạt động hoặc xóa cửa hàng. Khi thêm cửa hàng, hệ thống phải tạo cấu hình mặc định, các danh mục quản trị, không gian nhân viên và cấu trúc báo cáo tương tự cửa hàng hiện hữu.
+Quản lý được thêm, sửa và chuyển cửa hàng giữa hai trạng thái `ACTIVE`/`INACTIVE`; không xóa cửa hàng đã tạo. Khi thêm cửa hàng, hệ thống phải tạo cấu hình mặc định, các danh mục quản trị, không gian nhân viên và cấu trúc báo cáo tương tự cửa hàng hiện hữu. Cửa hàng ngưng hoạt động chỉ cho phép đọc lịch sử dòng tiền/báo cáo; mọi thao tác phát sinh dữ liệu mới bị khóa ở cả giao diện và backend.
 
 ## 3. Vai trò và phân quyền
 
 ### 3.1. Quản lý
 
 - Đăng nhập vào trang tổng quan toàn hệ thống.
-- Xem, thêm, sửa và xóa cửa hàng.
+- Xem, thêm, sửa và thay đổi trạng thái hoạt động của cửa hàng; không xóa vật lý cửa hàng.
 - Chọn một cửa hàng để chuyển sang không gian quản lý cửa hàng đó.
 - Xem dữ liệu của mọi nhân viên, mọi ca và mọi đơn hàng.
 - Quản lý ca làm, lịch phân ca, chấm công, nhập hàng, nhân viên, lương thưởng, dòng tiền và báo cáo.
@@ -51,7 +51,7 @@ Quản lý được thêm, sửa, ngừng hoạt động hoặc xóa cửa hàng
 ## 5. Danh mục quản lý toàn hệ thống
 
 1. **Tổng quan:** doanh thu, chi phí, lợi nhuận, danh sách cửa hàng và điều hướng vào từng cửa hàng.
-2. **Cửa hàng:** thêm/sửa/xóa, trạng thái, nhân sự, doanh thu, chi phí và lợi nhuận.
+2. **Cửa hàng:** thêm/sửa, trạng thái hoạt động/ngưng hoạt động, nhân sự, doanh thu, chi phí và lợi nhuận.
 3. **Giao việc:** chọn cửa hàng, ca, ngày; tạo danh sách nhiệm vụ và gửi cho nhân viên.
 4. **Dòng tiền:** lọc theo cửa hàng/thời gian; thống kê doanh thu, chi phí và lợi nhuận.
 5. **Lương thưởng quản lý:** lương cố định và thưởng theo cửa hàng; không có phụ cấp quản lý.
@@ -67,12 +67,13 @@ Quản lý được thêm, sửa, ngừng hoạt động hoặc xóa cửa hàng
 3. Lịch phân ca.
 4. Nhân viên.
 5. Nhập hàng.
-6. Chấm công.
-7. Lương thưởng.
-8. Đơn hàng.
-9. Dòng tiền.
-10. Báo cáo.
-11. Cài đặt.
+6. Chi phí cố định.
+7. Chấm công.
+8. Lương thưởng.
+9. Đơn hàng.
+10. Dòng tiền.
+11. Báo cáo.
+12. Cài đặt.
 
 Mọi truy vấn, thống kê và xuất báo cáo trong không gian cửa hàng phải lọc bắt buộc theo `store_id`.
 
@@ -98,6 +99,7 @@ Khi bắt đầu ca, hệ thống phải ghi thời gian vào thực tế và sn
 - Quản lý được xem đơn của mọi nhân viên và mọi ca; nhân viên chỉ thao tác đơn của chính mình trong ca đang hoạt động.
 - Trước khi kết ca, nhân viên phải hoàn thành toàn bộ công việc bắt buộc, nhập chi phí kể cả khi giá trị bằng 0, nhập doanh thu tiền mặt và chuyển khoản; chi phí lớn hơn 0 phải có nội dung chi.
 - Nếu tổng doanh thu nhập khi kết ca lớn hơn 0 nhưng ca hiện tại không có đơn `COMPLETED`, hệ thống phải từ chối kết ca và yêu cầu nhân viên nhập đơn hàng. Điều kiện này được kiểm tra lại ở backend.
+- Trước khi kết ca, backend cộng độc lập các đơn `COMPLETED` theo từng hình thức thanh toán trong đúng `store_id + employee_id + shift_code`. Tiền mặt nhập phải bằng tổng đơn tiền mặt và chuyển khoản nhập phải bằng tổng đơn chuyển khoản. Nếu lệch, hệ thống từ chối kết ca và trả rõ số đúng, số đã nhập và phần chênh lệch của từng hình thức.
 - Kết ca thành công phải ghi `ended_at`, doanh thu, chi phí, trạng thái hoàn thành và lịch sử ca trước khi xóa trạng thái ca đang hoạt động của tài khoản.
 
 ## 9. Lương, thưởng và lợi nhuận
@@ -121,6 +123,8 @@ Gọi `P` là lợi nhuận cửa hàng trong tháng, `H` là tổng giờ làm 
 Tổng nhận nhân viên gồm lương theo giờ, thưởng lợi nhuận, phụ cấp TikTok, thưởng TikTok, thưởng khác và phụ cấp khác, sau khi trừ các khoản khấu trừ hợp lệ.
 
 Thưởng KPI chỉ trở thành số liệu chính thức sau khi **Quản lý tổng kết tháng** cho từng cửa hàng. Hệ thống tính một preview từ dữ liệu ca đã hoàn thành, chọn đúng một ngưỡng cao nhất đạt được (không cộng dồn), sau đó lưu snapshot kỳ gồm lợi nhuận, tổng giờ, tỷ lệ KPI và chi tiết từng nhân viên. Snapshot đã khóa không tự thay đổi khi dữ liệu nguồn hoặc lương giờ được chỉnh sửa về sau; nhân viên chỉ xem kết quả của chính mình trong kỳ đã tổng kết.
+
+Kỳ lương tại cửa hàng có vòng đời `DRAFT` → `FINALIZED` → `PAID` → `LOCKED`. Quản lý được xem trước, chốt lương/thưởng của nhân viên và quản lý, xác nhận chi, kết sổ và khóa kỳ. Sau khi khóa, dữ liệu không được sửa; lịch sử, thống kê và so sánh kỳ trước vẫn phải đọc/xuất được.
 
 ### 9.3. Phụ cấp TikTok
 
@@ -160,7 +164,9 @@ Tổng chi phí bao gồm giá vốn/nhập hàng, setup, mặt bằng, điện,
 - Responsive từ điện thoại 360 px đến màn hình máy tính lớn.
 - Giao diện tiếng Việt, tone xanh DORE, font dễ đọc, icon thống nhất.
 - Số tiền hiển thị theo định dạng Việt Nam và lưu bằng số nguyên đồng.
-- Thời gian nghiệp vụ sử dụng múi giờ `Asia/Ho_Chi_Minh`; dữ liệu lưu ISO/UTC khi phù hợp.
+- Số tiền lưu bằng `INTEGER/BIGINT` 64-bit của SQLite/D1, không dùng `float`; tỷ lệ và phép chia sử dụng số nguyên/decimal chính xác, cùng một service tài chính và cùng quy tắc làm tròn có unit test.
+- Timestamp lưu UTC và hiển thị/tính kỳ theo `Asia/Ho_Chi_Minh`. Thời lượng ca được tính từ giây thực tế; số giờ chỉ là giá trị hiển thị làm tròn hai chữ số.
+- Lịch ca luôn lưu `startAt` và `endAt` đầy đủ. Ca qua đêm có `endAt` thuộc ngày kế tiếp, không suy luận chỉ từ giờ trong ngày.
 - Bảng lớn hỗ trợ cuộn ngang trên màn hình nhỏ.
 - Các API phải validate dữ liệu, phân quyền và chống truy cập chéo cửa hàng.
 - Có migration, kiểm thử tự động, nhật ký kiểm toán và quy trình sao lưu/khôi phục.

@@ -17,15 +17,15 @@ Trình duyệt
 
 ### `stores`
 
-Thông tin cửa hàng, địa chỉ, doanh thu/chi phí tổng hợp, trạng thái và ngày tạo.
+Thông tin cửa hàng, địa chỉ, doanh thu/chi phí tổng hợp, trạng thái và ngày tạo. Trạng thái nghiệp vụ chỉ gồm `ACTIVE` và `INACTIVE`; cửa hàng không bị xóa vật lý hoặc chuyển sang `ARCHIVED`. Chuyển sang `INACTIVE` giữ toàn bộ khóa và quan hệ lịch sử.
 
 ### `employees`
 
-Nhân viên, cửa hàng chính, mã nhân viên, chức vụ, SĐT, lương giờ và trạng thái.
+Nhân viên, cửa hàng chính, mã nhân viên, chức vụ, SĐT, lương giờ và trạng thái. `employees.store_id` là cửa hàng chính có khóa ngoại tới `stores.id`.
 
 ### `users`
 
-Tài khoản đăng nhập, hash mật khẩu, vai trò, liên kết nhân viên/cửa hàng, bộ đếm đăng nhập sai và trạng thái ca hiện tại.
+Tài khoản đăng nhập, hash mật khẩu, vai trò, liên kết nhân viên/cửa hàng, bộ đếm đăng nhập sai và trạng thái ca hiện tại. Với tài khoản nhân viên, `users.store_id` phải bằng `employees.store_id`; tạo/chuyển cửa hàng chính cập nhật hai bản ghi trong cùng một giao dịch. Không có tác vụ seed/backfill nào được phép gán cửa hàng dựa trên `employees.code` hoặc `users.username`.
 
 ### `sessions`
 
@@ -69,6 +69,18 @@ Các luồng hiện tại đã lưu bền bằng `shift_sessions`, `employee_tra
 
 Tất cả bảng nghiệp vụ theo cửa hàng phải có `store_id` hoặc trường xác định cửa hàng chịu chi phí.
 
+### Cấu hình chi phí cố định
+
+Ở mô hình hiện tại, cấu hình có thể được lưu trong `business_records` theo category cấu hình/dòng tiền, nhưng hợp đồng dữ liệu phải tương đương `fixed_cost_settings`:
+
+- khóa cửa hàng và loại chi phí;
+- số tiền VND dạng `INTEGER` 64-bit;
+- kỳ bắt đầu/kết thúc hiệu lực;
+- người tạo/cập nhật, timestamp UTC và ghi chú;
+- các loại chuẩn gồm setup, mặt bằng, điện, nước, wifi, rác, marketing và khác.
+
+Không cập nhật ngược cấu hình đã được dùng trong snapshot kỳ khóa. Khi chuẩn hóa thành bảng riêng, migration phải giữ nguyên `store_id`, kỳ hiệu lực và audit.
+
 ## 4. Chỉ mục và ràng buộc
 
 - `orders.code` duy nhất.
@@ -78,6 +90,8 @@ Tất cả bảng nghiệp vụ theo cửa hàng phải có `store_id` hoặc tr
 - Chỉ mục ca theo `(store_id, work_date, status)` và lịch sử nhân viên theo `(employee_id, started_at)`.
 - Chỉ mục điều chuyển theo `(employee_id, start_date, end_date, status)` và `(target_store_id, start_date, end_date, status)`.
 - Bảng tổng kết tháng cần khóa duy nhất theo `(store_id, period)`.
+- `employees.store_id` và `users.store_id` của cùng tài khoản nhân viên phải đồng nhất; nên kiểm tra bằng service giao dịch và kiểm thử hồi quy vì SQLite không hỗ trợ trực tiếp ràng buộc chéo hai bảng.
+- Chỉ cho phép chuyển cửa hàng `ACTIVE ↔ INACTIVE`; thao tác `ACTIVE → INACTIVE` bị từ chối khi còn `shift_sessions.status = 'ACTIVE'`.
 - Một nhân viên chỉ có tối đa một `shift_session` đang mở tại một thời điểm; `users.current_shift` phải trỏ đúng phiên đó.
 - Một ca chỉ được hưởng một phụ cấp TikTok cho mỗi nhân viên.
 - Tỷ lệ cổ đông của một kỳ phải có tổng bằng 100%.
@@ -89,7 +103,7 @@ Tất cả bảng nghiệp vụ theo cửa hàng phải có `store_id` hoặc tr
 | `/api/auth/login` | POST | công khai | đăng nhập, khóa tạm và tạo phiên |
 | `/api/auth/logout` | POST | đã đăng nhập | hủy phiên |
 | `/api/auth/me` | GET | đã đăng nhập | lấy người dùng hiện tại |
-| `/api/stores` | GET/POST/PATCH/DELETE | quản lý | danh sách và CRUD cửa hàng |
+| `/api/stores` | GET/POST/PATCH | quản lý | danh sách, tạo, sửa và chuyển `ACTIVE/INACTIVE`; `DELETE` trả 405 |
 | `/api/shift` | POST | nhân viên | bắt đầu/kết ca và phụ cấp TikTok |
 | `/api/shift` | GET | nhân viên | trạng thái ca hiện tại và snapshot tên/giờ ca |
 | `/api/shifts` | GET | đã đăng nhập | lịch sử ca theo quyền; trả `shiftName`, `workDate`, nhân viên và lương giờ áp dụng |
@@ -102,12 +116,15 @@ Tất cả bảng nghiệp vụ theo cửa hàng phải có `store_id` hoặc tr
 
 API mới nên theo cùng nguyên tắc: lấy danh tính và phạm vi cửa hàng từ phiên, validate server-side và ghi audit cho thao tác nhạy cảm.
 
+Mọi endpoint ghi theo cửa hàng phải kiểm tra `stores.status = 'ACTIVE'` ở backend. Với cửa hàng `INACTIVE`, endpoint đọc vẫn hoạt động để phục vụ lịch sử nhưng POST/PATCH/DELETE nghiệp vụ trả lỗi xung đột; không dựa riêng vào trạng thái disabled trên giao diện.
+
 ## 6. Phân quyền
 
 ### Quản lý
 
 - Đọc toàn chuỗi.
 - Ghi cấu hình, cửa hàng, nhân viên, ca, tài chính, lương, điều chuyển và cổ tức.
+- Không xóa cửa hàng; chỉ đổi trạng thái có audit và tuân thủ điều kiện không còn ca mở.
 - Mọi truy vấn chi tiết cửa hàng vẫn phải có phạm vi rõ ràng để tránh cộng nhầm.
 
 ### Nhân viên
@@ -133,7 +150,8 @@ API mới nên theo cùng nguyên tắc: lấy danh tính và phạm vi cửa h�
 
 ## 8. Tính toàn vẹn tài chính
 
-- Tiền lưu bằng số nguyên VND, không dùng số thực.
+- Tiền lưu bằng `INTEGER` 64-bit của SQLite/D1, đơn vị VND, không dùng số thực. API nhận số nguyên an toàn, kiểm tra miền giá trị và trả số/chữ số chưa định dạng; dấu phân cách hàng nghìn chỉ được thêm ở giao diện/xuất báo cáo.
+- Tỷ lệ phần trăm và phân bổ dùng decimal hoặc phép toán số nguyên dùng chung; chỉ làm tròn một lần về đồng ở kết quả cuối. Không nhân/chia tiền bằng JavaScript floating-point rải rác trong UI/API.
 - Bảng lương và cổ tức phải là snapshot theo kỳ.
 - Tổng kết KPI tháng lưu một `KPI_SUMMARY` khóa theo cửa hàng/kỳ. Snapshot chứa lợi nhuận, tổng giờ, ngưỡng duy nhất đạt được, chi tiết thưởng và tổng chi trả; POST lặp lại cùng kỳ phải bị từ chối.
 - Lương ca dùng `applied_hourly_rate`, không đọc ngược lương hiện tại của hồ sơ sau khi ca đã hoàn thành.
@@ -141,6 +159,12 @@ API mới nên theo cùng nguyên tắc: lấy danh tính và phạm vi cửa h�
 - Công thức dùng một module nghiệp vụ dùng chung cho UI, API, báo cáo và kiểm thử.
 - Mọi báo cáo xuất file phải nhận cùng tham số lọc với truy vấn màn hình.
 - Khóa kỳ sau tổng kết; điều chỉnh qua nghiệp vụ mở khóa có kiểm soát.
+
+### Chuẩn thời gian
+
+- Mọi timestamp bền vững lưu UTC dạng ISO 8601 có hậu tố `Z` hoặc epoch được định nghĩa rõ; `created_at`, `updated_at`, `started_at`, `ended_at` và audit không lưu giờ địa phương mơ hồ.
+- Backend chuyển UTC sang `Asia/Ho_Chi_Minh` để xác định `work_date`, ranh giới tháng/quý/năm, lịch phân ca và điều chuyển. Khoảng lọc kỳ được đổi thành cận UTC trước khi truy vấn.
+- Dữ liệu hiển thị dùng `Asia/Ho_Chi_Minh`; ca qua nửa đêm giữ `work_date` đã snapshot tại lúc bắt đầu, không suy ra lại bằng cách cắt chuỗi timestamp UTC.
 
 ## 9. Sao lưu và vận hành
 

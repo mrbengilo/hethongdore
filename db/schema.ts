@@ -94,6 +94,7 @@ export const shiftSessions = sqliteTable("shift_sessions", {
   appliedHourlyRate: integer("applied_hourly_rate"),
   startedAt: text("started_at").notNull(),
   endedAt: text("ended_at"),
+  durationSeconds: integer("duration_seconds").notNull().default(0),
   tiktok: integer("tiktok").notNull().default(0),
   tiktokAllowance: integer("tiktok_allowance").notNull().default(0),
   tasksCompleted: integer("tasks_completed").notNull().default(0),

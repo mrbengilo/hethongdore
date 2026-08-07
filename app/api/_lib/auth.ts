@@ -61,6 +61,16 @@ export async function hashPassword(password: string) {
   return `pbkdf2$100000$${bytesToBase64(salt)}$${bytesToBase64(new Uint8Array(bits))}`;
 }
 
+export const INACTIVE_STORE_MESSAGE = "Cửa hàng đã ngưng hoạt động. Bạn chỉ có thể xem dữ liệu lịch sử.";
+
+export async function isStoreActive(storeId: string | null | undefined) {
+  if (!storeId) return false;
+  const db = await initDb();
+  const store = await db.prepare("SELECT status FROM stores WHERE id = ? LIMIT 1")
+    .bind(storeId).first<{ status: string }>();
+  return store?.status === "ACTIVE";
+}
+
 export function readCookie(request: Request, name: string) {
   const header = request.headers.get("cookie") ?? "";
   for (const item of header.split(";")) {

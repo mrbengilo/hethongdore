@@ -11,7 +11,7 @@ const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, code TEXT NOT NULL UNIQUE, store_id TEXT NOT NULL, employee_id TEXT NOT NULL, shift_code TEXT NOT NULL, customer_name TEXT, phone TEXT, age INTEGER, amount INTEGER NOT NULL, payment_method TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'COMPLETED', created_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS audit_logs (id TEXT PRIMARY KEY, user_id TEXT, action TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id TEXT, detail TEXT, created_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS business_records (id TEXT PRIMARY KEY, category TEXT NOT NULL, store_id TEXT, owner_id TEXT, title TEXT NOT NULL, data_json TEXT NOT NULL DEFAULT '{}', status TEXT NOT NULL DEFAULT 'ACTIVE', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
-  `CREATE TABLE IF NOT EXISTS shift_sessions (id TEXT PRIMARY KEY, shift_code TEXT NOT NULL UNIQUE, store_id TEXT NOT NULL, employee_id TEXT NOT NULL, shift_name TEXT, scheduled_start TEXT, scheduled_end TEXT, work_date TEXT, transfer_id TEXT, applied_hourly_rate INTEGER, started_at TEXT NOT NULL, ended_at TEXT, tiktok INTEGER NOT NULL DEFAULT 0, tiktok_allowance INTEGER NOT NULL DEFAULT 0, tasks_completed INTEGER NOT NULL DEFAULT 0, expense_amount INTEGER NOT NULL DEFAULT 0, expense_note TEXT, cash_revenue INTEGER NOT NULL DEFAULT 0, transfer_revenue INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'ACTIVE')`,
+  `CREATE TABLE IF NOT EXISTS shift_sessions (id TEXT PRIMARY KEY, shift_code TEXT NOT NULL UNIQUE, store_id TEXT NOT NULL, employee_id TEXT NOT NULL, shift_name TEXT, scheduled_start TEXT, scheduled_end TEXT, work_date TEXT, transfer_id TEXT, applied_hourly_rate INTEGER, started_at TEXT NOT NULL, ended_at TEXT, duration_seconds INTEGER NOT NULL DEFAULT 0, tiktok INTEGER NOT NULL DEFAULT 0, tiktok_allowance INTEGER NOT NULL DEFAULT 0, tasks_completed INTEGER NOT NULL DEFAULT 0, expense_amount INTEGER NOT NULL DEFAULT 0, expense_note TEXT, cash_revenue INTEGER NOT NULL DEFAULT 0, transfer_revenue INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'ACTIVE')`,
   `CREATE TABLE IF NOT EXISTS employee_transfers (id TEXT PRIMARY KEY, employee_id TEXT NOT NULL, source_store_id TEXT NOT NULL, target_store_id TEXT NOT NULL, start_date TEXT NOT NULL, end_date TEXT NOT NULL, shifts_json TEXT NOT NULL DEFAULT '[]', support_hourly_rate INTEGER NOT NULL, support_allowance INTEGER NOT NULL DEFAULT 0, reason TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'SCHEDULED', created_by TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, ended_at TEXT)`,
   `CREATE INDEX IF NOT EXISTS idx_orders_store_shift ON orders(store_id, employee_id, shift_code, created_at)`,
   `CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token_hash, expires_at)`,
@@ -48,6 +48,7 @@ export async function initDb() {
     ["work_date", "ALTER TABLE shift_sessions ADD COLUMN work_date TEXT"],
     ["transfer_id", "ALTER TABLE shift_sessions ADD COLUMN transfer_id TEXT"],
     ["applied_hourly_rate", "ALTER TABLE shift_sessions ADD COLUMN applied_hourly_rate INTEGER"],
+    ["duration_seconds", "ALTER TABLE shift_sessions ADD COLUMN duration_seconds INTEGER NOT NULL DEFAULT 0"],
   ].filter(([column]) => !existingShiftColumns.has(column));
   if (missingShiftColumns.length) await db.batch(missingShiftColumns.map(([, sql]) => db.prepare(sql)));
   await db.prepare("CREATE INDEX IF NOT EXISTS idx_shift_sessions_store_work_date ON shift_sessions(store_id, work_date, status)").run();
@@ -66,16 +67,6 @@ export async function initDb() {
     db.prepare("INSERT OR IGNORE INTO users (id, username, password_hash, role, name, failed_attempts, shift_active) VALUES (?, ?, ?, 'MANAGER', ?, 0, 0)").bind("user-manager", "admin", MANAGER_HASH, "Quản trị viên"),
     db.prepare("INSERT OR IGNORE INTO users (id, username, password_hash, role, name, employee_id, store_id, failed_attempts, shift_active) VALUES (?, ?, ?, 'EMPLOYEE', ?, ?, ?, 0, 0)").bind("user-employee", "nv001", EMPLOYEE_HASH, "Nguyễn Thị An", "emp-001", "st-thot-not"),
   ]);
-  const thotNotStore = await db.prepare("SELECT id FROM stores WHERE name = ? LIMIT 1").bind("DORE THỐT NỐT").first<{ id: string }>();
-  if (thotNotStore?.id) {
-    const linkedEmployees = await db.prepare("SELECT COUNT(*) AS count FROM employees WHERE store_id = ? AND status != 'ARCHIVED'").bind(thotNotStore.id).first<{ count: number }>();
-    if (Number(linkedEmployees?.count ?? 0) === 0) {
-      await db.batch([
-        db.prepare("UPDATE employees SET store_id = ? WHERE code IN ('NV001', 'NV002', 'NV003')").bind(thotNotStore.id),
-        db.prepare("UPDATE users SET store_id = ?, employee_id = (SELECT id FROM employees WHERE code = 'NV001' LIMIT 1) WHERE username = 'nv001'").bind(thotNotStore.id),
-      ]);
-    }
-  }
   await db.batch([
     db.prepare("UPDATE users SET password_hash = ? WHERE username = 'admin' AND password_hash LIKE 'pbkdf2$210000$%'").bind(MANAGER_HASH),
     db.prepare("UPDATE users SET password_hash = ? WHERE username = 'nv001' AND password_hash LIKE 'pbkdf2$210000$%'").bind(EMPLOYEE_HASH),

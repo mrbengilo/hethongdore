@@ -53,11 +53,19 @@ Kiểm tra riêng công thức KPI tại các ngưỡng:
 node --test tests/payroll-formula.test.mjs
 ```
 
+Kiểm tra riêng vòng đời cửa hàng, phạm vi nhân viên và quy ước dữ liệu:
+
+```bash
+node --test tests/store-lifecycle.test.mjs
+```
+
 ### Kiểm thử bắt buộc trước production
 
 - Đăng nhập đúng/sai và khóa sau 10 lần.
 - Điều hướng quản lý/nhân viên.
-- CRUD cửa hàng và cô lập dữ liệu.
+- Tạo/sửa cửa hàng, chuyển `ACTIVE/INACTIVE`, xác nhận API `DELETE` trả 405 và dữ liệu lịch sử không bị mất.
+- Không cho chuyển cửa hàng sang `INACTIVE` khi còn ca mở; sau khi ngưng, các API ghi nhân viên/ca/đơn/công việc/lương/điều chuyển trả lỗi nhưng API đọc lịch sử vẫn hoạt động.
+- Tạo nhân viên ở từng cửa hàng và đăng nhập lại; xác nhận `employees.store_id = users.store_id` đúng cửa hàng đã chọn, kể cả khi mã nhân viên trùng mẫu NV001–NV003 ở dữ liệu thử nghiệm cũ.
 - Bắt đầu/kết ca.
 - Đồng hồ nhân viên tiếp tục chạy sau khi vào ca; tên ca và ngày làm lấy từ snapshot thay vì mã phiên ngẫu nhiên.
 - Không kết ca khi thiếu công việc, chi phí, tiền mặt hoặc chuyển khoản; doanh thu dương mà không có đơn hoàn tất đúng ca phải bị chặn ở API.
@@ -66,6 +74,9 @@ node --test tests/payroll-formula.test.mjs
 - Công thức thưởng tại các ngưỡng 6.999/7.000, 14.999/15.000 và 29.999/30.000; xác nhận chỉ một tỷ lệ 3%/5%/7% được áp dụng.
 - Tổng kết KPI tạo snapshot khóa duy nhất theo cửa hàng/tháng; nhân viên khác không đọc được dòng lương không thuộc mình.
 - Phụ cấp TikTok không ghi trùng.
+- Chi phí cố định setup, mặt bằng, điện, nước, wifi, rác, marketing và khác được áp dụng đúng `store_id`/kỳ; thay đổi kỳ mới không làm sai snapshot kỳ đã khóa.
+- Kiểm thử số tiền lớn và phép cộng/phân bổ bằng VND `INTEGER` 64-bit, không có sai số floating-point hoặc tràn miền số nguyên an toàn ở API.
+- Kiểm thử mốc 00:00, ca qua đêm và cuối tháng: timestamp lưu UTC nhưng `work_date`, bộ lọc kỳ và hiển thị đúng `Asia/Ho_Chi_Minh`.
 - Điều chuyển chưa hiệu lực dùng cửa hàng chính; trong kỳ dùng cửa hàng nhận; hết hạn/hủy/kết thúc tự thu hồi quyền. Ca hỗ trợ đang chạy phải giữ đúng snapshot cửa hàng và lương giờ.
 - Khóa kỳ lương/cổ tức.
 - Responsive trên điện thoại, tablet và desktop.
@@ -108,13 +119,13 @@ Bản build phải tạo entrypoint Worker tương thích và không còn lỗi 
 
 ## 9. Các luồng đã kết nối dữ liệu thực
 
-- Quản lý cửa hàng: thêm, sửa, lưu trữ và tìm kiếm.
+- Quản lý cửa hàng: thêm, sửa, chuyển `ACTIVE/INACTIVE` và tìm kiếm; không xóa cửa hàng.
 - Quản lý nhân viên: tạo tài khoản, sửa hồ sơ/lương giờ, đặt lại mật khẩu và lưu trữ.
 - Giao việc: lưu theo cửa hàng, ngày, ca; nhân viên xem và xác nhận hoàn thành.
 - Ca làm: bắt đầu/kết thúc ca, lịch sử ca và phụ cấp TikTok được lưu vào D1.
 - Kết ca: backend xác minh nhiệm vụ, ba ô chi phí/tiền mặt/chuyển khoản và sự tồn tại của đơn khi doanh thu dương; kết quả được ghi thành lịch sử ca.
 - Đơn hàng: tạo, xem, sửa, hủy và xuất CSV trong đúng ca hiện tại.
-- Dữ liệu cửa hàng: thêm, sửa, xóa và xuất CSV cho ca làm, lịch phân ca, nhập hàng, chấm công, lương thưởng, dòng tiền và báo cáo.
+- Dữ liệu nghiệp vụ của cửa hàng `ACTIVE`: thêm, sửa, hủy mềm khi nghiệp vụ cho phép và xuất CSV cho ca làm, lịch phân ca, nhập hàng, chấm công, lương thưởng, dòng tiền và báo cáo. Cửa hàng `INACTIVE` chỉ đọc/xuất lịch sử.
 - Lương quản lý: lương cố định 3.000.000 đồng/cửa hàng và thưởng 2% lợi nhuận.
 - Lương thưởng nhân viên: preview KPI theo cửa hàng/tháng, phân phối đúng một ngưỡng, tổng kết thành snapshot khóa và trả kết quả riêng cho nhân viên.
 - Điều chuyển nhân sự: lưu `employee_transfers`, tự kích hoạt/hết hạn, tạo cửa hàng truy cập hiệu lực, kết thúc/hủy và xuất lịch sử.
@@ -129,7 +140,11 @@ Bản build phải tạo entrypoint Worker tương thích và không còn lỗi 
 - [ ] Bật sao lưu và diễn tập khôi phục D1.
 - [ ] Cấu hình giám sát lỗi và cảnh báo đăng nhập bất thường.
 - [ ] Xác nhận múi giờ, kỳ lương và chính sách làm tròn.
+- [ ] Xác nhận timestamp lưu UTC, hiển thị/tính kỳ theo `Asia/Ho_Chi_Minh` và ca qua nửa đêm có `work_date` đúng.
+- [ ] Đối soát toàn bộ cột tiền là VND `INTEGER` 64-bit; không có `REAL/float` trong đường tính tài chính.
 - [ ] Đối soát báo cáo từng cửa hàng với số liệu kế toán.
+- [ ] Đối soát cấu hình chi phí cố định và marketing riêng theo từng cửa hàng/kỳ.
+- [ ] Xác nhận không có thao tác xóa cửa hàng và tài khoản nhân viên mới luôn gắn đúng cửa hàng đã chọn.
 - [ ] Kiểm tra điều chuyển và chi phí nhân sự hỗ trợ.
 - [ ] Khóa các kỳ lương/cổ tức đã chốt.
 - [ ] Kiểm tra responsive và khả năng truy cập.
