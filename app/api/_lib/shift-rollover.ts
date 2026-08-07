@@ -70,8 +70,9 @@ function slotFromCode(code?: string | null) {
 function slotForInstant(value: Date): { slot: ShiftSlot; dateKey: string } {
   const parts = localParts(value);
   const dateKey = localDateKey(value);
-  if (parts.hour >= 12 && parts.hour < 17) return { slot: SHIFT_SLOTS[1], dateKey };
+  if (parts.hour >= 23) return { slot: SHIFT_SLOTS[0], dateKey: addLocalDays(dateKey, 1) };
   if (parts.hour >= 17) return { slot: SHIFT_SLOTS[2], dateKey };
+  if (parts.hour >= 12) return { slot: SHIFT_SLOTS[1], dateKey };
   return { slot: SHIFT_SLOTS[0], dateKey };
 }
 
@@ -88,7 +89,8 @@ function inferSchedule(startedAt: string, code?: string | null) {
   const instant = new Date(startedAt);
   const inferred = slotForInstant(instant);
   const slot = slotFromCode(code) ?? inferred.slot;
-  return scheduleFor(slot, inferred.dateKey);
+  const dateMatch = code?.match(/^(?:CA1|CA2|CA3)-(\d{4}-\d{2}-\d{2})-/);
+  return scheduleFor(slot, dateMatch?.[1] ?? inferred.dateKey);
 }
 
 function nextSchedule(current: ReturnType<typeof scheduleFor>) {
@@ -99,6 +101,11 @@ function nextSchedule(current: ReturnType<typeof scheduleFor>) {
 
 function newShiftCode(slot: ShiftSlot, dateKey: string) {
   return `${slot.key}-${dateKey}-${crypto.randomUUID().slice(0, 4).toUpperCase()}`;
+}
+
+function rolloverShiftCode(slot: ShiftSlot, dateKey: string, sourceId: string) {
+  const suffix = sourceId.replaceAll("-", "").slice(0, 8).toUpperCase();
+  return `${slot.key}-${dateKey}-R${suffix}`;
 }
 
 function stateFromRow(row: Row | null, rollovers: ShiftRolloverEvent[] = []): ActiveShiftState {
@@ -122,15 +129,20 @@ async function findActiveRow(db: Db, employeeId: string, shiftCode: string) {
     .bind(employeeId, shiftCode).first<Row>();
 }
 
+async function findAnyActiveRow(db: Db, employeeId: string) {
+  return db.prepare("SELECT * FROM shift_sessions WHERE employee_id = ? AND ended_at IS NULL ORDER BY started_at DESC LIMIT 1")
+    .bind(employeeId).first<Row>();
+}
+
 async function ensureLegacyRow(user: ActiveUser, db: Db) {
   if (!user.employeeId || !user.storeId || !user.currentShift || !user.shiftStartedAt) return null;
   const existing = await findActiveRow(db, user.employeeId, user.currentShift);
   if (existing) return existing;
   const schedule = inferSchedule(user.shiftStartedAt, user.currentShift);
   const workSessionId = crypto.randomUUID();
-  await db.prepare("INSERT INTO shift_sessions (id, shift_code, shift_name, store_id, employee_id, started_at, scheduled_start_at, scheduled_end_at, work_session_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE')")
+  await db.prepare("INSERT OR IGNORE INTO shift_sessions (id, shift_code, shift_name, store_id, employee_id, started_at, scheduled_start_at, scheduled_end_at, work_session_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE')")
     .bind(crypto.randomUUID(), user.currentShift, schedule.slot.name, user.storeId, user.employeeId, user.shiftStartedAt, schedule.scheduledStartAt, schedule.scheduledEndAt, workSessionId).run();
-  return findActiveRow(db, user.employeeId, user.currentShift);
+  return (await findActiveRow(db, user.employeeId, user.currentShift)) ?? findAnyActiveRow(db, user.employeeId);
 }
 
 export async function startEmployeeShift(user: ActiveUser, db: Db, now = new Date()) {
@@ -168,16 +180,23 @@ export async function ensureActiveShiftRollover(user: ActiveUser, db: Db, now = 
 
     const following = nextSchedule(schedule);
     const splitAt = schedule.scheduledEndAt;
-    const nextCode = newShiftCode(following.slot, following.dateKey);
+    const nextCode = rolloverShiftCode(following.slot, following.dateKey, String(active.id));
     const workSessionId = String(active.work_session_id ?? crypto.randomUUID());
     await db.batch([
       db.prepare("UPDATE shift_sessions SET ended_at = ?, status = 'AUTO_COMPLETED', auto_rolled = 1 WHERE id = ? AND ended_at IS NULL")
         .bind(splitAt, String(active.id)),
-      db.prepare("INSERT INTO shift_sessions (id, shift_code, shift_name, store_id, employee_id, started_at, scheduled_start_at, scheduled_end_at, rollover_from, work_session_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE')")
+      db.prepare("INSERT OR IGNORE INTO shift_sessions (id, shift_code, shift_name, store_id, employee_id, started_at, scheduled_start_at, scheduled_end_at, rollover_from, work_session_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE')")
         .bind(crypto.randomUUID(), nextCode, following.slot.name, user.storeId, user.employeeId, splitAt, following.scheduledStartAt, following.scheduledEndAt, String(active.shift_code), workSessionId),
       db.prepare("UPDATE users SET current_shift = ?, shift_started_at = ?, shift_active = 1 WHERE id = ?")
         .bind(nextCode, splitAt, user.id),
     ]);
+
+    const nextActive = await findActiveRow(db, user.employeeId, nextCode);
+    if (!nextActive) {
+      active = await findAnyActiveRow(db, user.employeeId);
+      if (!active) break;
+      continue;
+    }
 
     const event = {
       fromCode: String(active.shift_code),
@@ -188,8 +207,7 @@ export async function ensureActiveShiftRollover(user: ActiveUser, db: Db, now = 
     };
     rollovers.push(event);
     await writeAudit(user.id, "SHIFT_AUTO_ROLLOVER", "SHIFT", nextCode, `${event.fromCode} -> ${event.toCode}; split=${splitAt}; grace=${SHIFT_GRACE_MINUTES}m`);
-    active = await findActiveRow(db, user.employeeId, nextCode);
-    if (!active) break;
+    active = nextActive;
   }
 
   return stateFromRow(active, rollovers);
