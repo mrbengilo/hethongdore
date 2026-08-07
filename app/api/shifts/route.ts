@@ -14,9 +14,15 @@ export async function GET(request: Request) {
     COALESCE(s.applied_hourly_rate, e.hourly_rate) AS appliedHourlyRate,
     e.code AS employeeCode,
     e.name AS employeeName,
-    e.hourly_rate AS hourlyRate
+    e.hourly_rate AS hourlyRate,
+    t.support_allowance AS supportAllowance,
+    source.name AS sourceStoreName,
+    target.name AS targetStoreName
     FROM shift_sessions s
-    JOIN employees e ON e.id = s.employee_id`;
+    JOIN employees e ON e.id = s.employee_id
+    LEFT JOIN employee_transfers t ON t.id = s.transfer_id
+    LEFT JOIN stores source ON source.id = t.source_store_id
+    LEFT JOIN stores target ON target.id = t.target_store_id`;
   const result = user.role === "EMPLOYEE"
     ? await db.prepare(`${select} WHERE s.employee_id = ? ORDER BY s.started_at DESC LIMIT 100`).bind(user.employeeId).all()
     : storeId
