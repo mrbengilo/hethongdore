@@ -72,9 +72,14 @@ test("full demo chunks reconstruct valid browser JavaScript", async () => {
     ),
   );
   const encoded = parts.map((part) => {
-    const match = part.match(/\+"([A-Za-z0-9+/=]+)";/u);
-    assert.ok(match, "Each demo chunk must contain one Base64 payload");
-    return match[1];
+    const marker = '+"';
+    const start = part.indexOf(marker);
+    assert.ok(start >= 0, "Each demo chunk must contain one Base64 payload");
+    let payload = part.slice(start + marker.length).trim();
+    if (payload.endsWith('";')) payload = payload.slice(0, -2);
+    else if (payload.endsWith('"')) payload = payload.slice(0, -1);
+    assert.match(payload, /^[A-Za-z0-9+/=]+$/u);
+    return payload;
   }).join("");
   const source = Buffer.from(encoded, "base64").toString("utf8");
   assert.match(source, /dore_full_working_v1/u);
@@ -84,6 +89,7 @@ test("full demo chunks reconstruct valid browser JavaScript", async () => {
   assert.doesNotThrow(() => new Function(source));
 
   const loader = await readFile(new URL("../public/full-demo-assets/loader.js", import.meta.url), "utf8");
+  assert.match(loader, /fetch\(new URL\(file, baseUrl\)/u);
   assert.match(loader, /TextDecoder/u);
   assert.match(loader, /Không thể tải hệ thống DORE/u);
 });
