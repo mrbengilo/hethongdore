@@ -30,14 +30,19 @@ export async function POST(request: Request) {
   }
 
   if (body.action === "end") {
-    if (!user.shiftActive || !user.currentShift) return json({ message: "Bạn chưa bắt đầu ca làm việc." }, 409);
+    if (!user.shiftActive || !user.currentShift || !user.employeeId || !user.storeId) return json({ message: "Bạn chưa bắt đầu ca làm việc." }, 409);
     const endedAt = new Date().toISOString();
     const tiktokAllowance = body.tiktok ? 25000 : 0;
-    await db.batch([
-      db.prepare("UPDATE users SET shift_active = 0, shift_started_at = NULL WHERE id = ?").bind(user.id),
-      db.prepare("UPDATE shift_sessions SET ended_at = ?, tiktok = ?, tiktok_allowance = ?, status = 'COMPLETED' WHERE shift_code = ? AND employee_id = ? AND ended_at IS NULL")
-        .bind(endedAt, body.tiktok ? 1 : 0, tiktokAllowance, user.currentShift, user.employeeId),
-    ]);
+    const session = await db.prepare("SELECT id FROM shift_sessions WHERE shift_code = ? AND employee_id = ? LIMIT 1").bind(user.currentShift, user.employeeId).first<{ id: string }>();
+    if (session) {
+      await db.prepare("UPDATE shift_sessions SET ended_at = ?, tiktok = ?, tiktok_allowance = ?, status = 'COMPLETED' WHERE id = ?")
+        .bind(endedAt, body.tiktok ? 1 : 0, tiktokAllowance, session.id).run();
+    } else {
+      // Compatibility for a shift that was started before shift_sessions tracking was deployed.
+      await db.prepare("INSERT INTO shift_sessions (id, shift_code, store_id, employee_id, started_at, ended_at, tiktok, tiktok_allowance, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED')")
+        .bind(crypto.randomUUID(), user.currentShift, user.storeId, user.employeeId, user.shiftStartedAt ?? endedAt, endedAt, body.tiktok ? 1 : 0, tiktokAllowance).run();
+    }
+    await db.prepare("UPDATE users SET shift_active = 0, shift_started_at = NULL WHERE id = ?").bind(user.id).run();
     await writeAudit(user.id, "SHIFT_END", "SHIFT", user.currentShift, body.tiktok ? "TikTok=1" : "TikTok=0");
     return json({ active: false, shiftCode: user.currentShift, endedAt, tiktokAllowance });
   }
