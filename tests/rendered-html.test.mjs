@@ -27,11 +27,13 @@ test("renders the branded DORE login", async () => {
 });
 
 test("contains core role and finance rules", async () => {
-  const [portal, login, orders, shift, packageJson, runtime] = await Promise.all([
+  const [portal, login, orders, shift, rollover, employeeWorkspace, packageJson, runtime] = await Promise.all([
     readFile(new URL("../app/components/Portal.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/auth/login/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/orders/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/shift/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/_lib/shift-rollover.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/EmployeeOperations.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
     readFile(new URL("../db/runtime.ts", import.meta.url), "utf8"),
   ]);
@@ -45,15 +47,20 @@ test("contains core role and finance rules", async () => {
   assert.match(runtime, /DORE SÓC TRĂNG/u);
   assert.match(login, /attempts >= 10/u);
   assert.match(login, /15 \* 60 \* 1000/u);
-  assert.match(orders, /currentShift/u);
-  assert.match(orders, /user\.employeeId/u);
-  assert.match(portal, /Quản lý danh sách đơn hàng/u);
-  assert.match(portal, /Tìm kiếm mã đơn hàng, tên khách hàng, SĐT/u);
-  assert.match(portal, /THÊM ĐƠN HÀNG MỚI/u);
-  assert.match(portal, /Xuất Excel/u);
+  assert.match(orders, /ensureActiveShiftRollover/u);
+  assert.match(orders, /shift\.shiftCode/u);
   assert.match(orders, /export async function PATCH/u);
   assert.match(orders, /store_id = \? AND employee_id = \? AND shift_code = \?/u);
-  assert.match(shift, /TikTok=1/u);
+  assert.match(shift, /SHIFT_GRACE_MINUTES/u);
+  assert.match(rollover, /SHIFT_GRACE_MINUTES = 60/u);
+  assert.match(rollover, /AUTO_COMPLETED/u);
+  assert.match(rollover, /const splitAt = schedule\.scheduledEndAt/u);
+  assert.match(rollover, /started_at, scheduled_start_at, scheduled_end_at, rollover_from, work_session_id/u);
+  assert.match(rollover, /SHIFT_AUTO_ROLLOVER/u);
+  assert.match(rollover, /TikTok=1/u);
+  assert.match(employeeWorkspace, /20_000/u);
+  assert.match(employeeWorkspace, /tự chốt ca hiện tại tại đúng giờ kết thúc/iu);
+  assert.match(employeeWorkspace, /Lịch sử ca làm thực tế/u);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/u);
   await assert.rejects(access(new URL("../app/_sites-preview/SkeletonPreview.tsx", import.meta.url)));
 });
