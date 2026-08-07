@@ -61,11 +61,14 @@ worker/              Điểm vào Cloudflare Worker
 - Nhân viên chỉ xem dữ liệu cửa hàng trực thuộc và ca đang hoạt động.
 - Đơn hàng nhân viên được backend tự gắn cửa hàng, nhân viên và mã ca.
 - Nhân viên không thể xem, sửa hoặc hủy đơn của ca khác hay người khác.
+- Nhân viên chỉ được kết ca sau khi hoàn thành công việc, nhập chi phí và doanh thu; nếu doanh thu lớn hơn 0 thì ca phải có ít nhất một đơn hàng hoàn tất.
+- Mỗi phiên làm việc lưu snapshot tên ca, ngày làm việc, cửa hàng chịu chi phí và mức lương giờ áp dụng để lịch sử không thay đổi khi cấu hình được sửa sau này.
+- Thưởng KPI nhân viên chỉ được ghi nhận khi quản lý tổng kết và khóa tháng; hệ thống áp dụng một ngưỡng 3%, 5% hoặc 7%, không cộng dồn.
+- Điều chuyển nhân sự được lưu thành lịch sử riêng; quyền cửa hàng hỗ trợ chỉ có hiệu lực trong thời gian được duyệt và tự trở về cửa hàng chính khi hết hạn.
 - Lương quản lý cố định 3.000.000 đồng/cửa hàng/tháng; thưởng quản lý bằng 2% lợi nhuận dương của cửa hàng.
 - Phụ cấp TikTok được ghi nhận theo từng ca khi nhân viên xác nhận có làm clip.
 - Lợi nhuận và báo cáo được tách độc lập theo cửa hàng trước khi cộng dồn toàn hệ thống.
 
 ## Trạng thái sản phẩm
 
-Đây là bản ứng dụng vận hành có đăng nhập, phân quyền, D1 và luồng đơn hàng/ca làm thực tế. Một số màn hình báo cáo, nhân sự, lương thưởng và điều chuyển hiện sử dụng dữ liệu trình diễn; danh sách hạng mục cần hoàn thiện để vận hành chính thức được ghi rõ trong tài liệu đặc tả.
-
+Đây là bản ứng dụng vận hành có đăng nhập, phân quyền, D1 và các luồng lưu dữ liệu cho cửa hàng, nhân sự, giao việc, ca làm, đơn hàng, lương thưởng, điều chuyển, báo cáo và cổ tức. Trước khi dùng dữ liệu thật vẫn phải hoàn thành checklist production, thay tài khoản demo, cấu hình sao lưu và đối soát nghiệp vụ theo tài liệu triển khai.

@@ -6,7 +6,7 @@ export async function GET(request: Request) {
   if (!user) return json({ message: "Chưa đăng nhập" }, 401);
   const db = await initDb();
   const result = user.role === "MANAGER"
-    ? await db.prepare("SELECT *, revenue - expense AS profit FROM stores WHERE status != 'ARCHIVED' ORDER BY created_at").all()
+    ? await db.prepare("SELECT *, revenue - expense AS profit FROM stores WHERE status IN ('ACTIVE', 'INACTIVE') ORDER BY created_at").all()
     : await db.prepare("SELECT *, revenue - expense AS profit FROM stores WHERE id = ?").bind(user.storeId).all();
   return json({ stores: result.results });
 }
@@ -32,22 +32,28 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const user = await getSessionUser(request);
   if (!user || user.role !== "MANAGER") return json({ message: "Không có quyền" }, 403);
-  const body = await request.json().catch(() => ({})) as { id?: string; name?: string; address?: string };
-  if (!body.id || !body.name?.trim() || !body.address?.trim()) return json({ message: "Dữ liệu không hợp lệ." }, 400);
+  const body = await request.json().catch(() => ({})) as { id?: string; name?: string; address?: string; status?: string };
+  if (!body.id || !body.name?.trim() || !body.address?.trim() || !["ACTIVE", "INACTIVE"].includes(body.status ?? "ACTIVE")) return json({ message: "Dữ liệu không hợp lệ." }, 400);
   const db = await initDb();
-  await db.prepare("UPDATE stores SET name = ?, address = ? WHERE id = ?").bind(body.name.trim().toUpperCase(), body.address.trim(), body.id).run();
-  await writeAudit(user.id, "UPDATE", "STORE", body.id, body.name);
+  const existing = await db.prepare("SELECT name, status FROM stores WHERE id = ? AND status IN ('ACTIVE', 'INACTIVE') LIMIT 1")
+    .bind(body.id).first<{ name: string; status: string }>();
+  if (!existing) return json({ message: "Không tìm thấy cửa hàng." }, 404);
+  const nextStatus = body.status ?? existing.status;
+  if (existing.status === "ACTIVE" && nextStatus === "INACTIVE") {
+    const activeShifts = await db.prepare("SELECT COUNT(*) AS count FROM shift_sessions WHERE store_id = ? AND status = 'ACTIVE'")
+      .bind(body.id).first<{ count: number }>();
+    if (Number(activeShifts?.count ?? 0) > 0) {
+      return json({ message: "Cửa hàng còn ca làm đang hoạt động. Hãy kết thúc các ca trước khi ngưng hoạt động." }, 409);
+    }
+  }
+  await db.prepare("UPDATE stores SET name = ?, address = ?, status = ? WHERE id = ?")
+    .bind(body.name.trim().toUpperCase(), body.address.trim(), nextStatus, body.id).run();
+  await writeAudit(user.id, existing.status === nextStatus ? "UPDATE" : "STORE_STATUS_CHANGE", "STORE", body.id, JSON.stringify({ from: existing.status, to: nextStatus }));
   return json({ ok: true });
 }
 
 export async function DELETE(request: Request) {
   const user = await getSessionUser(request);
   if (!user || user.role !== "MANAGER") return json({ message: "Không có quyền" }, 403);
-  const id = new URL(request.url).searchParams.get("id");
-  if (!id) return json({ message: "Thiếu mã cửa hàng." }, 400);
-  const db = await initDb();
-  await db.prepare("UPDATE stores SET status = 'ARCHIVED' WHERE id = ?").bind(id).run();
-  await writeAudit(user.id, "ARCHIVE", "STORE", id);
-  return json({ ok: true });
+  return json({ message: "Không hỗ trợ xóa cửa hàng. Hãy chuyển cửa hàng sang trạng thái ngưng hoạt động." }, 405, { Allow: "GET, POST, PATCH" });
 }
-

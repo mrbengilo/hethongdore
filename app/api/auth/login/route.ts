@@ -8,7 +8,11 @@ export async function POST(request: Request) {
   if (!username || !password) return json({ message: "Vui lòng nhập tên đăng nhập và mật khẩu." }, 400);
 
   const db = await initDb();
-  const user = await db.prepare("SELECT * FROM users WHERE username = ?").bind(username).first<Record<string, unknown>>();
+  const user = await db.prepare(`SELECT u.*, e.status AS employee_status, st.status AS store_status
+    FROM users u
+    LEFT JOIN employees e ON e.id = u.employee_id
+    LEFT JOIN stores st ON st.id = u.store_id
+    WHERE u.username = ?`).bind(username).first<Record<string, unknown>>();
   const now = Date.now();
   if (user && Number(user.locked_until ?? 0) > now) {
     return json({ message: "Tài khoản đang bị khóa tạm thời. Vui lòng thử lại sau." }, 423);
@@ -25,6 +29,13 @@ export async function POST(request: Request) {
     return json({ message: "Tên đăng nhập hoặc mật khẩu không đúng." }, 401);
   }
 
+  if (user.role === "EMPLOYEE" && user.employee_status !== "ACTIVE") {
+    return json({ message: "Tài khoản nhân viên đã nghỉ làm và không thể đăng nhập." }, 403);
+  }
+  if (user.role === "EMPLOYEE" && user.store_status !== "ACTIVE") {
+    return json({ message: "Cửa hàng đã ngưng hoạt động. Tài khoản nhân viên tạm thời bị khóa." }, 403);
+  }
+
   await db.prepare("UPDATE users SET failed_attempts = 0, locked_until = NULL WHERE id = ?").bind(String(user.id)).run();
   const bytes = crypto.getRandomValues(new Uint8Array(32));
   const token = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -39,4 +50,3 @@ export async function POST(request: Request) {
   const cookie = `dore_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure}`;
   return json({ role: user.role, redirect: user.role === "MANAGER" ? "/manager" : "/employee" }, 200, { "Set-Cookie": cookie });
 }
-
