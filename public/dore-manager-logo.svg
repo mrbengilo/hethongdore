@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">DORE Quản Lý</title>
+  <desc id="desc">Logo DORE nền xanh lá, chữ DORE xanh dương và nhãn Quản Lý.</desc>
+  <rect x="32" y="32" width="960" height="960" rx="210" fill="#75E41D"/>
+  <g fill="#0756E8">
+    <path d="M118 356h142c100 0 169 66 169 156s-69 156-169 156H118V356zm76 62v188h61c57 0 96-37 96-94s-39-94-96-94h-11c4 64 30 116 74 156-69-10-112-52-124-126v-30z"/>
+    <path d="M474 512c0-92 69-163 164-163s164 71 164 163-69 163-164 163-164-71-164-163zm78 0c0 52 36 91 86 91s86-39 86-91-36-91-86-91-86 39-86 91z"/>
+    <path d="M822 356h88c71 0 119 40 119 103 0 42-23 75-61 91l72 118h-88l-61-105h-1v105h-68V356zm68 62v88h18c31 0 50-16 50-44s-19-44-50-44h-18z" transform="translate(-85 0)"/>
+    <path d="M905 356h154v62h-84v63h75v60h-75v65h88v62H905V356z" transform="translate(-82 0)"/>
+  </g>
+  <rect x="270" y="727" width="484" height="132" rx="66" fill="#0756E8"/>
+  <text x="512" y="814" text-anchor="middle" font-family="Arial, 'Be Vietnam Pro', sans-serif" font-size="76" font-weight="700" fill="#fff">Quản Lý</text>
+</svg>
