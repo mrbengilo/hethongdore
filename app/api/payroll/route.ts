@@ -67,7 +67,7 @@ export async function POST(request: Request) {
   }
 
   const status = action === "LOCK" ? "LOCKED" : action === "MARK_PAID" ? "PAID" : "IN_PROGRESS";
-  let id = existing ? String(existing.id) : crypto.randomUUID();
+  const id = existing ? String(existing.id) : crypto.randomUUID();
   if (existing) {
     await db.prepare("UPDATE business_records SET title = ?, data_json = ?, status = ?, updated_at = ? WHERE id = ?")
       .bind(`${store.name} · Kỳ lương ${month}`, JSON.stringify(data), status, now, id).run();
