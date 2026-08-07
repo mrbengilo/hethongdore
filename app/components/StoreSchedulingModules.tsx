@@ -338,7 +338,14 @@ export function StoreShiftManagement({ store }: { store: SchedulingStore }) {
         <button type="button" className={styles.primaryButton} disabled={inactive} onClick={() => begin()}><Plus size={18}/> Tạo ca làm việc</button>
       </div>
     </header>
-    {inactive && <div className={styles.inactiveBanner}><b>Cửa hàng đã ngưng hoạt động</b><span>Ca làm việc và lịch sử vẫn đư��N��G����ƭy�ror}</p>}
+    {inactive && <div className={styles.inactiveBanner}><b>Cửa hàng đã ngưng hoạt động</b><span>Ca làm việc và lịch sử vẫn được hiển thị, nhưng mọi thao tác tạo, sửa hoặc xóa đã bị khóa.</span></div>}
+    <ShiftCards shifts={shifts} schedules={schedules} date={date} onEdit={inactive ? undefined : begin} onRemove={inactive ? undefined : remove}/>
+    <div className={styles.summaryStrip}><span><Clock3 size={21}/><b>{shifts.length}</b> Tổng ca</span><span><UsersRound size={21}/><b>{employees.length}</b> Nhân viên</span><span><CalendarRange size={21}/><b>{assignedToday}</b> Đã xếp ngày này</span><span><b>{shifts.filter((shift) => shift.overnight).length}</b> Ca qua đêm</span></div>
+    <section className={styles.panel}>
+      <div className={styles.panelHeader}><div className={styles.tabs}><button type="button" className={view === "day" ? styles.activeTab : ""} onClick={() => setView("day")}>Lịch theo ngày</button><button type="button" className={view === "week" ? styles.activeTab : ""} onClick={() => setView("week")}>Lịch theo tuần</button></div><div className={styles.dateNav}><button type="button" onClick={() => setDate(addDays(date, view === "day" ? -1 : -7))}><ChevronLeft size={18}/></button><b>{view === "day" ? dateLabel(date) : `${shortDate(weekDates(date)[0])} - ${shortDate(weekDates(date)[6])}`}</b><button type="button" onClick={() => setDate(addDays(date, view === "day" ? 1 : 7))}><ChevronRight size={18}/></button></div></div>
+      {view === "day" ? <DayGrid employees={employees} shifts={shifts} schedules={schedules} date={date}/> : <WeekGrid employees={employees} schedules={schedules} anchor={date}/>} 
+      {(shiftsSource.loading || scheduleSource.loading) && <p className={styles.loading}>Đang tải dữ liệu...</p>}
+      {(shiftsSource.error || scheduleSource.error || message) && <p className={styles.error}>{message || shiftsSource.error || scheduleSource.error}</p>}
     </section>
     {open && <div className={styles.backdrop}><form className={styles.modal} onSubmit={save}>
       <div className={styles.modalHeader}><div><h3>{editing ? "Sửa ca làm việc" : "Tạo ca làm việc"}</h3><p>Ca kết thúc sớm hơn giờ bắt đầu sẽ được ghi nhận là ca qua đêm.</p></div><button type="button" onClick={() => setOpen(false)}><X size={20}/></button></div>
