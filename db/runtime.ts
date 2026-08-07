@@ -5,7 +5,7 @@ const EMPLOYEE_HASH = "pbkdf2$100000$ZG9yZS1lbXBsb3llZS0yMDI2$OSC1V7zX59lTKx20h2
 
 const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS stores (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, address TEXT NOT NULL, revenue INTEGER NOT NULL DEFAULT 0, expense INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'ACTIVE', created_at TEXT NOT NULL)`,
-  `CREATE TABLE IF NOT EXISTS employees (id TEXT PRIMARY KEY, store_id TEXT NOT NULL, code TEXT NOT NULL UNIQUE, name TEXT NOT NULL, position TEXT NOT NULL, phone TEXT NOT NULL, hourly_rate INTEGER NOT NULL DEFAULT 20000, status TEXT NOT NULL DEFAULT 'ACTIVE')`,
+  `CREATE TABLE IF NOT EXISTS employees (id TEXT PRIMARY KEY, store_id TEXT NOT NULL, code TEXT NOT NULL UNIQUE, name TEXT NOT NULL, position TEXT NOT NULL, phone TEXT NOT NULL, address_province TEXT, address_ward TEXT, address_detail TEXT, cccd_image TEXT, age INTEGER, hourly_rate INTEGER NOT NULL DEFAULT 20000, status TEXT NOT NULL DEFAULT 'ACTIVE')`,
   `CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, role TEXT NOT NULL, name TEXT NOT NULL, employee_id TEXT, store_id TEXT, failed_attempts INTEGER NOT NULL DEFAULT 0, locked_until INTEGER, shift_active INTEGER NOT NULL DEFAULT 0, current_shift TEXT, shift_started_at TEXT)`,
   `CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE, expires_at INTEGER NOT NULL, created_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, code TEXT NOT NULL UNIQUE, store_id TEXT NOT NULL, employee_id TEXT NOT NULL, shift_code TEXT NOT NULL, customer_name TEXT, phone TEXT, age INTEGER, amount INTEGER NOT NULL, payment_method TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'COMPLETED', created_at TEXT NOT NULL)`,
@@ -17,6 +17,15 @@ const schemaStatements = [
   `CREATE INDEX IF NOT EXISTS idx_employees_store ON employees(store_id, status)`,
   `CREATE INDEX IF NOT EXISTS idx_records_category_store ON business_records(category, store_id, status, created_at)`,
   `CREATE INDEX IF NOT EXISTS idx_shift_sessions_employee ON shift_sessions(employee_id, started_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_shift_sessions_store ON shift_sessions(store_id, started_at)`,
+];
+
+const employeeColumnMigrations = [
+  { name: "address_province", sql: `ALTER TABLE employees ADD COLUMN address_province TEXT` },
+  { name: "address_ward", sql: `ALTER TABLE employees ADD COLUMN address_ward TEXT` },
+  { name: "address_detail", sql: `ALTER TABLE employees ADD COLUMN address_detail TEXT` },
+  { name: "cccd_image", sql: `ALTER TABLE employees ADD COLUMN cccd_image TEXT` },
+  { name: "age", sql: `ALTER TABLE employees ADD COLUMN age INTEGER` },
 ];
 
 const initialStores = [
@@ -32,13 +41,20 @@ export async function initDb() {
   if (!db) throw new Error("D1 binding DB is unavailable");
   await db.batch(schemaStatements.map((sql) => db.prepare(sql)));
 
+  // CREATE TABLE IF NOT EXISTS does not add columns to an older D1 table.
+  // Inspect the schema first so normal requests do not intentionally trigger SQL errors.
+  const employeeColumns = await db.prepare("PRAGMA table_info(employees)").all();
+  const existingColumns = new Set((employeeColumns.results as Array<Record<string, unknown>>).map((column) => String(column.name)));
+  for (const migration of employeeColumnMigrations) {
+    if (!existingColumns.has(migration.name)) await db.prepare(migration.sql).run();
+  }
+
   const count = await db.prepare("SELECT COUNT(*) AS count FROM stores").first<{ count: number }>();
   if (Number(count?.count ?? 0) === 0) {
     const now = new Date().toISOString();
     await db.batch(initialStores.map((store) => db.prepare("INSERT INTO stores (id, name, address, revenue, expense, status, created_at) VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?)").bind(...store, now)));
   }
-  // Older deployments may already contain stores but not the employee/account
-  // seed rows introduced later. Idempotent inserts safely backfill that data.
+
   await db.batch([
     db.prepare("INSERT OR IGNORE INTO employees (id, store_id, code, name, position, phone, hourly_rate, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'ACTIVE')").bind("emp-001", "st-thot-not", "NV001", "Nguyễn Thị An", "Nhân viên bán hàng", "0765109784", 20000),
     db.prepare("INSERT OR IGNORE INTO employees (id, store_id, code, name, position, phone, hourly_rate, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'ACTIVE')").bind("emp-002", "st-thot-not", "NV002", "Trần Văn Bình", "Nhân viên bán hàng", "0923456789", 20000),
@@ -46,6 +62,7 @@ export async function initDb() {
     db.prepare("INSERT OR IGNORE INTO users (id, username, password_hash, role, name, failed_attempts, shift_active) VALUES (?, ?, ?, 'MANAGER', ?, 0, 0)").bind("user-manager", "admin", MANAGER_HASH, "Quản trị viên"),
     db.prepare("INSERT OR IGNORE INTO users (id, username, password_hash, role, name, employee_id, store_id, failed_attempts, shift_active) VALUES (?, ?, ?, 'EMPLOYEE', ?, ?, ?, 0, 0)").bind("user-employee", "nv001", EMPLOYEE_HASH, "Nguyễn Thị An", "emp-001", "st-thot-not"),
   ]);
+
   const thotNotStore = await db.prepare("SELECT id FROM stores WHERE name = ? LIMIT 1").bind("DORE THỐT NỐT").first<{ id: string }>();
   if (thotNotStore?.id) {
     const linkedEmployees = await db.prepare("SELECT COUNT(*) AS count FROM employees WHERE store_id = ? AND status != 'ARCHIVED'").bind(thotNotStore.id).first<{ count: number }>();
@@ -56,6 +73,7 @@ export async function initDb() {
       ]);
     }
   }
+
   await db.batch([
     db.prepare("UPDATE users SET password_hash = ? WHERE username = 'admin' AND password_hash LIKE 'pbkdf2$210000$%'").bind(MANAGER_HASH),
     db.prepare("UPDATE users SET password_hash = ? WHERE username = 'nv001' AND password_hash LIKE 'pbkdf2$210000$%'").bind(EMPLOYEE_HASH),

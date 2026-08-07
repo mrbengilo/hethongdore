@@ -17,6 +17,11 @@ export const employees = sqliteTable("employees", {
   name: text("name").notNull(),
   position: text("position").notNull(),
   phone: text("phone").notNull(),
+  addressProvince: text("address_province"),
+  addressWard: text("address_ward"),
+  addressDetail: text("address_detail"),
+  cccdImage: text("cccd_image"),
+  age: integer("age"),
   hourlyRate: integer("hourly_rate").notNull().default(20000),
   status: text("status").notNull().default("ACTIVE"),
 });
