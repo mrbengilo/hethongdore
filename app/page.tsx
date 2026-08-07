@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { Eye, EyeOff, Flower2, LockKeyhole, ShieldCheck, UserRound } from "lucide-react";
+import { Eye, EyeOff, LockKeyhole, ShieldCheck, UserRound } from "lucide-react";
 
 export default function LoginPage() {
   const [username, setUsername] = useState("");
@@ -43,7 +43,7 @@ export default function LoginPage() {
   return (
     <main className="login-page">
       <section className="login-hero">
-        <div className="brand-lockup"><div className="brand-mark"><Flower2 size={35}/></div><div><strong>DORE</strong><span>đồ si đồng giá</span></div></div>
+        <div className="brand-lockup"><img src="/dore-manager-logo.svg" alt="DORE Quản Lý" width={58} height={58}/><div><strong>DORE</strong><span>Quản Lý</span></div></div>
         <div className="hero-copy">
           <p className="eyebrow">DORE ĐỒ SI ĐỒNG GIÁ 20K</p>
           <h1>ĐỒ ĐẸP GIÁ RẺ</h1>
@@ -58,7 +58,7 @@ export default function LoginPage() {
       </section>
       <section className="login-panel-wrap">
         <form className="login-panel" onSubmit={submit}>
-          <div className="login-logo"><Flower2 size={31}/><b>DORE</b><small>đồ si đồng giá</small></div>
+          <div className="login-logo"><img src="/dore-manager-logo.svg" alt="DORE Quản Lý" width={84} height={84}/></div>
           <h2>Chào mừng bạn quay trở lại!</h2>
           <p className="muted">Đăng nhập để tiếp tục quản lý cửa hàng</p>
           <label>Tên đăng nhập<div className="login-input"><UserRound size={19}/><input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Nhập tên đăng nhập" autoComplete="username" required /></div></label>
