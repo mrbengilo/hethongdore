@@ -8,17 +8,22 @@ function normalizeMoneyText(value: string) {
   return value.replace(LEGACY_MONEY, (_, raw: string) => `${raw.replaceAll(".", ",")} đồng`);
 }
 
+function normalizeText(node: Text) {
+  if (!node.parentElement || ["SCRIPT", "STYLE"].includes(node.parentElement.tagName)) return;
+  const next = normalizeMoneyText(node.data);
+  if (next !== node.data) node.data = next;
+}
+
 function normalizeNode(root: Node) {
+  if (root instanceof Text) {
+    normalizeText(root);
+    return;
+  }
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-  const nodes: Text[] = [];
   let current = walker.nextNode();
   while (current) {
-    if (current instanceof Text && current.parentElement && !["SCRIPT", "STYLE"].includes(current.parentElement.tagName)) nodes.push(current);
+    if (current instanceof Text) normalizeText(current);
     current = walker.nextNode();
-  }
-  for (const node of nodes) {
-    const next = normalizeMoneyText(node.data);
-    if (next !== node.data) node.data = next;
   }
 }
 
@@ -28,7 +33,7 @@ export default function DisplayConventions() {
     const observer = new MutationObserver((mutations) => {
       for (const mutation of mutations) {
         for (const node of mutation.addedNodes) normalizeNode(node);
-        if (mutation.type === "characterData" && mutation.target.parentNode) normalizeNode(mutation.target.parentNode);
+        if (mutation.type === "characterData") normalizeNode(mutation.target);
       }
     });
     observer.observe(document.body, { subtree: true, childList: true, characterData: true });
