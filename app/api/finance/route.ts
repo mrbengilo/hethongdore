@@ -1,6 +1,7 @@
 import { initDb } from "../../../db/runtime";
 import { getSessionUser, json } from "../_lib/auth";
 import { calculateStoreFinance, normalizeMonth, previousMonth } from "../_lib/finance";
+import { reconcileActiveShifts } from "../_lib/shift-rollover";
 
 function percentChange(current: number, previous: number) {
   if (previous === 0) return current === 0 ? 0 : 100;
@@ -27,6 +28,7 @@ export async function GET(request: Request) {
   const requestedStoreId = params.get("storeId");
   const storeId = user.role === "EMPLOYEE" ? user.storeId : requestedStoreId;
   const db = await initDb();
+  await reconcileActiveShifts(db, storeId);
 
   if (storeId) {
     if (user.role === "EMPLOYEE" && user.storeId !== storeId) return json({ message: "Không có quyền" }, 403);
