@@ -1,13 +1,46 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
   <title id="title">DORE Quản Lý</title>
-  <desc id="desc">Logo DORE nền xanh lá, chữ DORE xanh dương và nhãn Quản Lý.</desc>
-  <rect x="32" y="32" width="960" height="960" rx="210" fill="#75E41D"/>
-  <g fill="#0756E8">
-    <path d="M118 356h142c100 0 169 66 169 156s-69 156-169 156H118V356zm76 62v188h61c57 0 96-37 96-94s-39-94-96-94h-11c4 64 30 116 74 156-69-10-112-52-124-126v-30z"/>
-    <path d="M474 512c0-92 69-163 164-163s164 71 164 163-69 163-164 163-164-71-164-163zm78 0c0 52 36 91 86 91s86-39 86-91-36-91-86-91-86 39-86 91z"/>
-    <path d="M822 356h88c71 0 119 40 119 103 0 42-23 75-61 91l72 118h-88l-61-105h-1v105h-68V356zm68 62v88h18c31 0 50-16 50-44s-19-44-50-44h-18z" transform="translate(-85 0)"/>
-    <path d="M905 356h154v62h-84v63h75v60h-75v65h88v62H905V356z" transform="translate(-82 0)"/>
+  <desc id="desc">Logo DORE màu xanh lá với nhãn Quản Lý màu đen.</desc>
+  <rect width="1024" height="1024" fill="#ffffff"/>
+
+  <g fill="#0ab84f">
+    <circle cx="512" cy="452" r="286"/>
+    <circle cx="512" cy="150" r="74"/>
+    <circle cx="605" cy="165" r="74"/>
+    <circle cx="692" cy="203" r="74"/>
+    <circle cx="760" cy="270" r="74"/>
+    <circle cx="800" cy="355" r="74"/>
+    <circle cx="815" cy="451" r="74"/>
+    <circle cx="800" cy="548" r="74"/>
+    <circle cx="759" cy="635" r="74"/>
+    <circle cx="691" cy="703" r="74"/>
+    <circle cx="605" cy="741" r="74"/>
+    <circle cx="512" cy="755" r="74"/>
+    <circle cx="418" cy="741" r="74"/>
+    <circle cx="332" cy="703" r="74"/>
+    <circle cx="264" cy="635" r="74"/>
+    <circle cx="224" cy="548" r="74"/>
+    <circle cx="209" cy="451" r="74"/>
+    <circle cx="224" cy="355" r="74"/>
+    <circle cx="264" cy="270" r="74"/>
+    <circle cx="332" cy="203" r="74"/>
+    <circle cx="418" cy="165" r="74"/>
   </g>
-  <rect x="270" y="727" width="484" height="132" rx="66" fill="#0756E8"/>
-  <text x="512" y="814" text-anchor="middle" font-family="Arial, 'Be Vietnam Pro', sans-serif" font-size="76" font-weight="700" fill="#fff">Quản Lý</text>
+
+  <g fill="#ffffff">
+    <path d="M716 205c-1 46-19 66-62 72 43 7 61 27 62 72 2-45 19-65 62-72-43-6-60-26-62-72z"/>
+    <circle cx="731" cy="174" r="11"/>
+    <circle cx="792" cy="279" r="8"/>
+  </g>
+
+  <text x="512" y="495" text-anchor="middle" font-family="Arial Black, Arial, sans-serif" font-size="205" font-weight="900" letter-spacing="-15" fill="#ffffff">DORE</text>
+
+  <rect x="314" y="590" width="396" height="158" rx="79" fill="#050505"/>
+  <text x="512" y="699" text-anchor="middle" font-family="Arial, 'Be Vietnam Pro', sans-serif" font-size="84" font-weight="700" fill="#ffffff">Quản Lý</text>
+
+  <g fill="none" stroke="#0ab84f" stroke-linecap="round">
+    <path d="M219 758l-92 64" stroke-width="14"/>
+    <path d="M249 789l-38 92" stroke-width="14"/>
+    <path d="M181 725l-83 8" stroke-width="14"/>
+  </g>
 </svg>
