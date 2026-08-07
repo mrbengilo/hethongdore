@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - agent/store-finance-payroll-v2
+  pull_request:
+    branches:
+      - main
 
 jobs:
   verify:
