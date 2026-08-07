@@ -17,6 +17,7 @@ const eslintConfig = defineConfig([
     "work/**",
     "outputs/**",
     "drizzle/**",
+    "public/full-demo-assets/chunk*.js",
     "next-env.d.ts",
   ]),
   eslint.configs.recommended,
