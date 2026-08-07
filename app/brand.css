@@ -1,0 +1,21 @@
+.dark .sidebar-brand .mini-mark,
+.login-logo {
+  background: #75E41D url('/dore-manager-logo.svg') center/cover no-repeat !important;
+  border-radius: 14px !important;
+  color: transparent !important;
+  box-shadow: 0 10px 24px rgba(0,0,0,.14);
+}
+.dark .sidebar-brand .mini-mark > *,
+.login-logo > * { display: none !important; }
+.dark .sidebar-brand .mini-mark { width: 56px; height: 56px; flex: 0 0 56px; }
+.login-logo { width: 112px !important; height: 112px !important; }
+.dark .sidebar-brand strong { color: #8cff32 !important; }
+@media (max-width: 900px) {
+  .dark .mobile-header b {
+    display: inline-flex;
+    align-items: center;
+    min-height: 38px;
+    padding-left: 46px;
+    background: url('/dore-manager-logo.svg') left center/38px 38px no-repeat;
+  }
+}
