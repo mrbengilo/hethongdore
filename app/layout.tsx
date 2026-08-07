@@ -6,6 +6,7 @@ import "@fontsource/be-vietnam-pro/600.css";
 import "@fontsource/be-vietnam-pro/700.css";
 import "@fontsource/be-vietnam-pro/800.css";
 import "./globals.css";
+import "./brand.css";
 
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
