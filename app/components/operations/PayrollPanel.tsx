@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { BusinessRecord, createRecord, dateTime24, money, Notice, Panel, StoreFinance } from "./shared";
 
 type PayrollResponse = { summary: StoreFinance; period: BusinessRecord | null; history: BusinessRecord[] };
@@ -31,8 +31,7 @@ export default function PayrollPanel({ store, month, onChanged }: { store: Store
   const bonusConfirmed = Boolean(data.bonusAllowanceConfirmedAt);
   const paid = Boolean(data.paidAt);
 
-  async function addAdjustment(event: FormEvent, category: "EMPLOYEE_BONUS" | "EMPLOYEE_ALLOWANCE") {
-    event.preventDefault();
+  async function addAdjustment(category: "EMPLOYEE_BONUS" | "EMPLOYEE_ALLOWANCE") {
     const employee = summary.employees.find((item) => item.id === employeeId);
     const value = Number(amount || 0);
     if (!employee || value <= 0) return setMessage("Vui lòng chọn nhân viên và nhập số tiền lớn hơn 0.");
@@ -81,7 +80,7 @@ export default function PayrollPanel({ store, month, onChanged }: { store: Store
         <label>Nhân viên<select value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}>{summary.employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.code} · {employee.name}</option>)}</select></label>
         <label>Số tiền<input type="number" min="1" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" /></label>
         <label>Ghi chú<input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Lý do thưởng/phụ cấp" /></label>
-        <div className="op-inline-actions"><button className="op-primary" disabled={locked} onClick={(event) => void addAdjustment(event, "EMPLOYEE_BONUS")}>LƯU THƯỞNG</button><button className="op-secondary" disabled={locked} onClick={(event) => void addAdjustment(event, "EMPLOYEE_ALLOWANCE")}>LƯU PHỤ CẤP</button></div>
+        <div className="op-inline-actions"><button type="button" className="op-primary" disabled={locked} onClick={() => void addAdjustment("EMPLOYEE_BONUS")}>LƯU THƯỞNG</button><button type="button" className="op-secondary" disabled={locked} onClick={() => void addAdjustment("EMPLOYEE_ALLOWANCE")}>LƯU PHỤ CẤP</button></div>
       </form>
     </Panel>
 
