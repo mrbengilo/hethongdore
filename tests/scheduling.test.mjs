@@ -52,3 +52,13 @@ test("serializes Vietnam-local shifts as complete UTC ranges", async () => {
   });
   assert.equal(shiftUtcRange("2026-08-06", "07:00", "07:00"), null);
 });
+
+test("schedule interface exposes the requested day, week, employee and save flow", async () => {
+  const source = await readFile(new URL("../app/components/StoreSchedulingModules.tsx", import.meta.url), "utf8");
+  assert.match(source, />Theo ngày</u);
+  assert.match(source, />Theo tuần</u);
+  assert.match(source, />Theo nhân viên</u);
+  assert.match(source, /Chọn ca làm việc/u);
+  assert.match(source, /Chọn nhân viên/u);
+  assert.match(source, /Lưu lịch ca/u);
+});
