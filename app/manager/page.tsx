@@ -1,6 +1,5 @@
-import Portal from "../components/Portal";
+import ManagerOperations from "../components/ManagerOperations";
 
 export default function ManagerPage() {
-  return <Portal expectedRole="MANAGER" />;
+  return <ManagerOperations />;
 }
-
