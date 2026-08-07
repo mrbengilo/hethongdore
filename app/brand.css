@@ -1,0 +1,35 @@
+/* DORE manager branding */
+.dark .mini-mark{
+  background:#75e41d url('/dore-manager-logo.svg') center/cover no-repeat;
+  color:transparent;
+  overflow:hidden;
+  box-shadow:0 6px 18px rgba(0,0,0,.16);
+}
+.dark .mini-mark svg{display:none}
+
+.mobile-header b{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.mobile-header b::before{
+  content:"";
+  width:30px;
+  height:30px;
+  flex:0 0 30px;
+  border-radius:8px;
+  background:url('/dore-manager-logo.svg') center/cover no-repeat;
+}
+
+.app-loading .pulse-logo{
+  width:104px;
+  height:104px;
+  border-radius:24px;
+  background:url('/dore-manager-logo.svg') center/cover no-repeat;
+  color:transparent;
+  overflow:hidden;
+}
+
+@media (max-width: 900px){
+  .sidebar-brand .mini-mark{width:44px;height:44px;flex:0 0 44px}
+}
