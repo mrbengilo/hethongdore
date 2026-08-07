@@ -84,6 +84,8 @@ Mọi truy vấn, thống kê và xuất báo cáo trong không gian cửa hàng
 4. **Dòng tiền:** doanh thu, chi phí và lợi nhuận tạm tính của ca hiện tại.
 5. **Lịch sử ca làm:** lọc theo ngày/ca, giờ vào/ra, số giờ và lương dự tính.
 
+Khi bắt đầu ca, hệ thống phải ghi thời gian vào thực tế và snapshot `shift_name`, `work_date`, khung giờ đã xếp, cửa hàng thực tế cùng mức lương giờ áp dụng. `shift_code` tiếp tục là mã phiên duy nhất dùng để liên kết đơn hàng; không dùng mã phiên này thay cho tên Ca 1, Ca 2 hoặc Ca 3 trên giao diện.
+
 ## 8. Quy tắc đơn hàng
 
 - Mã đơn tự tạo theo mẫu `DHxxxxx` và duy nhất toàn hệ thống.
@@ -94,6 +96,9 @@ Mọi truy vấn, thống kê và xuất báo cáo trong không gian cửa hàng
 - Thống kê đầu trang chỉ tính đơn hoàn tất trong ca hiện tại.
 - Hủy đơn chuyển trạng thái sang `VOID`, không xóa vật lý, nhằm bảo toàn đối soát.
 - Quản lý được xem đơn của mọi nhân viên và mọi ca; nhân viên chỉ thao tác đơn của chính mình trong ca đang hoạt động.
+- Trước khi kết ca, nhân viên phải hoàn thành toàn bộ công việc bắt buộc, nhập chi phí kể cả khi giá trị bằng 0, nhập doanh thu tiền mặt và chuyển khoản; chi phí lớn hơn 0 phải có nội dung chi.
+- Nếu tổng doanh thu nhập khi kết ca lớn hơn 0 nhưng ca hiện tại không có đơn `COMPLETED`, hệ thống phải từ chối kết ca và yêu cầu nhân viên nhập đơn hàng. Điều kiện này được kiểm tra lại ở backend.
+- Kết ca thành công phải ghi `ended_at`, doanh thu, chi phí, trạng thái hoàn thành và lịch sử ca trước khi xóa trạng thái ca đang hoạt động của tài khoản.
 
 ## 9. Lương, thưởng và lợi nhuận
 
@@ -115,6 +120,8 @@ Gọi `P` là lợi nhuận cửa hàng trong tháng, `H` là tổng giờ làm 
 
 Tổng nhận nhân viên gồm lương theo giờ, thưởng lợi nhuận, phụ cấp TikTok, thưởng TikTok, thưởng khác và phụ cấp khác, sau khi trừ các khoản khấu trừ hợp lệ.
 
+Thưởng KPI chỉ trở thành số liệu chính thức sau khi **Quản lý tổng kết tháng** cho từng cửa hàng. Hệ thống tính một preview từ dữ liệu ca đã hoàn thành, chọn đúng một ngưỡng cao nhất đạt được (không cộng dồn), sau đó lưu snapshot kỳ gồm lợi nhuận, tổng giờ, tỷ lệ KPI và chi tiết từng nhân viên. Snapshot đã khóa không tự thay đổi khi dữ liệu nguồn hoặc lương giờ được chỉnh sửa về sau; nhân viên chỉ xem kết quả của chính mình trong kỳ đã tổng kết.
+
 ### 9.3. Phụ cấp TikTok
 
 - Quản lý đặt mức phụ cấp TikTok riêng cho từng cửa hàng.
@@ -131,10 +138,13 @@ Tổng chi phí bao gồm giá vốn/nhập hàng, setup, mặt bằng, điện,
 ## 10. Điều chuyển nhân sự
 
 - Chọn nhân viên, cửa hàng nhận hỗ trợ, ngày bắt đầu/kết thúc, một hoặc nhiều ca, lương giờ, phụ cấp, lý do và người duyệt.
+- Mỗi đợt được lưu trong `employee_transfers` với cửa hàng điều đi, cửa hàng nhận, thời gian hiệu lực, ca áp dụng, lương hỗ trợ, phụ cấp, lý do, người tạo và trạng thái.
 - Trong thời gian hỗ trợ, nhân viên được đăng nhập và làm việc tại cửa hàng nhận hỗ trợ theo phạm vi được duyệt.
+- Khi xử lý mỗi request, backend xác định cửa hàng hiệu lực từ ca đang chạy hoặc đợt điều chuyển còn hiệu lực; trình duyệt không được tự gửi và quyết định cửa hàng truy cập.
 - Lương, thưởng, phụ cấp và chi phí nhân sự phát sinh được ghi cho cửa hàng nhận hỗ trợ.
 - Lịch sử lương, KPI và công tác tại cửa hàng chính không bị sửa.
 - Hết thời gian, hệ thống tự thu hồi quyền cửa hàng hỗ trợ và khôi phục quyền cửa hàng chính.
+- Ca đã bắt đầu giữ snapshot cửa hàng nhận và mức lương hỗ trợ cho đến khi kết ca, kể cả khi đợt hỗ trợ hết hạn trong lúc ca đang mở.
 - Trạng thái: chờ duyệt, đang hỗ trợ, hoàn thành, đã hủy.
 
 ## 11. Cổ tức
@@ -154,4 +164,3 @@ Tổng chi phí bao gồm giá vốn/nhập hàng, setup, mặt bằng, điện,
 - Bảng lớn hỗ trợ cuộn ngang trên màn hình nhỏ.
 - Các API phải validate dữ liệu, phân quyền và chống truy cập chéo cửa hàng.
 - Có migration, kiểm thử tự động, nhật ký kiểm toán và quy trình sao lưu/khôi phục.
-

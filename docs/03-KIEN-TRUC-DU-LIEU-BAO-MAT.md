@@ -35,23 +35,35 @@ Phiên đăng nhập với token đã băm, thời hạn và ngày tạo.
 
 Mã đơn, cửa hàng, nhân viên, ca, khách hàng tùy chọn, số tiền, thanh toán, trạng thái và thời gian tạo.
 
+### `business_records`
+
+Kho dữ liệu nghiệp vụ có phân loại cho giao việc, lịch phân ca, nhập hàng, dòng tiền, khoản lương thưởng thủ công và các snapshot đã khóa như `KPI_SUMMARY`. Dữ liệu JSON luôn đi kèm `category`, `store_id`, chủ sở hữu, trạng thái và thời gian cập nhật.
+
+### `shift_sessions`
+
+Phiên chấm công thực tế của nhân viên. `shift_code` là khóa nghiệp vụ duy nhất liên kết đơn hàng; `shift_name` là tên Ca 1/Ca 2/Ca 3 để hiển thị và lọc. Bảng lưu `work_date`, giờ lịch, giờ thực tế, cửa hàng chịu chi phí, `transfer_id`, `applied_hourly_rate`, doanh thu, chi phí, trạng thái công việc và phụ cấp TikTok dưới dạng snapshot.
+
+### `employee_transfers`
+
+Lịch sử điều chuyển gồm nhân viên, cửa hàng đi/nhận, ngày hiệu lực, danh sách ca, lương hỗ trợ, phụ cấp, lý do, trạng thái, người tạo và thời gian kết thúc. Các trạng thái nghiệp vụ là `SCHEDULED`, `ACTIVE`, `COMPLETED` và `CANCELLED`.
+
 ### `audit_logs`
 
 Người thao tác, hành động, loại thực thể, khóa bản ghi, chi tiết và thời gian.
 
-## 3. Mô hình dữ liệu mục tiêu
+## 3. Mô hình dữ liệu mở rộng dài hạn
 
-Để hoàn thiện toàn bộ yêu cầu vận hành, cần bổ sung các nhóm bảng sau:
+Các luồng hiện tại đã lưu bền bằng `shift_sessions`, `employee_transfers` và `business_records`. Khi khối lượng dữ liệu tăng hoặc cần khóa ngoại/chứng từ chi tiết hơn, có thể chuẩn hóa tiếp thành các nhóm bảng sau mà không thay đổi hợp đồng nghiệp vụ:
 
 | Nhóm | Bảng đề xuất | Mục đích |
 |---|---|---|
-| Ca làm | `shift_definitions`, `shift_assignments`, `work_sessions` | định nghĩa ca, lịch phân và chấm công thực tế |
+| Ca làm | `shift_definitions`, `shift_assignments` | tách định nghĩa ca và lịch phân khỏi dữ liệu JSON; phiên thực tế tiếp tục ở `shift_sessions` |
 | Công việc | `task_templates`, `shift_tasks`, `task_completions` | giao việc và trạng thái hoàn thành |
 | Nhập hàng | `products`, `purchase_receipts`, `purchase_items` | mặt hàng, phiếu nhập và giá vốn |
 | Dòng tiền | `cash_entries`, `expense_categories`, `fixed_cost_settings` | thu/chi, marketing và chi phí mặc định |
-| Lương | `payroll_periods`, `payroll_items`, `allowances`, `bonuses` | snapshot bảng lương và khoản cộng/trừ |
+| Lương | `payroll_periods`, `payroll_items`, `allowances`, `bonuses` | chuẩn hóa snapshot `KPI_SUMMARY` và khoản cộng/trừ hiện lưu trong `business_records` |
 | TikTok | `store_reward_settings`, `tiktok_submissions` | cấu hình và ghi nhận clip theo ca |
-| Điều chuyển | `staff_transfers`, `transfer_shifts`, `transfer_approvals` | thời gian, ca, duyệt và quyền hỗ trợ |
+| Điều chuyển | `transfer_shifts`, `transfer_approvals` | chuẩn hóa danh sách ca/người duyệt bổ sung cho `employee_transfers` khi cần quy trình duyệt nhiều cấp |
 | Cổ đông | `shareholders`, `ownership_periods`, `dividend_periods`, `dividend_items` | tỷ lệ theo kỳ và lịch sử cổ tức |
 | Báo cáo | `period_locks`, `report_exports` | khóa kỳ và nhật ký xuất báo cáo |
 
@@ -63,8 +75,10 @@ Tất cả bảng nghiệp vụ theo cửa hàng phải có `store_id` hoặc tr
 - Chỉ mục đơn hàng theo `(store_id, employee_id, shift_code, created_at)`.
 - Chỉ mục phiên theo `(token_hash, expires_at)`.
 - Chỉ mục nhân viên theo `(store_id, status)`.
+- Chỉ mục ca theo `(store_id, work_date, status)` và lịch sử nhân viên theo `(employee_id, started_at)`.
+- Chỉ mục điều chuyển theo `(employee_id, start_date, end_date, status)` và `(target_store_id, start_date, end_date, status)`.
 - Bảng tổng kết tháng cần khóa duy nhất theo `(store_id, period)`.
-- Một nhân viên chỉ có tối đa một `work_session` đang mở tại một thời điểm.
+- Một nhân viên chỉ có tối đa một `shift_session` đang mở tại một thời điểm; `users.current_shift` phải trỏ đúng phiên đó.
 - Một ca chỉ được hưởng một phụ cấp TikTok cho mỗi nhân viên.
 - Tỷ lệ cổ đông của một kỳ phải có tổng bằng 100%.
 
@@ -77,8 +91,14 @@ Tất cả bảng nghiệp vụ theo cửa hàng phải có `store_id` hoặc tr
 | `/api/auth/me` | GET | đã đăng nhập | lấy người dùng hiện tại |
 | `/api/stores` | GET/POST/PATCH/DELETE | quản lý | danh sách và CRUD cửa hàng |
 | `/api/shift` | POST | nhân viên | bắt đầu/kết ca và phụ cấp TikTok |
+| `/api/shift` | GET | nhân viên | trạng thái ca hiện tại và snapshot tên/giờ ca |
+| `/api/shifts` | GET | đã đăng nhập | lịch sử ca theo quyền; trả `shiftName`, `workDate`, nhân viên và lương giờ áp dụng |
 | `/api/orders` | GET | theo vai trò | quản lý xem rộng, nhân viên xem ca hiện tại |
 | `/api/orders` | POST/PATCH/DELETE | nhân viên trong ca | tạo, sửa, hủy mềm đơn của chính mình |
+| `/api/payroll` | GET | theo vai trò | preview/tải snapshot KPI tháng; nhân viên chỉ nhận dòng của mình |
+| `/api/payroll` | POST | quản lý | tổng kết và khóa KPI theo cửa hàng/tháng |
+| `/api/transfers` | GET/POST/PATCH | quản lý | lịch sử, tạo, hủy hoặc kết thúc điều chuyển |
+| `/api/records` | theo thao tác | theo vai trò/danh mục | dữ liệu nghiệp vụ và snapshot `KPI_SUMMARY` |
 
 API mới nên theo cùng nguyên tắc: lấy danh tính và phạm vi cửa hàng từ phiên, validate server-side và ghi audit cho thao tác nhạy cảm.
 
@@ -94,7 +114,7 @@ API mới nên theo cùng nguyên tắc: lấy danh tính và phạm vi cửa h�
 
 - Phạm vi mặc định: `employee_id` và `store_id` trong phiên.
 - Phạm vi ca: `shift_code` đang hoạt động và khoảng thời gian vào/ra.
-- Phạm vi hỗ trợ: quyền tạm thời đã duyệt, đúng cửa hàng, ngày và ca.
+- Phạm vi hỗ trợ: backend tính cửa hàng hiệu lực từ `employee_transfers` còn hạn; ca đang chạy giữ snapshot `store_id` và `transfer_id` cho đến lúc kết ca.
 - Không chấp nhận trường quyền do trình duyệt tự gửi.
 
 ## 7. Bảo mật
@@ -115,6 +135,9 @@ API mới nên theo cùng nguyên tắc: lấy danh tính và phạm vi cửa h�
 
 - Tiền lưu bằng số nguyên VND, không dùng số thực.
 - Bảng lương và cổ tức phải là snapshot theo kỳ.
+- Tổng kết KPI tháng lưu một `KPI_SUMMARY` khóa theo cửa hàng/kỳ. Snapshot chứa lợi nhuận, tổng giờ, ngưỡng duy nhất đạt được, chi tiết thưởng và tổng chi trả; POST lặp lại cùng kỳ phải bị từ chối.
+- Lương ca dùng `applied_hourly_rate`, không đọc ngược lương hiện tại của hồ sơ sau khi ca đã hoàn thành.
+- Ca hỗ trợ được hạch toán vào `shift_sessions.store_id` của cửa hàng nhận; lương giờ/phụ cấp hỗ trợ lấy từ snapshot điều chuyển.
 - Công thức dùng một module nghiệp vụ dùng chung cho UI, API, báo cáo và kiểm thử.
 - Mọi báo cáo xuất file phải nhận cùng tham số lọc với truy vấn màn hình.
 - Khóa kỳ sau tổng kết; điều chỉnh qua nghiệp vụ mở khóa có kiểm soát.
@@ -125,4 +148,3 @@ API mới nên theo cùng nguyên tắc: lấy danh tính và phạm vi cửa h�
 - Migration chỉ chạy một chiều sau khi đã review và thử trên môi trường staging.
 - Theo dõi tỷ lệ lỗi API, đăng nhập thất bại, thời gian phản hồi và sai lệch báo cáo.
 - Tách môi trường development, staging và production; không dùng chung dữ liệu/tài khoản.
-

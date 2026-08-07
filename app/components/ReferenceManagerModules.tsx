@@ -5,14 +5,12 @@ import {
   BadgeDollarSign,
   Banknote,
   BarChart3,
-  CalendarDays,
   CheckCircle2,
   Download,
   LockKeyhole,
   Percent,
   PieChart,
   RefreshCw,
-  Send,
   ShieldCheck,
   Store,
   TrendingUp,
@@ -48,6 +46,26 @@ type Employee = {
   hourly_rate: number;
   store_id: string;
   store_name?: string;
+};
+
+type EmployeeTransfer = {
+  id: string;
+  employee_id: string;
+  employee_code: string;
+  employee_name: string;
+  employee_position: string;
+  source_store_id: string;
+  source_store_name: string;
+  target_store_id: string;
+  target_store_name: string;
+  start_date: string;
+  end_date: string;
+  shifts: string[];
+  support_hourly_rate: number;
+  support_allowance: number;
+  reason: string;
+  status: "SCHEDULED" | "ACTIVE" | "COMPLETED" | "CANCELLED";
+  created_by_name?: string;
 };
 
 const money = (value: number) => `${new Intl.NumberFormat("vi-VN").format(Math.round(value))} đ`;
@@ -142,33 +160,65 @@ export function ReferenceManagerPayroll({ stores }: { stores: ReferenceStore[] }
 }
 
 export function ReferenceManagerTransfer({ stores }: { stores: ReferenceStore[] }) {
-  const { records, reload } = useRecords("TRANSFER");
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [transfers, setTransfers] = useState<EmployeeTransfer[]>([]);
   const [employeeId, setEmployeeId] = useState("");
   const [targetStore, setTargetStore] = useState(stores[1]?.id ?? stores[0]?.id ?? "");
   const [start, setStart] = useState(today());
   const [end, setEnd] = useState(today());
+  const [hourlyRate, setHourlyRate] = useState("20000");
   const [allowance, setAllowance] = useState("500000");
   const [reason, setReason] = useState("Hỗ trợ vận hành cửa hàng");
   const [message, setMessage] = useState("");
+  const [saving, setSaving] = useState(false);
   const [shifts, setShifts] = useState(["Ca sáng", "Ca chiều"]);
+  const reload = useCallback(async () => {
+    const response = await fetch("/api/transfers");
+    const result = await response.json();
+    if (response.ok) setTransfers(result.transfers ?? []);
+  }, []);
   useEffect(() => { fetch("/api/employees").then((response) => response.json()).then((result) => { setEmployees(result.employees ?? []); if (result.employees?.[0]) setEmployeeId((value) => value || result.employees[0].id); }); }, []);
+  useEffect(() => { reload(); }, [reload]);
   const employee = employees.find((item) => item.id === employeeId);
   const source = stores.find((item) => item.id === employee?.store_id);
   const target = stores.find((item) => item.id === targetStore);
-  function toggleShift(value: string) { setShifts((current) => current.includes(value) ? current.filter((item) => item !== value) : [...current, value]); }
-  async function save() {
-    if (!employee || !target || end < start || shifts.length === 0) return setMessage("Vui lòng kiểm tra nhân viên, thời gian và ca hỗ trợ.");
-    const response = await fetch("/api/records", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ category: "TRANSFER", storeId: target.id, title: `${employee.name} → ${target.name}`, status: "PENDING", data: { employeeId, employeeName: employee.name, employeeCode: employee.code, sourceStore: source?.name ?? "Cửa hàng chính", targetStore: target.id, targetName: target.name, start, end, shifts, hourlyRate: employee.hourly_rate, allowance: Number(allowance), reason, approver: "Quản trị viên DORE" } }) });
-    setMessage(response.ok ? "✓ Đã lưu điều chuyển và gửi chờ duyệt." : "Không thể lưu điều chuyển.");
-    if (response.ok) reload();
+  useEffect(() => {
+    if (!employee) return;
+    setHourlyRate(String(employee.hourly_rate));
+    if (!targetStore || targetStore === employee.store_id) setTargetStore(stores.find((item) => item.id !== employee.store_id)?.id ?? "");
+  }, [employee, stores, targetStore]);
+  function toggleShift(value: string) {
+    setShifts((current) => {
+      if (value === "Cả ngày") return current.includes(value) ? [] : [value];
+      const withoutAllDay = current.filter((item) => item !== "Cả ngày");
+      return withoutAllDay.includes(value) ? withoutAllDay.filter((item) => item !== value) : [...withoutAllDay, value];
+    });
   }
-  async function status(record: RecordRow, value: string) { await fetch("/api/records", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: record.id, title: record.title, data: record.data, status: value }) }); reload(); }
-  return <div className="page-content manager-reference"><div className="transfer-reference-grid"><section className="manager-panel transfer-person"><h2>1. THÔNG TIN NHÂN VIÊN</h2><label>Chọn nhân viên<select value={employeeId} onChange={(event) => setEmployeeId(event.target.value)}>{employees.map((item) => <option key={item.id} value={item.id}>{item.code} · {item.name}</option>)}</select></label><div className="transfer-profile"><i><UserRound size={30}/></i><div><small>{employee?.code ?? "NV000"}</small><strong>{employee?.name ?? "Chọn nhân viên"}</strong><span>{employee?.position ?? "Nhân viên bán hàng"}</span><em>Đang làm tại cửa hàng chính</em></div></div><p><Store size={15}/> Cửa hàng chính <b>{source?.name ?? employee?.store_name ?? "DORE"}</b></p><p><Banknote size={15}/> Lương theo giờ <b>{money(employee?.hourly_rate ?? 20_000)}</b></p><p><WalletCards size={15}/> Phụ cấp <input type="number" value={allowance} onChange={(event) => setAllowance(event.target.value)}/></p></section>
-    <section className="manager-panel transfer-form"><h2>2. THÔNG TIN ĐIỀU CHUYỂN</h2><div className="two-fields"><label>Cửa hàng điều đi<input value={source?.name ?? "Cửa hàng chính"} disabled/></label><label>Cửa hàng nhận hỗ trợ<select value={targetStore} onChange={(event) => setTargetStore(event.target.value)}>{stores.filter((item) => item.id !== employee?.store_id).map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label><label>Ngày bắt đầu<input type="date" value={start} onChange={(event) => setStart(event.target.value)}/></label><label>Ngày kết thúc<input type="date" value={end} onChange={(event) => setEnd(event.target.value)}/></label></div><b className="field-label">Ca làm việc áp dụng</b><div className="shift-checks">{["Ca sáng", "Ca chiều", "Ca tối", "Cả ngày"].map((item) => <label key={item}><input type="checkbox" checked={shifts.includes(item)} onChange={() => toggleShift(item)}/>{item}</label>)}</div><label>Lý do điều chuyển<textarea value={reason} onChange={(event) => setReason(event.target.value)}/></label><label>Người phê duyệt<input value="Quản trị viên DORE" disabled/></label></section>
-    <aside className="transfer-policy"><section><h2>3. QUYỀN TRUY CẬP HỆ THỐNG</h2><p><ShieldCheck/> <span><b>Được đăng nhập hệ thống</b><small>Quyền tại cửa hàng nhận được kích hoạt trong thời gian hỗ trợ.</small></span></p><p><XCircle/> <span><b>Thu hồi quyền sau khi kết thúc</b><small>Tự động trả quyền đăng nhập về cửa hàng chính.</small></span></p></section><section><h2>4. CHÍNH SÁCH LƯƠNG & CHI PHÍ</h2><p><BadgeDollarSign/> <span><b>Lương, thưởng, phụ cấp</b><small>Được tính cho cửa hàng nhận hỗ trợ.</small></span></p><p><BarChart3/> <span><b>Ghi nhận chi phí</b><small>Chi phí nhân sự vào báo cáo cửa hàng nhận.</small></span></p></section></aside></div>
-    <section className="manager-panel transfer-timeline"><h2>5. LỘ TRÌNH ĐIỀU CHUYỂN</h2><div><span className="done"><CalendarDays/><b>Bắt đầu điều chuyển</b><small>{start}</small></span><i/><span className="done"><Store/><b>Đang hỗ trợ</b><small>{target?.name ?? "Cửa hàng nhận"}</small></span><i/><span><RefreshCw/><b>Kết thúc & trở về</b><small>{end} · Tự động</small></span></div></section>
-    <section className="manager-panel table-panel"><div className="panel-title"><h2>6. LỊCH SỬ ĐIỀU CHUYỂN</h2><button className="primary-button" onClick={save}><Send size={17}/> Lưu điều chuyển</button></div>{message && <div className={message.startsWith("✓") ? "success-banner" : "form-message"}>{message}</div>}<div className="data-table-wrap"><table className="data-table"><thead><tr><th>Thời gian hỗ trợ</th><th>Nhân viên</th><th>Cửa hàng hỗ trợ</th><th>Ca làm việc</th><th>Người duyệt</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>{records.length === 0 ? <tr><td colSpan={7} className="empty-cell">Chưa có lịch sử điều chuyển.</td></tr> : records.map((record) => <tr key={record.id}><td>{String(record.data.start ?? "")} → {String(record.data.end ?? "")}</td><td>{String(record.data.employeeName ?? "")}</td><td>{String(record.data.targetName ?? "")}</td><td>{Array.isArray(record.data.shifts) ? record.data.shifts.join(", ") : "—"}</td><td>{String(record.data.approver ?? "Quản trị viên")}</td><td><span className="status-pill">{record.status === "APPROVED" ? "Đang hỗ trợ" : record.status === "COMPLETED" ? "Đã hoàn thành" : record.status === "CANCELLED" ? "Đã hủy" : "Chờ duyệt"}</span></td><td><div className="row-actions">{record.status === "PENDING" && <button onClick={() => status(record, "APPROVED")}>Duyệt</button>}{!["COMPLETED", "CANCELLED"].includes(record.status) && <button onClick={() => status(record, "COMPLETED")}>Kết thúc</button>}<button className="danger" onClick={() => status(record, "CANCELLED")}>Hủy</button></div></td></tr>)}</tbody></table></div></section>
+  async function save() {
+    if (!employee || !target || end < start || shifts.length === 0 || Number(hourlyRate) <= 0 || Number(allowance) < 0 || !reason.trim()) return setMessage("Vui lòng kiểm tra nhân viên, thời gian, ca, lương và lý do hỗ trợ.");
+    setSaving(true);
+    const response = await fetch("/api/transfers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ employeeId, targetStoreId: target.id, startDate: start, endDate: end, shifts, supportHourlyRate: Number(hourlyRate), supportAllowance: Number(allowance), reason }) });
+    const result = await response.json();
+    setMessage(response.ok ? `✓ ${result.message}` : result.message ?? "Không thể tạo điều chuyển.");
+    setSaving(false);
+    if (response.ok) await reload();
+  }
+  async function updateStatus(record: EmployeeTransfer, action: "CANCEL" | "END") {
+    const response = await fetch("/api/transfers", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: record.id, action }) });
+    const result = await response.json();
+    setMessage(response.ok ? "✓ Đã cập nhật lịch điều chuyển." : result.message ?? "Không thể cập nhật lịch điều chuyển.");
+    if (response.ok) await reload();
+  }
+  const statusLabel = (status: EmployeeTransfer["status"]) => status === "ACTIVE" ? "Đang hỗ trợ" : status === "SCHEDULED" ? "Sắp hỗ trợ" : status === "COMPLETED" ? "Đã hoàn thành" : "Đã hủy";
+  return <div className="page-content manager-reference"><div className="transfer-reference-grid transfer-new-layout">
+    <section className="manager-panel transfer-form"><h2>1. THÔNG TIN ĐIỀU CHUYỂN</h2><div className="two-fields"><label>Cửa hàng điều đi<input value={source?.name ?? "Chọn nhân viên"} disabled/></label><label>Chọn nhân viên<select value={employeeId} onChange={(event) => setEmployeeId(event.target.value)}>{employees.map((item) => <option key={item.id} value={item.id}>{item.code} · {item.name}</option>)}</select></label><label>Cửa hàng nhận hỗ trợ<select value={targetStore} onChange={(event) => setTargetStore(event.target.value)}>{stores.filter((item) => item.id !== employee?.store_id).map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label><label>Ngày bắt đầu<input type="date" value={start} onChange={(event) => setStart(event.target.value)}/></label><label>Ngày kết thúc<input type="date" value={end} min={start} onChange={(event) => setEnd(event.target.value)}/></label></div><b className="field-label">Ca làm việc áp dụng</b><div className="shift-checks">{["Ca sáng", "Ca chiều", "Ca tối", "Cả ngày"].map((item) => <label key={item}><input type="checkbox" checked={shifts.includes(item)} onChange={() => toggleShift(item)}/>{item}</label>)}</div><label>Lý do điều chuyển<textarea value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Nhập lý do điều chuyển"/></label></section>
+    <section className="manager-panel transfer-person"><h2>2. THÔNG TIN NHÂN VIÊN</h2><div className="transfer-profile"><i><UserRound size={30}/></i><div><small>{employee?.code ?? "NV000"}</small><strong>{employee?.name ?? "Chọn nhân viên"}</strong><span>{employee?.position ?? "Nhân viên bán hàng"}</span><em>Đang làm tại cửa hàng chính</em></div></div><p><Store size={15}/> Cửa hàng chính <b>{source?.name ?? employee?.store_name ?? "DORE"}</b></p><label>Lương hỗ trợ theo giờ (VNĐ)<input type="number" min="1" value={hourlyRate} onChange={(event) => setHourlyRate(event.target.value)}/></label><label>Phụ cấp hỗ trợ (VNĐ)<input type="number" min="0" value={allowance} onChange={(event) => setAllowance(event.target.value)}/></label></section>
+    <section className="transfer-policy-card"><h2>3. QUYỀN TRUY CẬP HỆ THỐNG</h2><p><ShieldCheck/> <span><b>Được đăng nhập hệ thống của cửa hàng hỗ trợ</b><small>Quyền tại cửa hàng nhận được kích hoạt trong thời gian hỗ trợ.</small></span></p><p><XCircle/> <span><b>Thu hồi quyền sau khi kết thúc thời gian hỗ trợ</b><small>Tự động trả quyền đăng nhập về cửa hàng chính.</small></span></p></section>
+    <section className="transfer-policy-card"><h2>4. CHÍNH SÁCH LƯƠNG & PHỤ CẤP</h2><p><BadgeDollarSign/> <span><b>Lương, thưởng và phụ cấp</b><small>Được tính cho cửa hàng nhận hỗ trợ.</small></span></p><p><BarChart3/> <span><b>Ghi nhận chi phí</b><small>Chi phí nhân sự được đưa vào báo cáo cửa hàng nhận.</small></span></p></section>
+    </div>
+    <div className="transfer-submit-row"><button className="primary-button transfer-submit" disabled={saving} onClick={save}><CheckCircle2 size={18}/>{saving ? "ĐANG XỬ LÝ..." : "ĐIỀU CHUYỂN"}</button></div>
+    {message && <div className={message.startsWith("✓") ? "success-banner" : "form-message"}>{message}</div>}
+    <section className="manager-panel table-panel"><div className="panel-title"><h2>LỊCH SỬ ĐIỀU CHUYỂN</h2><span>{transfers.length} bản ghi</span></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>Thời gian hỗ trợ</th><th>Nhân viên</th><th>Cửa hàng điều đi</th><th>Cửa hàng hỗ trợ</th><th>Ca làm việc</th><th>Lương/giờ</th><th>Phụ cấp</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>{transfers.length === 0 ? <tr><td colSpan={9} className="empty-cell">Chưa có lịch sử điều chuyển.</td></tr> : transfers.map((record) => <tr key={record.id}><td>{record.start_date} → {record.end_date}</td><td><b>{record.employee_code} · {record.employee_name}</b></td><td>{record.source_store_name}</td><td>{record.target_store_name}</td><td>{record.shifts.join(", ") || "—"}</td><td>{money(record.support_hourly_rate)}</td><td>{money(record.support_allowance)}</td><td><span className={`status-pill transfer-${record.status.toLowerCase()}`}>{statusLabel(record.status)}</span></td><td><div className="row-actions">{!["COMPLETED", "CANCELLED"].includes(record.status) && <><button onClick={() => updateStatus(record, "END")}>Kết thúc</button><button className="danger" onClick={() => updateStatus(record, "CANCEL")}>Hủy</button></>}</div></td></tr>)}</tbody></table></div></section>
   </div>;
 }
 

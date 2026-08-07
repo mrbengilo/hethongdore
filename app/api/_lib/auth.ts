@@ -7,10 +7,23 @@ export type SessionUser = {
   name: string;
   employeeId: string | null;
   storeId: string | null;
+  homeStoreId: string | null;
+  storeName: string | null;
+  homeStoreName: string | null;
+  employeeCode: string | null;
+  employeePosition: string | null;
+  employeePhone: string | null;
+  activeTransferId: string | null;
+  isSupporting: boolean;
   shiftActive: number;
   currentShift: string | null;
   shiftStartedAt: string | null;
+  currentShiftName: string | null;
+  scheduledStart: string | null;
+  scheduledEnd: string | null;
 };
+
+type BaseSessionUser = Omit<SessionUser, "storeId" | "storeName" | "activeTransferId" | "isSupporting" | "currentShiftName" | "scheduledStart" | "scheduledEnd">;
 
 function bytesToBase64(bytes: Uint8Array) {
   let binary = "";
@@ -62,8 +75,54 @@ export async function getSessionUser(request: Request): Promise<SessionUser | nu
   if (!token) return null;
   const db = await initDb();
   const tokenHash = await sha256(token);
-  const row = await db.prepare(`SELECT u.id, u.username, u.role, u.name, u.employee_id AS employeeId, u.store_id AS storeId, u.shift_active AS shiftActive, u.current_shift AS currentShift, u.shift_started_at AS shiftStartedAt FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.expires_at > ?`).bind(tokenHash, Date.now()).first<SessionUser>();
-  return row ?? null;
+  const row = await db.prepare(`SELECT u.id, u.username, u.role, u.name, u.employee_id AS employeeId, u.store_id AS homeStoreId, hs.name AS homeStoreName, e.code AS employeeCode, e.position AS employeePosition, e.phone AS employeePhone, u.shift_active AS shiftActive, u.current_shift AS currentShift, u.shift_started_at AS shiftStartedAt FROM sessions s JOIN users u ON u.id = s.user_id LEFT JOIN employees e ON e.id = u.employee_id LEFT JOIN stores hs ON hs.id = u.store_id WHERE s.token_hash = ? AND s.expires_at > ?`).bind(tokenHash, Date.now()).first<BaseSessionUser>();
+  if (!row) return null;
+
+  let storeId = row.homeStoreId;
+  let storeName = row.homeStoreName;
+  let activeTransferId: string | null = null;
+  let currentShiftName: string | null = null;
+  let scheduledStart: string | null = null;
+  let scheduledEnd: string | null = null;
+
+  if (row.role === "EMPLOYEE" && row.employeeId) {
+    // A running shift keeps its original store snapshot even if a transfer ends
+    // while the employee is still closing the shift.
+    const runningShift = row.currentShift
+      ? await db.prepare("SELECT store_id AS storeId, transfer_id AS transferId, shift_name AS shiftName, scheduled_start AS scheduledStart, scheduled_end AS scheduledEnd FROM shift_sessions WHERE shift_code = ? AND employee_id = ? AND status = 'ACTIVE' LIMIT 1")
+        .bind(row.currentShift, row.employeeId).first<{ storeId: string; transferId: string | null; shiftName: string | null; scheduledStart: string | null; scheduledEnd: string | null }>()
+      : null;
+    if (runningShift) {
+      storeId = runningShift.storeId;
+      activeTransferId = runningShift.transferId;
+      currentShiftName = runningShift.shiftName;
+      scheduledStart = runningShift.scheduledStart;
+      scheduledEnd = runningShift.scheduledEnd;
+    } else {
+      const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh" }).format(new Date());
+      const transfer = await db.prepare("SELECT id, target_store_id AS targetStoreId FROM employee_transfers WHERE employee_id = ? AND start_date <= ? AND end_date >= ? AND status IN ('SCHEDULED', 'ACTIVE') ORDER BY start_date DESC, created_at DESC LIMIT 1")
+        .bind(row.employeeId, today, today).first<{ id: string; targetStoreId: string }>();
+      if (transfer) {
+        storeId = transfer.targetStoreId;
+        activeTransferId = transfer.id;
+        await db.prepare("UPDATE employee_transfers SET status = 'ACTIVE', updated_at = ? WHERE id = ? AND status = 'SCHEDULED'").bind(new Date().toISOString(), transfer.id).run();
+      }
+    }
+    if (storeId && storeId !== row.homeStoreId) {
+      storeName = (await db.prepare("SELECT name FROM stores WHERE id = ? LIMIT 1").bind(storeId).first<{ name: string }>())?.name ?? storeName;
+    }
+  }
+
+  return {
+    ...row,
+    storeId,
+    storeName,
+    activeTransferId,
+    isSupporting: Boolean(storeId && row.homeStoreId && storeId !== row.homeStoreId),
+    currentShiftName,
+    scheduledStart,
+    scheduledEnd,
+  };
 }
 
 export function json(data: unknown, status = 200, headers?: HeadersInit) {

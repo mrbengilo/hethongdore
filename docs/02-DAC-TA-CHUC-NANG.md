@@ -54,13 +54,18 @@ Mọi màn hình nhận `store_id` từ ngữ cảnh quản lý, không nhận t
 - Điều kiện: nhân viên có lịch hợp lệ tại cửa hàng chính hoặc cửa hàng hỗ trợ.
 - Nếu đã có ca hoạt động, không tạo ca thứ hai.
 - Backend lưu `shift_active`, `current_shift`, `shift_started_at` và audit log.
+- Phiên ca lưu riêng mã phiên duy nhất `shift_code` và tên hiển thị `shift_name` (Ca 1/Ca 2/Ca 3), cùng `work_date`, giờ lịch, cửa hàng chịu chi phí, mã điều chuyển nếu có và lương giờ áp dụng.
+- `work_date` được xác định theo `Asia/Ho_Chi_Minh`; không cắt trực tiếp ngày UTC để lọc lịch sử.
 
 ### Kết ca
 
-- Điều kiện: đang có ca hoạt động.
-- Ghi nhận thời gian kết thúc, trạng thái công việc, doanh thu/chi phí ca và cờ TikTok.
+- Điều kiện: đang có ca hoạt động; toàn bộ công việc bắt buộc đã hoàn thành; nhân viên đã nhập chi phí, tiền mặt và chuyển khoản. Không có chi phí hoặc một hình thức doanh thu vẫn phải nhập giá trị 0.
+- Nếu chi phí lớn hơn 0, nội dung chi là bắt buộc.
+- Nếu `tiền mặt + chuyển khoản > 0`, backend phải tìm thấy ít nhất một đơn `COMPLETED` có đúng cửa hàng, nhân viên và `shift_code` của ca hiện tại; đơn hủy, đơn ca khác hoặc nhân viên khác không thỏa điều kiện.
+- Ghi nhận thời gian kết thúc, trạng thái công việc, doanh thu/chi phí ca và cờ TikTok vào `shift_sessions` trước khi xóa trạng thái ca đang mở của tài khoản.
 - Nếu cờ TikTok bật, sinh đúng một khoản phụ cấp theo cấu hình cửa hàng.
 - Sau khi kết ca, khóa thao tác thêm/sửa/hủy đơn của ca vừa kết thúc.
+- API trả thời gian kết thúc và thông báo đã ghi lịch sử; lịch sử dùng `shift_name`, `work_date`, mã/tên nhân viên thật thay vì dữ liệu ghi cứng.
 
 ### Số giờ và lương cứng
 
@@ -122,6 +127,15 @@ Các thẻ thống kê chỉ cộng đơn có trạng thái `COMPLETED` sau khi 
 
 Khi dữ liệu doanh thu/chi phí thay đổi sau khi khóa, phải mở lại kỳ bằng quyền quản lý và ghi audit log.
 
+### Hợp đồng snapshot KPI
+
+- Preview tháng tổng hợp các `shift_sessions` đã hoàn thành theo cửa hàng chịu chi phí và kỳ Việt Nam.
+- Lương cứng dùng `applied_hourly_rate` đã snapshot tại lúc bắt đầu ca; ca hỗ trợ dùng lương hỗ trợ của đợt điều chuyển.
+- Tỷ lệ KPI được chọn một lần từ `P/H`: dưới 7.000 là 0%; từ 7.000 là 3%; từ 15.000 là 5%; từ 30.000 là 7%. Các ngưỡng không cộng dồn.
+- Thưởng từng người là `(giờ người đó / tổng giờ cửa hàng) × tỷ lệ × lợi nhuận` và được làm tròn về số nguyên đồng.
+- Khi quản lý bấm tổng kết, hệ thống lưu một bản ghi `KPI_SUMMARY` trạng thái `LOCKED` duy nhất theo `store_id + period`, gồm toàn bộ đầu vào, tỷ lệ và kết quả từng nhân viên.
+- GET kỳ đã khóa luôn trả snapshot; tài khoản nhân viên chỉ nhận dòng lương của chính mình.
+
 ## 8. Điều chuyển nhân sự
 
 ### Tạo và duyệt
@@ -135,9 +149,10 @@ Khi dữ liệu doanh thu/chi phí thay đổi sau khi khóa, phải mở lại 
 ### Quyền truy cập
 
 - Trước thời gian bắt đầu: chỉ quyền cửa hàng chính.
-- Trong khoảng hỗ trợ và đúng ca: thêm quyền cửa hàng nhận.
+- Trong khoảng hỗ trợ: backend xác định cửa hàng hiệu lực là cửa hàng nhận từ `employee_transfers`; ca áp dụng được lưu cùng đợt hỗ trợ và lịch phân ca của cửa hàng nhận quyết định ca thực tế.
 - Hết hạn/hủy/kết thúc sớm: thu hồi ngay quyền cửa hàng nhận.
-- Job định kỳ và kiểm tra thời gian tại mỗi request cùng bảo đảm thu hồi quyền.
+- Kiểm tra thời gian tại mỗi request bảo đảm quyền hết hiệu lực ngay cả khi chưa chạy tác vụ đồng bộ trạng thái; API điều chuyển đồng thời tự chuyển `SCHEDULED → ACTIVE → COMPLETED` theo ngày Việt Nam.
+- Nếu nhân viên đang ở trong một ca hỗ trợ, `shift_sessions.store_id`, `transfer_id` và `applied_hourly_rate` là snapshot của ca đó; quyền và hạch toán ca không bị đổi giữa chừng.
 
 ### Hạch toán
 
@@ -168,6 +183,9 @@ Ca làm tại cửa hàng nhận hỗ trợ chịu lương, thưởng và phụ 
 - Thêm cửa hàng mới xuất hiện ở tổng quan và có đầy đủ không gian quản lý.
 - Mọi báo cáo cửa hàng khớp tổng chi tiết cùng bộ lọc.
 - Công thức lương/thưởng có kiểm thử tại các ngưỡng 7.000, 15.000 và 30.000.
+- Thưởng KPI chưa xuất hiện như kết quả chính thức trước khi quản lý tổng kết; gửi tổng kết lần hai cho cùng cửa hàng/kỳ bị từ chối.
+- Không thể kết ca với doanh thu dương nếu không có đơn hoàn tất đúng ca; nhập 0 cho chi phí và hai hình thức doanh thu vẫn được chấp nhận.
+- Lịch sử ca hiển thị/lọc theo `shift_name` và `work_date` Việt Nam, không theo mã phiên ngẫu nhiên.
 - Kết thúc điều chuyển tự thu hồi quyền và giữ lịch sử.
 - Khóa kỳ cổ tức ngăn chỉnh sửa sau xác nhận.
 - Giao diện dùng tốt ở 360 px, máy tính bảng và desktop.
@@ -204,8 +222,8 @@ Ca làm tại cửa hàng nhận hỗ trợ chịu lương, thưởng và phụ 
 ### Trang chủ nhân viên và kết ca
 
 - Giao diện trang chủ bám theo `nv_giaodienchinh.png`: điểm danh, thông tin nhân viên, ca hôm nay, bảng công việc, thông tin kết ca, TikTok và lịch sử ca.
-- Nút **KẾT CA** chỉ được mở khi đồng thời thỏa mãn: đang có ca hoạt động; tất cả công việc bắt buộc đã được tick; đã nhập doanh thu tiền mặt; đã nhập doanh thu chuyển khoản; nếu chi phí phát sinh lớn hơn 0 thì phải nhập nội dung chi.
-- Backend kiểm tra lại toàn bộ điều kiện kết ca, không tin trạng thái nút ở trình duyệt; dữ liệu kết ca được lưu gồm doanh thu theo hình thức thanh toán, chi phí, nội dung chi, trạng thái công việc và cờ TikTok.
+- Nút **KẾT CA** chỉ được mở khi đồng thời thỏa mãn: đang có ca hoạt động; tất cả công việc bắt buộc đã được tick; đã nhập chi phí (nhập 0 nếu không có); đã nhập doanh thu tiền mặt; đã nhập doanh thu chuyển khoản; nếu chi phí phát sinh lớn hơn 0 thì phải nhập nội dung chi.
+- Khi doanh thu dương mà chưa có đơn hoàn tất trong ca, giao diện hiển thị yêu cầu nhập đơn và backend từ chối kết ca. Backend kiểm tra lại toàn bộ điều kiện, không tin trạng thái nút ở trình duyệt; dữ liệu kết ca được lưu gồm doanh thu theo hình thức thanh toán, chi phí, nội dung chi, trạng thái công việc và cờ TikTok.
 
 ### Ca làm việc và lịch phân ca
 

@@ -14,9 +14,28 @@ type User = {
     name: string;
     employeeId: string | null;
     storeId: string | null;
+    homeStoreId: string | null;
+    storeName: string | null;
+    homeStoreName: string | null;
+    employeeCode: string | null;
+    employeePosition: string | null;
+    employeePhone: string | null;
+    activeTransferId: string | null;
+    isSupporting: boolean;
     shiftActive: number;
     currentShift: string | null;
     shiftStartedAt: string | null;
+    currentShiftName: string | null;
+    scheduledStart: string | null;
+    scheduledEnd: string | null;
+};
+type EmployeeShiftState = {
+    active: boolean;
+    shiftCode: string | null;
+    startedAt: string | null;
+    shiftName: string | null;
+    scheduledStart: string | null;
+    scheduledEnd: string | null;
 };
 type Store = {
     id: string;
@@ -103,7 +122,7 @@ function AppShell({ brand, subtitle, menu, active, onActive, user, children, onB
       <div className="sidebar-brand"><div className="mini-mark">{accent === "dark" ? <Flower2 size={27}/> : accent === "employee" ? <b>DORE</b> : <Store size={24}/>}</div><div><strong>{brand}</strong><span>{subtitle}</span></div><button className="close-menu" onClick={() => setOpen(false)} aria-label="ÄÃ³ng menu"><X size={21}/></button></div>
       {onBack && <button className="back-system" onClick={onBack}><ArrowLeft size={17}/> Tá»•ng quan há»‡ thá»‘ng</button>}
       <nav>{menu.map((item) => { const Icon = menuIcons[item] ?? LayoutDashboard; return <button key={item} className={active === item ? "active" : ""} onClick={() => { onActive(item); setOpen(false); window.scrollTo({ top: 0, behavior: "smooth" }); }}><i><Icon size={19} strokeWidth={1.8}/></i>{item}</button>; })}</nav>
-      <div className="sidebar-user"><div className="avatar"><UserRound size={20}/></div><div><b>{user.name}</b><span>{user.role === "MANAGER" ? "Quáº£n lÃ½ há»‡ thá»‘ng" : "NV001 Â· BÃ¡n hÃ ng"}</span></div></div>
+      <div className="sidebar-user"><div className="avatar"><UserRound size={20}/></div><div><b>{user.name}</b><span>{user.role === "MANAGER" ? "Quáº£n lÃ½ há»‡ thá»‘ng" : `${user.employeeCode ?? "NV"} Â· ${user.employeePosition ?? "NhÃ¢n viÃªn"}`}</span></div></div>
       <button className="logout-button" onClick={logout}><LogOut size={18}/> ÄÄƒng xuáº¥t</button>
     </aside>
     <section className="main-area"><header className="mobile-header"><button onClick={() => setOpen(true)} aria-label="Má»Ÿ menu"><Menu size={23}/></button><b>{brand}</b><Bell size={19}/></header>{children}</section>
@@ -194,354 +213,4 @@ function DashboardOverview({ stores, totals, loading, openStore }: {
     return <div className="page-content">
     <div className="stats-grid three"><StatCard label="Tá»”NG DOANH THU" value={compactMoney(totals.revenue)} note="â†‘ 12,45% so vá»›i thÃ¡ng trÆ°á»›c" icon="â‚«"/><StatCard label="Tá»”NG CHI PHÃ" value={compactMoney(totals.expense)} note="â†‘ 8,32% so vá»›i thÃ¡ng trÆ°á»›c" tone="orange" icon="â–¤"/><StatCard label="Tá»”NG Lá»¢I NHUáº¬N" value={compactMoney(totals.profit)} note="â†‘ 16,78% so vá»›i thÃ¡ng trÆ°á»›c" tone="blue" icon="â–¥"/></div>
     <div className="section-title"><div><h2>Quáº£n lÃ½ cá»­a hÃ ng</h2><p>Chá»n cá»­a hÃ ng Ä‘á»ƒ xem vÃ  quáº£n lÃ½ chi tiáº¿t.</p></div><span>{stores.length} cá»­a hÃ ng Ä‘ang hoáº¡t Ä‘á»™ng</span></div>
-    <div className="store-grid">{loading ? Array.from({ length: 5 }, (_, i) => <div className="store-card loading-card" key={i}/>) : stores.map((store, index) => <article className="store-card" key={store.id}><div className={`store-cover cover-${index % 5}`}><div className="shop-sign"><b>DORE</b><span>{store.name.replace("DORE ", "")}</span></div><div className="shop-front"><i /><i /><i /></div></div><div className="store-card-body"><div className="store-status">â— Hoáº¡t Ä‘á»™ng</div><h3>{store.name}</h3><p>âŒ– {store.address}</p><div className="store-numbers"><span>Doanh thu thÃ¡ng <b>{money(store.revenue)}</b></span><span>Lá»£i nhuáº­n <b>{money(store.profit)}</b></span></div><button className="store-open" onClick={() => openStore(store)}>Quáº£n lÃ½ cá»­a hÃ ng <span>â†’</span></button></div></article>)}</div>
-  </div>;
-}
-function StoresView({ stores, totals, reload, openStore }: {
-    stores: Store[];
-    totals: {
-        revenue: number;
-        expense: number;
-        profit: number;
-    };
-    reload: () => Promise<void>;
-    openStore: (store: Store) => void;
-}) {
-    const [showForm, setShowForm] = useState(false);
-    const [editing, setEditing] = useState<Store | null>(null);
-    const [name, setName] = useState("");
-    const [address, setAddress] = useState("");
-    const [message, setMessage] = useState("");
-    const [query, setQuery] = useState("");
-    const filteredStores = stores.filter((store) => `${store.name} ${store.address}`.toLocaleLowerCase("vi-VN").includes(query.toLocaleLowerCase("vi-VN")));
-    function beginEdit(store?: Store) { setEditing(store ?? null); setName(store?.name ?? "DORE "); setAddress(store?.address ?? ""); setMessage(""); setShowForm(true); }
-    async function save(event: FormEvent) { event.preventDefault(); const response = await fetch("/api/stores", { method: editing ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: editing?.id, name, address }) }); const data = await response.json(); if (!response.ok)
-        return setMessage(data.message); setShowForm(false); await reload(); }
-    async function archive(store: Store) { if (!confirm(`LÆ°u trá»¯ ${store.name}? Dá»¯ liá»‡u lá»‹ch sá»­ váº«n Ä‘Æ°á»£c giá»¯ láº¡i.`))
-        return; await fetch(`/api/stores?id=${store.id}`, { method: "DELETE" }); await reload(); }
-    return <div className="page-content"><div className="store-admin-metrics"><StatCard label="Tá»”NG Sá» Cá»¬A HÃ€NG" value={String(stores.length)} note="cá»­a hÃ ng Ä‘ang hoáº¡t Ä‘á»™ng" icon="â–§"/><StatCard label="Tá»”NG NHÃ‚N VIÃŠN" value="14" note="toÃ n há»‡ thá»‘ng" icon="âœ“"/><StatCard label="Tá»”NG DOANH THU" value={money(totals.revenue)} note="trong khoáº£ng thá»i gian chá»n" icon="â†—"/><StatCard label="Tá»”NG CHI PHÃ" value={money(totals.expense)} note="trong khoáº£ng thá»i gian chá»n" tone="orange" icon="â–¤"/><StatCard label="Tá»”NG Lá»¢I NHUáº¬N" value={money(totals.profit)} note="trong khoáº£ng thá»i gian chá»n" tone="blue" icon="â–¥"/></div><div className="toolbar"><div className="stats-inline"><b>{stores.length}</b> cá»­a hÃ ng Â· <b>{money(totals.revenue)}</b> doanh thu</div><div className="store-toolbar-actions"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="TÃ¬m kiáº¿m cá»­a hÃ ng..."/><button className="primary-button" onClick={() => beginEdit()}>ï¼‹ ThÃªm cá»­a hÃ ng</button></div></div><div className="table-card"><div className="table-head"><h2>Danh sÃ¡ch cá»­a hÃ ng</h2></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>#</th><th>Cá»­a hÃ ng</th><th>Äá»‹a chá»‰</th><th>NhÃ¢n viÃªn</th><th>Doanh thu</th><th>Chi phÃ­</th><th>Lá»£i nhuáº­n</th><th>Tráº¡ng thÃ¡i</th><th>Thao tÃ¡c</th></tr></thead><tbody>{filteredStores.map((store, index) => <tr key={store.id}><td>{index + 1}</td><td><button className="table-link" onClick={() => openStore(store)}>{store.name}</button></td><td>{store.address}</td><td><b>{index % 2 ? 4 : 3}</b> nhÃ¢n viÃªn</td><td className="money-green">{money(store.revenue)}</td><td className="money-orange">{money(store.expense)}</td><td className="money-blue">{money(store.profit)}</td><td><span className="status-pill">Hoáº¡t Ä‘á»™ng</span></td><td><div className="row-actions"><button onClick={() => beginEdit(store)}>Sá»­a</button><button className="danger" onClick={() => archive(store)}>XÃ³a</button></div></td></tr>)}</tbody></table></div></div>{showForm && <div className="modal-backdrop"><form className="modal" onSubmit={save}><div className="modal-title"><h2>{editing ? "Cáº­p nháº­t cá»­a hÃ ng" : "ThÃªm cá»­a hÃ ng má»›i"}</h2><button type="button" onClick={() => setShowForm(false)}>Ã—</button></div><label>TÃªn cá»­a hÃ ng<input value={name} onChange={e => setName(e.target.value)} required/></label><label>Äá»‹a chá»‰<input value={address} onChange={e => setAddress(e.target.value)} required/></label><div className="info-box">Há»‡ thá»‘ng sáº½ tá»± táº¡o ca lÃ m, danh má»¥c chi phÃ­, lÆ°Æ¡ng thÆ°á»Ÿng, nhÃ¢n viÃªn, Ä‘Æ¡n hÃ ng, dÃ²ng tiá»n vÃ  bÃ¡o cÃ¡o cho cá»­a hÃ ng má»›i.</div>{message && <div className="form-message">{message}</div>}<div className="modal-actions"><button type="button" onClick={() => setShowForm(false)}>Há»§y</button><button className="primary-button">{editing ? "LÆ°u thay Ä‘á»•i" : "Táº¡o cá»­a hÃ ng"}</button></div></form></div>}</div>;
-}
-function TasksView({ stores }: {
-    stores: Store[];
-}) { const [tasks, setTasks] = useState(["Má»Ÿ cá»­a hÃ ng, kiá»ƒm tra vá»‡ sinh", "Sáº¯p xáº¿p vÃ  bá»• sung hÃ ng trÃªn ká»‡", "TÆ° váº¥n vÃ  há»— trá»£ khÃ¡ch hÃ ng", "BÃ¡o cÃ¡o doanh thu cuá»‘i ca"]); const [sent, setSent] = useState(false); return <div className="page-content split-layout"><section className="form-card"><div className="form-grid three"><label>Cá»­a hÃ ng<select>{stores.map(s => <option key={s.id}>{s.name}</option>)}</select></label><label>Ca lÃ m<select><option>Ca 1 Â· 07:00 - 12:00</option><option>Ca 2 Â· 12:00 - 17:00</option><option>Ca 3 Â· 17:00 - 23:00</option></select></label><label>NgÃ y Ã¡p dá»¥ng<input type="date" defaultValue="2026-08-06"/></label></div><h2>Danh sÃ¡ch cÃ´ng viá»‡c</h2><div className="task-editor">{tasks.map((task, index) => <div key={index}><span>{index + 1}</span><input value={task} onChange={e => setTasks(tasks.map((t, i) => i === index ? e.target.value : t))}/><button onClick={() => setTasks(tasks.filter((_, i) => i !== index))}>Ã—</button></div>)}</div><button className="ghost-button" onClick={() => setTasks([...tasks, ""])}>ï¼‹ ThÃªm cÃ´ng viá»‡c</button><button className="primary-button send-button" onClick={() => setSent(true)}>â¤ LÆ°u vÃ  gá»­i</button>{sent && <div className="success-banner">âœ“ ÄÃ£ gá»­i {tasks.length} cÃ´ng viá»‡c Ä‘áº¿n nhÃ¢n viÃªn trong ca.</div>}</section><aside className="help-card"><h2>HÆ°á»›ng dáº«n</h2><ol><li>Chá»n cá»­a hÃ ng, ca vÃ  ngÃ y Ã¡p dá»¥ng.</li><li>Nháº­p cÃ´ng viá»‡c cÃ¹ng ghi chÃº cá»¥ thá»ƒ.</li><li>NhÃ¢n viÃªn nháº­n viá»‡c trÃªn trang chá»§ vÃ  tick khi hoÃ n thÃ nh.</li></ol><div className="phone-preview"><b>âœ“ CÃ´ng viá»‡c cáº§n lÃ m</b><span>{tasks.length}</span></div></aside></div>; }
-export function CashflowView({ stores, totals }: {
-    stores: Store[];
-    totals: {
-        revenue: number;
-        expense: number;
-        profit: number;
-    };
-}) { return <div className="page-content"><div className="stats-grid three"><StatCard label="DOANH THU" value={money(totals.revenue)} note="â†‘ 12,45% so vá»›i ká»³ trÆ°á»›c"/><StatCard label="CHI PHÃ" value={money(totals.expense)} note="â†‘ 8,32% so vá»›i ká»³ trÆ°á»›c" tone="orange" icon="â†“"/><StatCard label="Lá»¢I NHUáº¬N" value={money(totals.profit)} note="â†‘ 16,78% so vá»›i ká»³ trÆ°á»›c" tone="blue" icon="â–¥"/></div><div className="chart-grid"><ChartCard title="Biá»ƒu Ä‘á»“ dÃ²ng tiá»n" values={[62, 70, 65, 80, 78, 73, 86]} labels={["01", "05", "10", "15", "20", "25", "31"]}/><DonutCard revenue={totals.revenue} expense={totals.expense} profit={totals.profit}/></div><div className="table-card"><div className="table-head"><h2>Chi tiáº¿t theo cá»­a hÃ ng</h2><button onClick={() => exportCsvFile("dong-tien-he-thong.csv", [["Cá»­a hÃ ng", "Doanh thu", "Chi phÃ­", "Lá»£i nhuáº­n", "BiÃªn lá»£i nhuáº­n"], ...stores.map(s => [s.name, s.revenue, s.expense, s.profit, `${((s.profit / Math.max(1, s.revenue)) * 100).toFixed(2)}%`])])}>Xuáº¥t bÃ¡o cÃ¡o â†“</button></div><table className="data-table"><thead><tr><th>Cá»­a hÃ ng</th><th>Doanh thu</th><th>Chi phÃ­</th><th>Lá»£i nhuáº­n</th><th>BiÃªn lá»£i nhuáº­n</th></tr></thead><tbody>{stores.map(s => <tr key={s.id}><td>{s.name}</td><td>{money(s.revenue)}</td><td>{money(s.expense)}</td><td className="money-green">{money(s.profit)}</td><td>{((s.profit / Math.max(1, s.revenue)) * 100).toFixed(2)}%</td></tr>)}</tbody></table></div></div>; }
-function ChartCard({ title, values, labels }: {
-    title: string;
-    values: number[];
-    labels: string[];
-}) { return <section className="chart-card"><div className="chart-title"><h2>{title}</h2><span>â— Doanh thuã€€â— Chi phÃ­ã€€â— Lá»£i nhuáº­n</span></div><div className="bar-chart">{values.map((v, i) => <div key={i} className="bar-column"><div className="bar greenbar" style={{ height: `${v}%` }}/><div className="bar orangebar" style={{ height: `${Math.max(18, v - 31)}%` }}/><div className="bar bluebar" style={{ height: `${Math.max(12, v - 43)}%` }}/><span>{labels[i]}</span></div>)}</div></section>; }
-function DonutCard({ revenue, expense, profit }: {
-    revenue: number;
-    expense: number;
-    profit: number;
-}) { const total = revenue + expense + profit; return <section className="chart-card"><h2>Tá»· lá»‡ cÆ¡ cáº¥u</h2><div className="donut-layout"><div className="donut" style={{ background: `conic-gradient(#07863b 0 ${(revenue / total) * 100}%,#ff7a15 0 ${((revenue + expense) / total) * 100}%,#2376ee 0)` }}><div><small>Tá»•ng</small><b>{compactMoney(revenue)}</b></div></div><div className="legend"><span><i className="green-dot"/>Doanh thu <b>{money(revenue)}</b></span><span><i className="orange-dot"/>Chi phÃ­ <b>{money(expense)}</b></span><span><i className="blue-dot"/>Lá»£i nhuáº­n <b>{money(profit)}</b></span></div></div></section>; }
-function ManagerPayroll({ stores }: {
-    stores: Store[];
-}) { const rows = stores.map(s => ({ ...s, salary: 3000000, bonus: Math.max(0, Math.round(s.profit * .02)) })); const total = rows.reduce((a, s) => a + s.salary + s.bonus, 0); return <div className="page-content"><div className="notice-banner">â„¹ LÆ°Æ¡ng cá»‘ Ä‘á»‹nh quáº£n lÃ½ lÃ  3.000.000 Ä‘/cá»­a hÃ ng/thÃ¡ng. ThÆ°á»Ÿng = 2% lá»£i nhuáº­n cÆ¡ sá»Ÿ dÆ°Æ¡ng; khÃ´ng cÃ³ phá»¥ cáº¥p.</div><div className="stats-grid three"><StatCard label="Tá»”NG LÆ¯Æ NG" value={money(rows.length * 3000000)} icon="â™•"/><StatCard label="Tá»”NG THÆ¯á»NG" value={money(rows.reduce((a, s) => a + s.bonus, 0))} tone="orange" icon="âœ¦"/><StatCard label="Tá»”NG NHáº¬N" value={money(total)} tone="blue" icon="â‚«"/></div><div className="table-card"><div className="table-head"><h2>LÆ°Æ¡ng thÆ°á»Ÿng theo cá»­a hÃ ng Â· 08/2026</h2><span className="status-pill">ÄÃ£ tÃ­nh</span></div><table className="data-table"><thead><tr><th>Cá»­a hÃ ng</th><th>Lá»£i nhuáº­n cÆ¡ sá»Ÿ</th><th>LÆ°Æ¡ng cá»‘ Ä‘á»‹nh</th><th>ThÆ°á»Ÿng 2%</th><th>Tá»•ng nháº­n</th></tr></thead><tbody>{rows.map(s => <tr key={s.id}><td>{s.name}</td><td>{money(s.profit)}</td><td>{money(s.salary)}</td><td className="money-green">{money(s.bonus)}</td><td><b>{money(s.salary + s.bonus)}</b></td></tr>)}</tbody><tfoot><tr><td>Tá»”NG Cá»˜NG</td><td /><td>{money(rows.length * 3000000)}</td><td>{money(rows.reduce((a, s) => a + s.bonus, 0))}</td><td>{money(total)}</td></tr></tfoot></table></div></div>; }
-export function ReportsView({ stores, totals }: {
-    stores: Store[];
-    totals: {
-        revenue: number;
-        expense: number;
-        profit: number;
-    };
-}) { return <div className="page-content"><div className="stats-grid four"><StatCard label="Tá»•ng doanh thu" value={compactMoney(totals.revenue)}/><StatCard label="Tá»•ng chi phÃ­" value={compactMoney(totals.expense)} tone="orange"/><StatCard label="Tá»•ng lá»£i nhuáº­n" value={compactMoney(totals.profit)} tone="blue"/><StatCard label="Tá»· lá»‡ lá»£i nhuáº­n" value={`${(totals.profit / totals.revenue * 100).toFixed(2)}%`} icon="%"/></div><div className="chart-grid"><ChartCard title="Xu hÆ°á»›ng 7 ká»³ gáº§n nháº¥t" values={[54, 62, 58, 69, 65, 77, 81]} labels={["T2", "T3", "T4", "T5", "T6", "T7", "T8"]}/><DonutCard revenue={totals.revenue} expense={totals.expense} profit={totals.profit}/></div><div className="analysis-strip">â–¥ <b>Xu hÆ°á»›ng:</b> Doanh thu vÃ  lá»£i nhuáº­n tÄƒng á»•n Ä‘á»‹nh; {stores[1]?.name ?? "DORE Cáº¦N THÆ "} Ä‘ang dáº«n Ä‘áº§u doanh thu thÃ¡ng.</div></div>; }
-function TransferView({ stores }: {
-    stores: Store[];
-}) { const [saved, setSaved] = useState(false); return <div className="page-content"><div className="transfer-layout"><section className="form-card"><h2>1. ThÃ´ng tin nhÃ¢n viÃªn</h2><div className="employee-profile"><div className="avatar large">A</div><div><b>Nguyá»…n VÄƒn An Â· NV0015</b><span>NhÃ¢n viÃªn bÃ¡n hÃ ng</span><small>Äang lÃ m táº¡i cá»­a hÃ ng chÃ­nh</small></div></div><div className="detail-list"><span>Cá»­a hÃ ng chÃ­nh <b>DORE Cáº¦N THÆ </b></span><span>LÆ°Æ¡ng theo giá» <b>35.000 Ä‘</b></span><span>Phá»¥ cáº¥p há»— trá»£ <b>500.000 Ä‘</b></span></div></section><section className="form-card"><h2>2. ThÃ´ng tin Ä‘iá»u chuyá»ƒn</h2><div className="form-grid two"><label>Cá»­a hÃ ng nháº­n<select>{stores.slice(1).map(s => <option key={s.id}>{s.name}</option>)}</select></label><label>NgÆ°á»i phÃª duyá»‡t<select><option>Quáº£n trá»‹ viÃªn DORE</option></select></label><label>NgÃ y báº¯t Ä‘áº§u<input type="date" defaultValue="2026-08-10"/></label><label>NgÃ y káº¿t thÃºc<input type="date" defaultValue="2026-08-20"/></label></div><label>Ca Ã¡p dá»¥ng<div className="check-row"><span>â˜‘ Ca sÃ¡ng</span><span>â˜‘ Ca chiá»u</span><span>â˜ Ca tá»‘i</span></div></label><label>LÃ½ do<textarea defaultValue="Há»— trá»£ khai trÆ°Æ¡ng vÃ  á»•n Ä‘á»‹nh hoáº¡t Ä‘á»™ng cá»­a hÃ ng."/></label><button className="primary-button" onClick={() => setSaved(true)}>LÆ°u Ä‘iá»u chuyá»ƒn</button>{saved && <div className="success-banner">âœ“ Äiá»u chuyá»ƒn Ä‘Ã£ Ä‘Æ°á»£c lÆ°u vÃ  chá» duyá»‡t.</div>}</section><aside className="policy-card"><h2>3. Quyá»n truy cáº­p</h2><p>âœ“ ÄÆ°á»£c Ä‘Äƒng nháº­p cá»­a hÃ ng nháº­n trong thá»i gian há»— trá»£.</p><p>Ã— Tá»± thu há»“i quyá»n sau khi háº¿t háº¡n.</p><p>âŒ‚ Tá»± trá»Ÿ vá» cá»­a hÃ ng chÃ­nh.</p><hr /><h2>4. LÆ°Æ¡ng & chi phÃ­</h2><p>LÆ°Æ¡ng, thÆ°á»Ÿng, phá»¥ cáº¥p phÃ¡t sinh Ä‘Æ°á»£c tÃ­nh cho cá»­a hÃ ng nháº­n há»— trá»£.</p></aside></div><div className="table-card"><div className="table-head"><h2>Lá»‹ch sá»­ Ä‘iá»u chuyá»ƒn</h2><button>Gia háº¡n thá»i gian</button></div><table className="data-table"><thead><tr><th>Thá»i gian</th><th>Cá»­a hÃ ng há»— trá»£</th><th>Ca lÃ m viá»‡c</th><th>NgÆ°á»i duyá»‡t</th><th>Tráº¡ng thÃ¡i</th></tr></thead><tbody><tr><td>10/08 - 20/08/2026</td><td>DORE VÄ¨NH LONG</td><td>SÃ¡ng, Chiá»u</td><td>Quáº£n trá»‹ viÃªn</td><td><span className="status-pill">Äang há»— trá»£</span></td></tr></tbody></table></div></div>; }
-function DividendView({ totals }: {
-    totals: {
-        revenue: number;
-        expense: number;
-        profit: number;
-    };
-}) { const profit = Math.max(0, totals.profit); const vi = Math.round(profit * .6); const thuy = profit - vi; const [locked, setLocked] = useState(false); return <div className="page-content"><div className="stats-grid four"><StatCard label="DOANH THU THÃNG" value={compactMoney(totals.revenue)}/><StatCard label="Tá»”NG CHI PHÃ" value={compactMoney(totals.expense)} tone="orange"/><StatCard label="Lá»¢I NHUáº¬N SAU CÃ™NG" value={compactMoney(profit)} tone="blue"/><StatCard label="Tá»¶ Lá»† Lá»¢I NHUáº¬N" value={`${(profit / totals.revenue * 100).toFixed(2)}%`} icon="%"/></div><div className="chart-grid dividend-grid"><section className="chart-card"><h2>ThÃ´ng tin cá»• Ä‘Ã´ng</h2><div className="shareholder"><span>TRÆ¯Æ NG VIá»†T VI <b>60%</b></span><strong>{money(vi)}</strong></div><div className="shareholder"><span>PHáº M THá»Š DIá»„M THÃšY <b>40%</b></span><strong>{money(thuy)}</strong></div><div className="share-total"><span>Tá»•ng cá»• tá»©c</span><b>{money(profit)}</b></div><button disabled={locked} className="primary-button wide" onClick={() => setLocked(true)}>{locked ? "âœ“ Ká»³ cá»• tá»©c Ä‘Ã£ khÃ³a" : "XÃ¡c nháº­n chia cá»• tá»©c"}</button></section><ChartCard title="Lá»£i nhuáº­n 8 thÃ¡ng gáº§n nháº¥t" values={[40, 48, 44, 58, 71, 50, 62, 78]} labels={["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8"]}/></div><div className="table-card"><div className="table-head"><h2>Lá»‹ch sá»­ chia cá»• tá»©c</h2><button>Xuáº¥t Excel â†“</button></div><table className="data-table"><thead><tr><th>Ká»³</th><th>Doanh thu</th><th>Chi phÃ­</th><th>Lá»£i nhuáº­n</th><th>Viá»‡t Vi (60%)</th><th>Diá»…m ThÃºy (40%)</th><th>Tráº¡ng thÃ¡i</th></tr></thead><tbody><tr><td>08/2026</td><td>{money(totals.revenue)}</td><td>{money(totals.expense)}</td><td>{money(profit)}</td><td>{money(vi)}</td><td>{money(thuy)}</td><td><span className="status-pill">{locked ? "ÄÃ£ khÃ³a" : "Chá» xÃ¡c nháº­n"}</span></td></tr></tbody></table></div><div className="ai-analysis"><div className="analysis-illustration">â†—</div><div><h2>ğŸ“ˆ Káº¿t luáº­n phÃ¢n tÃ­ch ká»³ 08/2026</h2><p>Lá»£i nhuáº­n sau cÃ¹ng Ä‘áº¡t <b>{compactMoney(profit)}</b>, tÆ°Æ¡ng Ä‘Æ°Æ¡ng biÃªn lá»£i nhuáº­n <b>{(profit / totals.revenue * 100).toFixed(2)}%</b>. Doanh thu tÄƒng nhanh hÆ¡n chi phÃ­, cho tháº¥y hiá»‡u quáº£ váº­n hÃ nh Ä‘Æ°á»£c cáº£i thiá»‡n. Cá»• Ä‘Ã´ng TrÆ°Æ¡ng Viá»‡t Vi nháº­n {compactMoney(vi)} vÃ  Pháº¡m Thá»‹ Diá»…m ThÃºy nháº­n {compactMoney(thuy)}.</p></div></div></div>; }
-function SettingsView({ name, email }: {
-    name: string;
-    email: string;
-}) { const [saved, setSaved] = useState(false); return <div className="page-content settings-layout"><aside className="settings-nav"><h2>CÃ i Ä‘áº·t</h2><button className="active">â–£ ThÃ´ng tin cÃ¡ nhÃ¢n</button><button>â–¢ Äá»•i máº­t kháº©u</button><button>â™§ ThÃ´ng bÃ¡o</button><button>â— NgÃ´n ngá»¯</button></aside><section className="form-card"><h2>ThÃ´ng tin cÃ¡ nhÃ¢n</h2><p className="muted">Cáº­p nháº­t thÃ´ng tin tÃ i khoáº£n cá»§a báº¡n.</p><div className="profile-form"><div className="profile-photo">{name.slice(0, 1)}<button>âŒ</button></div><div className="form-grid two"><label>Há» vÃ  tÃªn<input defaultValue={name}/></label><label>Email<input defaultValue={email}/></label><label>Sá»‘ Ä‘iá»‡n thoáº¡i<input defaultValue="0901 234 567"/></label><label>Chá»©c vá»¥<select><option>Quáº£n lÃ½ há»‡ thá»‘ng</option></select></label></div></div><label>Äá»‹a chá»‰<input defaultValue="Ninh Kiá»u, TP. Cáº§n ThÆ¡"/></label><label>Giá»›i thiá»‡u<textarea defaultValue="Quáº£n lÃ½ há»‡ thá»‘ng chuá»—i cá»­a hÃ ng DORE."/></label><button className="primary-button align-right" onClick={() => setSaved(true)}>LÆ°u thay Ä‘á»•i</button>{saved && <div className="success-banner">âœ“ ÄÃ£ lÆ°u thÃ´ng tin.</div>}</section></div>; }
-function StoreWorkspace({ store, view }: {
-    store: Store;
-    view: string;
-}) {
-    const [orders, setOrders] = useState<Order[]>([]);
-    useEffect(() => { if (view === "ÄÆ¡n hÃ ng")
-        fetch(`/api/orders?storeId=${store.id}`).then(r => r.json()).then(d => setOrders(d.orders ?? [])); }, [view, store.id]);
-    const title = view === "Tá»•ng quan" ? `Tá»•ng quan ${store.name}` : view;
-    return <><div className="page-header store-header"><div><span className="breadcrumb">Cá»¬A HÃ€NG Â· {store.address}</span><h1>{title}</h1><p>Dá»¯ liá»‡u váº­n hÃ nh Ä‘á»™c láº­p cá»§a {store.name}.</p></div><div className="header-actions"><span className="date-control">â–£ ThÃ¡ng {new Date().toLocaleDateString("vi-VN", { month: "2-digit", year: "numeric" })}</span></div></div><div className="page-content">{view === "Tá»•ng quan" && <><div className="stats-grid four"><StatCard label="Doanh thu" value={money(store.revenue)}/><StatCard label="Tá»•ng chi phÃ­" value={money(store.expense)} tone="orange"/><StatCard label="Lá»£i nhuáº­n" value={money(store.profit)} tone="blue"/><StatCard label="BiÃªn lá»£i nhuáº­n" value={`${(store.profit / store.revenue * 100).toFixed(2)}%`} icon="%"/></div><div className="chart-grid"><ChartCard title="Doanh thu & lá»£i nhuáº­n theo ngÃ y" values={[38, 55, 43, 68, 61, 77, 59]} labels={["01", "05", "10", "15", "20", "25", "31"]}/><section className="chart-card"><h2>Hoáº¡t Ä‘á»™ng hÃ´m nay</h2><div className="activity-list"><span><i>6</i> NhÃ¢n viÃªn Ä‘ang lÃ m</span><span><i>3</i> Ca lÃ m viá»‡c</span><span><i>{orders.filter((order) => order.status === "COMPLETED").length}</i> ÄÆ¡n hÃ ng</span><span><i>2</i> NhÃ¢n sá»± há»— trá»£</span></div></section></div></>}{view === "ÄÆ¡n hÃ ng" ? <ManagerOrders orders={orders}/> : view !== "Tá»•ng quan" && <StoreModule store={store} view={view}/>}</div></>;
-}
-function ManagerOrders({ orders }: {
-    orders: Order[];
-}) { const active = orders.filter(o => o.status === "COMPLETED"); const cash = active.filter(o => o.payment_method === "CASH").reduce((a, o) => a + o.amount, 0); const bank = active.filter(o => o.payment_method === "BANK_TRANSFER").reduce((a, o) => a + o.amount, 0); return <><div className="stats-grid four"><StatCard label="Tá»•ng sá»‘ Ä‘Æ¡n" value={String(active.length)} icon="â–§"/><StatCard label="Tiá»n chuyá»ƒn khoáº£n" value={money(bank)} tone="blue"/><StatCard label="Tiá»n máº·t" value={money(cash)} tone="orange"/><StatCard label="Tá»•ng doanh thu" value={money(cash + bank)}/></div><OrderTable orders={orders}/></>; }
-function StoreModule({ store, view }: {
-    store: Store;
-    view: string;
-}) {
-    if (view === "CÃ i Ä‘áº·t") return <FunctionalSettings name={`Quáº£n lÃ½ ${store.name}`} email="quanly@dore.vn" storeId={store.id}/>;
-    if (view === "NhÃ¢n viÃªn") return <ReferenceEmployees store={store}/>;
-    return <ReferenceStoreModule store={store} view={view}/>;
-    const moduleData: Record<string, {
-    stats: [
-        string,
-        string
-    ][];
-    columns: string[];
-    rows: string[][];
-}> = { "Ca lÃ m viá»‡c": { stats: [["Tá»•ng ca", "3 ca"], ["Tá»•ng nhÃ¢n viÃªn", "18 ngÆ°á»i"], ["Tá»•ng lÆ°á»£t ca", "32 lÆ°á»£t"]], columns: ["Ca", "Thá»i gian", "NhÃ¢n viÃªn", "Tráº¡ng thÃ¡i"], rows: [["Ca 1", "07:00 - 12:00", "6 nhÃ¢n viÃªn", "Äang hoáº¡t Ä‘á»™ng"], ["Ca 2", "12:00 - 17:00", "7 nhÃ¢n viÃªn", "Sáº¯p tá»›i"], ["Ca 3", "17:00 - 23:00", "5 nhÃ¢n viÃªn", "Sáº¯p tá»›i"]] }, "Lá»‹ch phÃ¢n ca": { stats: [["Ca hÃ´m nay", "3"], ["NhÃ¢n viÃªn", "18"], ["Ca trá»‘ng", "2"]], columns: ["NhÃ¢n viÃªn", "Ca 1", "Ca 2", "Ca 3"], rows: [["Nguyá»…n Thá»‹ An", "07:00 - 12:00", "-", "-"], ["Tráº§n VÄƒn BÃ¬nh", "-", "12:00 - 17:00", "-"], ["LÃª Thá»‹ CÃºc", "07:00 - 12:00", "-", "17:00 - 23:00"]] }, "NhÃ¢n viÃªn": { stats: [["Tá»•ng nhÃ¢n viÃªn", "3"], ["Äang lÃ m viá»‡c", "3"], ["Táº¡m nghá»‰", "0"]], columns: ["MÃ£ NV", "Há» vÃ  tÃªn", "Chá»©c vá»¥", "SÄT", "Tráº¡ng thÃ¡i"], rows: [["NV001", "Nguyá»…n Thá»‹ An", "BÃ¡n hÃ ng", "0765 109 784", "Äang lÃ m"], ["NV002", "Tráº§n VÄƒn BÃ¬nh", "BÃ¡n hÃ ng", "0923 456 789", "Äang lÃ m"], ["NV003", "LÃª Thá»‹ CÃºc", "Thu ngÃ¢n", "0812 345 678", "Äang lÃ m"]] }, "Nháº­p hÃ ng": { stats: [["Tá»•ng máº·t hÃ ng", "28"], ["Sá»‘ lÆ°á»£ng", "128 bao"], ["Chi phÃ­ nháº­p", "124.850.000 Ä‘"]], columns: ["Máº·t hÃ ng", "Sá»‘ lÆ°á»£ng", "CÃ¢n náº·ng", "ÄÆ¡n giÃ¡/kg", "ThÃ nh tiá»n"], rows: [["ChÃ¢n vÃ¡y", "15 bao", "120 kg", "120.000 Ä‘", "14.415.000 Ä‘"], ["Äá»“ nam", "20 bao", "210,5 kg", "150.000 Ä‘", "31.595.000 Ä‘"], ["Ão dÃ i", "10 bao", "80 kg", "200.000 Ä‘", "16.015.000 Ä‘"]] }, "Cháº¥m cÃ´ng": { stats: [["NhÃ¢n viÃªn", "6"], ["Tá»•ng giá» lÃ m", "27,91 giá»"], ["Tá»•ng lÆ°Æ¡ng", "558.200 Ä‘"]], columns: ["NhÃ¢n viÃªn", "Ca", "Giá» vÃ o", "Giá» káº¿t ca", "Sá»‘ giá»", "LÆ°Æ¡ng nháº­n"], rows: [["Nguyá»…n Thá»‹ An", "Ca 1", "06:58", "12:05", "5,07", "101.400 Ä‘"], ["Tráº§n VÄƒn BÃ¬nh", "Ca 2", "11:59", "17:02", "5,05", "101.000 Ä‘"], ["LÃª Thá»‹ CÃºc", "Ca 3", "16:58", "23:05", "6,12", "122.400 Ä‘"]] }, "LÆ°Æ¡ng thÆ°á»Ÿng": { stats: [["Tá»•ng giá»", "612,5 giá»"], ["LÆ°Æ¡ng cá»©ng", "12.250.000 Ä‘"], ["Tá»•ng chi tráº£", "20.950.000 Ä‘"]], columns: ["NhÃ¢n viÃªn", "Giá» lÃ m", "LÆ°Æ¡ng cá»©ng", "Phá»¥ cáº¥p TikTok", "ThÆ°á»Ÿng", "Tá»•ng nháº­n"], rows: [["Nguyá»…n Thá»‹ An", "208,5", "4.170.000 Ä‘", "500.000 Ä‘", "3.000.000 Ä‘", "7.670.000 Ä‘"], ["Tráº§n VÄƒn BÃ¬nh", "201", "4.020.000 Ä‘", "700.000 Ä‘", "2.000.000 Ä‘", "6.720.000 Ä‘"], ["LÃª Thá»‹ CÃºc", "203", "4.060.000 Ä‘", "300.000 Ä‘", "1.700.000 Ä‘", "6.560.000 Ä‘"]] }, "DÃ²ng tiá»n": { stats: [["Doanh thu", money(store.revenue)], ["Chi phÃ­", money(store.expense)], ["Lá»£i nhuáº­n", money(store.profit)]], columns: ["Loáº¡i chi phÃ­", "Sá»‘ tiá»n", "Ká»³", "Ghi chÃº"], rows: [["Máº·t báº±ng", "18.000.000 Ä‘", "08/2026", "Chi phÃ­ cá»‘ Ä‘á»‹nh"], ["Marketing", "5.000.000 Ä‘", "08/2026", "Quáº£ng cÃ¡o thÃ¡ng"], ["Äiá»‡n, nÆ°á»›c, wifi", "4.600.000 Ä‘", "08/2026", "ÄÃ£ Ä‘á»‘i soÃ¡t"]] }, "BÃ¡o cÃ¡o": { stats: [["NhÃ¢n viÃªn", "3"], ["Giá» lÃ m", "612,5"], ["Tá»•ng lÆ°Æ¡ng", "20.950.000 Ä‘"]], columns: ["NhÃ¢n viÃªn", "Giá» lÃ m", "LÆ°Æ¡ng cá»©ng", "ThÆ°á»Ÿng", "Phá»¥ cáº¥p", "LÆ°Æ¡ng nháº­n"], rows: [["Nguyá»…n Thá»‹ An", "208,5", "4.170.000 Ä‘", "3.000.000 Ä‘", "500.000 Ä‘", "7.670.000 Ä‘"], ["Tráº§n VÄƒn BÃ¬nh", "201", "4.020.000 Ä‘", "2.000.000 Ä‘", "700.000 Ä‘", "6.720.000 Ä‘"]] } }; if (view === "CÃ i Ä‘áº·t")
-    return <SettingsView name={`Quáº£n lÃ½ ${store.name}`} email="quanly@dore.vn"/>; const data = moduleData[view] ?? moduleData["Ca lÃ m viá»‡c"]; return <><div className="stats-grid three">{data.stats.map(([label, value], i) => <StatCard key={label} label={label} value={value} tone={i === 1 ? "orange" : i === 2 ? "blue" : "green"}/>)}</div><div className="table-card"><div className="table-head"><h2>Chi tiáº¿t {view.toLowerCase()}</h2><div><button>Bá»™ lá»c</button><button>Xuáº¥t Excel â†“</button></div></div><div className="data-table-wrap"><table className="data-table"><thead><tr>{data.columns.map(c => <th key={c}>{c}</th>)}</tr></thead><tbody>{data.rows.map((row, i) => <tr key={i}>{row.map((cell, j) => <td key={j} className={j === row.length - 1 ? "money-green" : ""}>{cell}</td>)}</tr>)}</tbody></table></div></div></>; }
-function EmployeePortal({ user, onUser }: {
-    user: User;
-    onUser: (user: User) => void;
-}) {
-    const [view, setView] = useState("Trang chá»§");
-    const [shift, setShift] = useState({ active: Boolean(user.shiftActive), shiftCode: user.currentShift, startedAt: user.shiftStartedAt });
-    const [orders, setOrders] = useState<Order[]>([]);
-    const [tiktok, setTiktok] = useState(false);
-    const loadOrders = useCallback(() => fetch("/api/orders").then(response => response.json()).then(data => setOrders(data.orders ?? [])), []);
-    useEffect(() => {
-        if (view === "ÄÆ¡n hÃ ng" || view === "DÃ²ng tiá»n" || view === "Trang chá»§")
-            loadOrders();
-    }, [view, loadOrders, shift.active]);
-    async function shiftAction(action: "start" | "end", closing?: ShiftClosePayload) {
-        const response = await fetch("/api/shift", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, tiktok, ...closing }) });
-        const data = await response.json();
-        if (!response.ok)
-            return alert(data.message);
-        const next = { ...user, shiftActive: data.active ? 1 : 0, currentShift: data.active ? data.shiftCode : null, shiftStartedAt: data.active ? data.startedAt : null };
-        onUser(next);
-        setShift({ active: data.active, shiftCode: data.active ? data.shiftCode : null, startedAt: data.active ? data.startedAt : null });
-        if (action === "end" && data.tiktokAllowance)
-            alert(`ÄÃ£ ghi nháº­n phá»¥ cáº¥p TikTok ${money(data.tiktokAllowance)}.`);
-        if (action === "end") setTiktok(false);
-        loadOrders();
-    }
-    const showStoreBrand = view === "Trang chá»§" || view === "ÄÆ¡n hÃ ng";
-    return <AppShell brand="DORE THá»T Ná»T" subtitle="Há»‡ thá»‘ng lÃ m viá»‡c nhÃ¢n viÃªn" menu={employeeMenu} active={view} onActive={setView} user={user} accent="employee">
-        <div className={`page-header employee-header ${showStoreBrand ? "employee-brand-header" : ""}`}>
-            <div>{showStoreBrand ? <div className="employee-brand-title"><strong>DORE THá»T Ná»T</strong><span>Há»† THá»NG LÃ€M VIá»†C NHÃ‚N VIÃŠN</span></div> : <><span className="breadcrumb">NHÃ‚N VIÃŠN Â· NV001</span><h1>{view}</h1><p>Dá»¯ liá»‡u cÃ¡ nhÃ¢n vÃ  ca lÃ m viá»‡c hiá»‡n táº¡i cá»§a báº¡n.</p></>}</div>
-            <div className="header-user"><button className="bell" aria-label="ThÃ´ng bÃ¡o"><Bell size={20}/><span>2</span></button><div className="avatar"><UserRound size={20}/></div><span><b>{user.name}</b><small>NV001</small></span></div>
-        </div>
-        <div className="page-content"><EmployeeView user={user} view={view} shift={shift} orders={orders} onShift={shiftAction} tiktok={tiktok} setTiktok={setTiktok} reloadOrders={loadOrders}/></div>
-    </AppShell>;
-}
-function EmployeeView({ user, view, shift, orders, onShift, tiktok, setTiktok, reloadOrders }: {
-    user: User;
-    view: string;
-    shift: {
-        active: boolean;
-        shiftCode: string | null;
-        startedAt: string | null;
-    };
-    orders: Order[];
-    onShift: (action: "start" | "end", closing?: ShiftClosePayload) => void;
-    tiktok: boolean;
-    setTiktok: (v: boolean) => void;
-    reloadOrders: () => void;
-}) { if (view === "Trang chá»§")
-    return <ReferenceEmployeeHome user={user} shift={shift} orders={orders} onShift={onShift} tiktok={tiktok} setTiktok={setTiktok}/>; if (view === "ÄÆ¡n hÃ ng")
-    return <EmployeeOrders shift={shift} orders={orders} reload={reloadOrders}/>; if (view === "Báº£ng lÆ°Æ¡ng")
-    return <ReferenceEmployeePayroll/>; if (view === "DÃ²ng tiá»n")
-    return <ReferenceEmployeeCashflow shift={shift} orders={orders}/>; return <ReferenceEmployeeShiftHistory/>; }
-function EmployeeHome({ user, shift, orders, onShift, tiktok, setTiktok }: {
-    user: User;
-    shift: {
-        active: boolean;
-        shiftCode: string | null;
-        startedAt: string | null;
-    };
-    orders: Order[];
-    onShift: (a: "start" | "end", closing?: ShiftClosePayload) => void;
-    tiktok: boolean;
-    setTiktok: (v: boolean) => void;
-}) { const activeOrders = orders.filter(o => o.status === "COMPLETED"); const total = activeOrders.reduce((a, o) => a + o.amount, 0); return <><div className="employee-hero-grid"><section className="attendance-card"><span>ÄIá»‚M DANH</span><strong>{new Date().toLocaleTimeString("vi-VN")}</strong><button className={shift.active ? "end-shift" : "primary-button"} onClick={() => onShift(shift.active ? "end" : "start")}>{shift.active ? "Káº¾T CA" : "ÄIá»‚M DANH VÃ€O CA"}</button><small>{shift.active ? `Äang lÃ m Â· ${shift.shiftCode}` : "Báº¡n chÆ°a báº¯t Ä‘áº§u ca lÃ m viá»‡c"}</small></section><section className="info-card"><span>THÃ”NG TIN NHÃ‚N VIÃŠN</span><p>MÃ£ nhÃ¢n viÃªn <b>NV001</b></p><p>Há» vÃ  tÃªn <b>{user.name}</b></p><p>Chá»©c vá»¥ <b>NhÃ¢n viÃªn bÃ¡n hÃ ng</b></p><p>Cá»­a hÃ ng <b>DORE THá»T Ná»T</b></p></section><section className="shift-card"><span>CA LÃ€M VIá»†C HÃ”M NAY</span><div><b>CA 1</b><strong>07:00 - 12:00</strong></div><small className={shift.active ? "active-text" : "warning-text"}>{shift.active ? "â— Äang trong ca" : "ChÆ°a Ä‘iá»ƒm danh"}</small></section></div><FunctionalEmployeeTasks user={user}/><section className="closing-card"><div><h2>ThÃ´ng tin káº¿t ca</h2><p>Tá»•ng sá»‘ Ä‘Æ¡n <b>{activeOrders.length}</b></p><p>Doanh thu theo Ä‘Æ¡n <b>{money(total)}</b></p></div><label className="tiktok-box"><b>â™ª CLIP TIKTOK</b><span>Náº¿u ca nÃ y cÃ³ lÃ m clip TikTok, vui lÃ²ng tick bÃªn dÆ°á»›i.</span><span><input type="checkbox" checked={tiktok} onChange={e => setTiktok(e.target.checked)}/> Ca nÃ y cÃ³ lÃ m clip TikTok (+25.000 Ä‘)</span></label></section></>; }
-function EmployeeOrders({ shift, orders, reload }: {
-    shift: {
-        active: boolean;
-        shiftCode: string | null;
-        startedAt: string | null;
-    };
-    orders: Order[];
-    reload: () => void;
-}) {
-    const emptyForm = { customerName: "", phone: "", age: "", amount: "", paymentMethod: "CASH" };
-    const [search, setSearch] = useState("");
-    const [fromDate, setFromDate] = useState("");
-    const [toDate, setToDate] = useState("");
-    const [payment, setPayment] = useState("ALL");
-    const [page, setPage] = useState(1);
-    const [message, setMessage] = useState("");
-    const [success, setSuccess] = useState("");
-    const [editing, setEditing] = useState<Order | null>(null);
-    const [detail, setDetail] = useState<Order | null>(null);
-    const [form, setForm] = useState(emptyForm);
-    const formRef = useRef<HTMLDivElement | null>(null);
-    const pageSize = 5;
-    const filtered = useMemo(() => orders.filter(order => {
-        const keyword = search.trim().toLocaleLowerCase("vi-VN");
-        const matchesSearch = !keyword || [order.code, order.customer_name ?? "", order.phone ?? ""].some(value => value.toLocaleLowerCase("vi-VN").includes(keyword));
-        const createdDate = localDate(order.created_at);
-        return matchesSearch && (!fromDate || createdDate >= fromDate) && (!toDate || createdDate <= toDate) && (payment === "ALL" || order.payment_method === payment);
-    }), [orders, search, fromDate, toDate, payment]);
-    const completed = filtered.filter(order => order.status === "COMPLETED");
-    const cash = completed.filter(order => order.payment_method === "CASH").reduce((sum, order) => sum + order.amount, 0);
-    const bank = completed.filter(order => order.payment_method === "BANK_TRANSFER").reduce((sum, order) => sum + order.amount, 0);
-    const pages = Math.max(1, Math.ceil(filtered.length / pageSize));
-    const paged = filtered.slice((Math.min(page, pages) - 1) * pageSize, Math.min(page, pages) * pageSize);
-
-    function scrollToForm() {
-        setTimeout(() => formRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 0);
-    }
-    function beginAdd() {
-        if (!shift.active)
-            return;
-        setEditing(null);
-        setForm(emptyForm);
-        setMessage("");
-        setSuccess("");
-        scrollToForm();
-    }
-    function beginEdit(order: Order) {
-        if (!shift.active || order.status !== "COMPLETED")
-            return;
-        setEditing(order);
-        setForm({ customerName: order.customer_name ?? "", phone: order.phone ?? "", age: order.age?.toString() ?? "", amount: order.amount.toString(), paymentMethod: order.payment_method });
-        setMessage("");
-        setSuccess("");
-        scrollToForm();
-    }
-    function resetForm() {
-        setEditing(null);
-        setForm(emptyForm);
-        setMessage("");
-    }
-    async function save(event: FormEvent<HTMLFormElement>) {
-        event.preventDefault();
-        if (!shift.active)
-            return setMessage("Báº¡n chÆ°a báº¯t Ä‘áº§u ca lÃ m viá»‡c");
-        setMessage("");
-        setSuccess("");
-        const response = await fetch("/api/orders", {
-            method: editing ? "PATCH" : "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(editing ? { id: editing.id, ...form } : form),
-        });
-        const result = await response.json();
-        if (!response.ok)
-            return setMessage(result.message ?? "KhÃ´ng thá»ƒ lÆ°u Ä‘Æ¡n hÃ ng.");
-        setSuccess(editing ? `ÄÃ£ cáº­p nháº­t Ä‘Æ¡n ${editing.code}.` : `ÄÃ£ táº¡o Ä‘Æ¡n ${result.code}.`);
-        resetForm();
-        reload();
-    }
-    async function cancel(id: string) {
-        if (!confirm("Há»§y Ä‘Æ¡n nÃ y? Dá»¯ liá»‡u váº«n Ä‘Æ°á»£c giá»¯ láº¡i Ä‘á»ƒ Ä‘á»‘i soÃ¡t."))
-            return;
-        const response = await fetch(`/api/orders?id=${encodeURIComponent(id)}`, { method: "DELETE" });
-        const result = await response.json();
-        if (!response.ok)
-            return setMessage(result.message ?? "KhÃ´ng thá»ƒ há»§y Ä‘Æ¡n hÃ ng.");
-        if (editing?.id === id)
-            resetForm();
-        setSuccess("ÄÆ¡n hÃ ng Ä‘Ã£ Ä‘Æ°á»£c há»§y vÃ  lÆ°u trong lá»‹ch sá»­.");
-        reload();
-    }
-    function resetFilters() {
-        setSearch("");
-        setFromDate("");
-        setToDate("");
-        setPayment("ALL");
-        setPage(1);
-        reload();
-    }
-    function exportCsv() {
-        const csvCell = (value: string | number | null) => {
-            const raw = String(value ?? "");
-            const safe = /^[=+\-@]/.test(raw) ? `'${raw}` : raw;
-            return `"${safe.replaceAll('"', '""')}"`;
-        };
-        const rows = [
-            ["STT", "MÃ£ Ä‘Æ¡n hÃ ng", "TÃªn khÃ¡ch hÃ ng", "SÄT", "Tuá»•i", "NV bÃ¡n hÃ ng", "Ca", "GiÃ¡ trá»‹ Ä‘Æ¡n hÃ ng", "HÃ¬nh thá»©c thanh toÃ¡n", "Thá»i gian táº¡o", "Tráº¡ng thÃ¡i"],
-            ...filtered.map((order, index) => [index + 1, order.code, order.customer_name ?? "", order.phone ?? "", order.age ?? "", order.employeeName, shift.shiftCode ?? "", order.amount, order.payment_method === "CASH" ? "Tiá»n máº·t" : "Chuyá»ƒn khoáº£n", dateTime(order.created_at), order.status === "COMPLETED" ? "HoÃ n táº¥t" : "ÄÃ£ há»§y"]),
-        ];
-        const blob = new Blob(["\uFEFF" + rows.map(row => row.map(csvCell).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = `don-hang-${shift.shiftCode ?? "ca-hien-tai"}.csv`;
-        link.click();
-        URL.revokeObjectURL(url);
-    }
-    function updateForm(field: keyof typeof form, value: string) {
-        setForm(current => ({ ...current, [field]: value }));
-    }
-
-    return <section className="employee-orders-screen">
-        {!shift.active && <div className="locked-banner">ğŸ”’ <b>Báº¡n chÆ°a báº¯t Ä‘áº§u ca lÃ m viá»‡c</b><span>HÃ£y Ä‘iá»ƒm danh táº¡i Trang chá»§ Ä‘á»ƒ má»Ÿ chá»©c nÄƒng thÃªm Ä‘Æ¡n hÃ ng.</span></div>}
-        <div className="orders-panel">
-            <div className="orders-panel-head">
-                <div className="orders-heading"><span className="orders-heading-icon"><ShoppingCart size={23}/></span><div><h2>ÄÆ N HÃ€NG</h2><p>Quáº£n lÃ½ danh sÃ¡ch Ä‘Æ¡n hÃ ng</p></div></div>
-                <div className="orders-actions"><button className="secondary-button" onClick={exportCsv} disabled={filtered.length === 0}><Download size={17}/> Xuáº¥t Excel</button><button className="primary-button" disabled={!shift.active} onClick={beginAdd}><Plus size={18}/> ThÃªm Ä‘Æ¡n hÃ ng</button></div>
-            </div>
-            <div className="order-stats">
-                <div className="order-stat-card"><i><ShoppingBag size={26}/></i><span>Tá»•ng sá»‘ Ä‘Æ¡n<strong>{completed.length}</strong></span></div>
-                <div className="order-stat-card"><i><BadgeDollarSign size={26}/></i><span>Tá»•ng tiá»n CK<strong>{money(bank)}</strong></span></div>
-                <div className="order-stat-card"><i><Banknote size={26}/></i><span>Tá»•ng tiá»n TM<strong>{money(cash)}</strong></span></div>
-                <div className="order-stat-card"><i><WalletCards size={26}/></i><span>Tá»•ng tiá»n<strong>{money(cash + bank)}</strong></span></div>
-            </div>
-            <div className="order-filters">
-                <label className="order-search"><span className="sr-only">TÃ¬m kiáº¿m Ä‘Æ¡n hÃ ng</span><input value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} placeholder="TÃ¬m kiáº¿m mÃ£ Ä‘Æ¡n hÃ ng, tÃªn khÃ¡ch hÃ ng, SÄT..."/></label>
-                <label><span className="sr-only">Tá»« ngÃ y</span><input type="date" value={fromDate} onChange={event => { setFromDate(event.target.value); setPage(1); }}/></label>
-                <label><span className="sr-only">Äáº¿n ngÃ y</span><input type="date" value={toDate} onChange={event => { setToDate(event.target.value); setPage(1); }}/></label>
-                <label><span>HÃ¬nh thá»©c thanh toÃ¡n</span><select value={payment} onChange={event => { setPayment(event.target.value); setPage(1); }}><option value="ALL">Táº¥t cáº£</option><option value="CASH">Tiá»n máº·t</option><option value="BANK_TRANSFER">Chuyá»ƒn khoáº£n</option></select></label>
-                <button className="refresh-button" onClick={resetFilters}><RefreshCw size={17}/> LÃ m má»›i</button>
-            </div>
-            <div className="data-table-wrap">
-                <table className="order-table"><thead><tr><th>STT</th><th>MÃ£ Ä‘Æ¡n hÃ ng</th><th>TÃªn khÃ¡ch hÃ ng</th><th>SÄT</th><th>Tuá»•i</th><th>NV bÃ¡n hÃ ng</th><th>GiÃ¡ trá»‹ Ä‘Æ¡n hÃ ng</th><th>HÃ¬nh thá»©c thanh toÃ¡n</th><th>Thá»i gian táº¡o</th><th>Thao tÃ¡c</th></tr></thead>
-                    <tbody>{paged.length === 0 ? <tr><td colSpan={10} className="empty-cell">{shift.active ? "ChÆ°a cÃ³ Ä‘Æ¡n hÃ ng phÃ¹ há»£p trong ca hiá»‡n táº¡i." : "Báº¡n chÆ°a báº¯t Ä‘áº§u ca lÃ m viá»‡c"}</td></tr> : paged.map((order, index) => <tr key={order.id} className={order.status === "VOID" ? "void-order" : ""}><td>{(Math.min(page, pages) - 1) * pageSize + index + 1}</td><td><b className="order-code">{order.code}</b></td><td>{order.customer_name || "â€”"}</td><td>{order.phone || "â€”"}</td><td>{order.age ?? "â€”"}</td><td><b>{order.employeeName}</b><small>{shift.shiftCode ? `(${shift.shiftCode})` : ""}</small></td><td><b>{money(order.amount)}</b></td><td><span className={`order-payment ${order.payment_method === "CASH" ? "cash" : "bank"}`}>{order.payment_method === "CASH" ? "Tiá»n máº·t" : "Chuyá»ƒn khoáº£n"}</span></td><td>{dateTime(order.created_at)}</td><td><div className="order-row-actions"><button title="Xem chi tiáº¿t" onClick={() => setDetail(order)}><Eye size={15}/></button><button title="Sá»­a Ä‘Æ¡n" disabled={!shift.active || order.status !== "COMPLETED"} onClick={() => beginEdit(order)}><Pencil size={15}/></button><button className="danger" title="Há»§y Ä‘Æ¡n" disabled={!shift.active || order.status !== "COMPLETED"} onClick={() => cancel(order.id)}><Trash2 size={15}/></button></div></td></tr>)}</tbody>
-                </table>
-            </div>
-            <div className="order-pagination"><span>Hiá»ƒn thá»‹ {filtered.length === 0 ? 0 : (Math.min(page, pages) - 1) * pageSize + 1} - {Math.min(Math.min(page, pages) * pageSize, filtered.length)} cá»§a {filtered.length} Ä‘Æ¡n hÃ ng</span><div><button disabled={page <= 1} onClick={() => setPage(current => Math.max(1, current - 1))}>â€¹</button>{Array.from({ length: pages }, (_, index) => index + 1).slice(0, 5).map(number => <button key={number} className={Math.min(page, pages) === number ? "active" : ""} onClick={() => setPage(number)}>{number}</button>)}<button disabled={page >= pages} onClick={() => setPage(current => Math.min(pages, current + 1))}>â€º</button></div></div>
-        </div>
-        <div className="order-form-card" ref={formRef}>
-            <div className="order-form-title"><ShoppingCart size={21}/><h2>{editing ? `Sá»¬A ÄÆ N HÃ€NG ${editing.code}` : "THÃŠM ÄÆ N HÃ€NG Má»šI"}</h2></div>
-            <form onSubmit={save}>
-                <fieldset disabled={!shift.active}>
-                    <div className="order-form-grid">
-                        <label>MÃ£ Ä‘Æ¡n hÃ ng<input value={editing?.code ?? "Tá»± Ä‘á»™ng khi lÆ°u"} disabled/><small>MÃ£ Ä‘Æ¡n hÃ ng Ä‘Æ°á»£c táº¡o tá»± Ä‘á»™ng</small></label>
-                        <label>TÃªn khÃ¡ch hÃ ng <small>(khÃ´ng báº¯t buá»™c)</small><input value={form.customerName} onChange={event => updateForm("customerName", event.target.value)} placeholder="Nháº­p tÃªn khÃ¡ch hÃ ng" maxLength={100}/></label>
-                        <label>SÄT <small>(khÃ´ng báº¯t buá»™c)</small><input value={form.phone} onChange={event => updateForm("phone", event.target.value)} placeholder="Nháº­p sá»‘ Ä‘iá»‡n thoáº¡i" inputMode="tel" maxLength={20}/></label>
-                        <label>Tuá»•i <small>(khÃ´ng báº¯t buá»™c)</small><input value={form.age} onChange={event => updateForm("age", event.target.value)} placeholder="Nháº­p tuá»•i" type="number" min="1" max="120"/></label>
-                        <label>NV bÃ¡n hÃ ng<input value={`Nguyá»…n Thá»‹ An${shift.shiftCode ? ` (${shift.shiftCode})` : ""}`} disabled/><small>Tá»± Ä‘á»™ng gáº¯n theo tÃ i khoáº£n vÃ  ca hiá»‡n táº¡i</small></label>
-                        <label>GiÃ¡ trá»‹ Ä‘Æ¡n hÃ ng<input value={form.amount} onChange={event => updateForm("amount", event.target.value)} placeholder="Nháº­p giÃ¡ trá»‹ Ä‘Æ¡n hÃ ng" type="number" min="1" step="1" required/></label>
-                        <label>HÃ¬nh thá»©c thanh toÃ¡n<select value={form.paymentMethod} onChange={event => updateForm("paymentMethod", event.target.value)} required><option value="CASH">Tiá»n máº·t</option><option value="BANK_TRANSFER">Chuyá»ƒn khoáº£n</option></select></label>
-                    </div>
-                </fieldset>
-                {message && <div className="form-message">{message}</div>}
-                {success && <div className="order-success">âœ“ {success}</div>}
-                <div className="order-form-actions"><button type="button" className="secondary-button" onClick={resetForm}>Há»§y</button><button className="primary-button" disabled={!shift.active}>{editing ? "LÆ°u thay Ä‘á»•i" : "LÆ°u Ä‘Æ¡n hÃ ng"}</button></div>
-            </form>
-        </div>
-        {detail && <div className="modal-backdrop"><div className="modal order-detail-modal"><div className="modal-title"><h2>Chi tiáº¿t Ä‘Æ¡n {detail.code}</h2><button onClick={() => setDetail(null)}>Ã—</button></div><dl><div><dt>KhÃ¡ch hÃ ng</dt><dd>{detail.customer_name || "KhÃ¡ch láº»"}</dd></div><div><dt>Sá»‘ Ä‘iá»‡n thoáº¡i</dt><dd>{detail.phone || "KhÃ´ng cung cáº¥p"}</dd></div><div><dt>Tuá»•i</dt><dd>{detail.age ?? "KhÃ´ng cung cáº¥p"}</dd></div><div><dt>NhÃ¢n viÃªn / ca</dt><dd>{detail.employeeName} Â· {shift.shiftCode}</dd></div><div><dt>Thanh toÃ¡n</dt><dd>{detail.payment_method === "CASH" ? "Tiá»n máº·t" : "Chuyá»ƒn khoáº£n"}</dd></div><div><dt>GiÃ¡ trá»‹</dt><dd>{money(detail.amount)}</dd></div><div><dt>Thá»i gian táº¡o</dt><dd>{dateTime(detail.created_at)}</dd></div><div><dt>Tráº¡ng thÃ¡i</dt><dd>{detail.status === "COMPLETED" ? "HoÃ n táº¥t" : "ÄÃ£ há»§y"}</dd></div></dl></div></div>}
-    </section>;
-}
-function OrderTable({ orders, onCancel }: {
-    orders: Order[];
-    onCancel?: (id: string) => void;
-}) { return <div className="table-card"><div className="table-head"><h2>Danh sÃ¡ch Ä‘Æ¡n</h2><span>{orders.length} Ä‘Æ¡n trong ca</span></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>MÃ£ Ä‘Æ¡n</th><th>Thá»i gian</th><th>KhÃ¡ch hÃ ng</th><th>NhÃ¢n viÃªn</th><th>Thanh toÃ¡n</th><th>GiÃ¡ trá»‹</th><th>Tráº¡ng thÃ¡i</th>{onCancel && <th />}</tr></thead><tbody>{orders.length === 0 ? <tr><td colSpan={8} className="empty-cell">ChÆ°a cÃ³ Ä‘Æ¡n hÃ ng trong ca hiá»‡n táº¡i.</td></tr> : orders.map(o => <tr key={o.id}><td><b>{o.code}</b></td><td>{dateTime(o.created_at)}</td><td>{o.customer_name || "KhÃ¡ch láº»"}</td><td>{o.employeeName}</td><td>{o.payment_method === "CASH" ? "Tiá»n máº·t" : "Chuyá»ƒn khoáº£n"}</td><td><b>{money(o.amount)}</b></td><td><span className={o.status === "COMPLETED" ? "status-pill" : "void-pill"}>{o.status === "COMPLETED" ? "HoÃ n táº¥t" : "ÄÃ£ há»§y"}</span></td>{onCancel && <td><button className="danger-link" disabled={o.status !== "COMPLETED"} onClick={() => onCancel(o.id)}>Há»§y</button></td>}</tr>)}</tbody></table></div></div>; }
-function EmployeePayroll() { return <><div className="filter-card"><label>ThÃ¡ng<input type="month" defaultValue="2026-08"/></label><label>Äáº¿n ngÃ y<input type="date" defaultValue="2026-08-06"/></label><button className="primary-button">Xem thá»‘ng kÃª</button></div><div className="stats-grid four"><StatCard label="Tá»”NG THU NHáº¬P" value="5.250.000 Ä‘"/><StatCard label="Tá»”NG LÆ¯Æ NG" value="4.800.000 Ä‘" tone="blue"/><StatCard label="Tá»”NG THÆ¯á»NG" value="450.000 Ä‘" tone="orange"/><StatCard label="HOÃ€N THÃ€NH CA" value="100%" icon="âœ“"/></div><div className="table-card"><div className="table-head"><h2>Chi tiáº¿t lÆ°Æ¡ng theo ca</h2><span>ÄÆ¡n giÃ¡ 20.000 Ä‘/giá»</span></div><table className="data-table"><thead><tr><th>NgÃ y lÃ m</th><th>Ca</th><th>Giá» vÃ o</th><th>Giá» káº¿t</th><th>Sá»‘ giá»</th><th>LÆ°Æ¡ng cá»©ng</th><th>ThÆ°á»Ÿng</th><th>ThÃ nh tiá»n</th></tr></thead><tbody>{[["05/08/2026", "Ca 1", "07:02", "12:05", "5,05", "101.000 Ä‘", "50.000 Ä‘", "151.000 Ä‘"], ["04/08/2026", "Ca 2", "12:01", "17:03", "5,03", "100.600 Ä‘", "0 Ä‘", "100.600 Ä‘"], ["03/08/2026", "Ca 3", "17:00", "23:03", "6,05", "121.000 Ä‘", "80.000 Ä‘", "201.000 Ä‘"]].map((r, i) => <tr key={i}>{r.map((x, j) => <td key={j} className={j === 7 ? "money-green" : ""}>{x}</td>)}</tr>)}</tbody></table></div></>; }
-export function EmployeeCashflow({ shift, orders }: {
-    shift: {
-        active: boolean;
-    };
-    orders: Order[];
-}) { const active = orders.filter(o => o.status === "COMPLETED"); const revenue = active.reduce((a, o) => a + o.amount, 0); const cost = shift.active ? 350000 : 0; return <>{!shift.active && <div className="locked-banner"><b>Báº¡n chÆ°a báº¯t Ä‘áº§u ca lÃ m viá»‡c</b><span>Sá»‘ liá»‡u dÃ²ng tiá»n sáº½ xuáº¥t hiá»‡n khi ca Ä‘Æ°á»£c kÃ­ch hoáº¡t.</span></div>}<div className="stats-grid three"><StatCard label="DOANH THU CA" value={money(revenue)} note={`${active.length} Ä‘Æ¡n hÃ ng`}/><StatCard label="CHI PHÃ CA" value={money(cost)} tone="orange" note="Chi phÃ­ phÃ¡t sinh"/><StatCard label="Lá»¢I NHUáº¬N Táº M TÃNH" value={money(Math.max(0, revenue - cost))} tone="blue" note="Doanh thu - Chi phÃ­"/></div><div className="table-card"><div className="table-head"><h2>Lá»‹ch sá»­ dÃ²ng tiá»n cÃ¡c ca</h2><button>Xuáº¥t Excel â†“</button></div><table className="data-table"><thead><tr><th>NgÃ y</th><th>Ca</th><th>Sá»‘ Ä‘Æ¡n</th><th>Doanh thu</th><th>Chi phÃ­</th><th>Lá»£i nhuáº­n</th><th>Tráº¡ng thÃ¡i</th></tr></thead><tbody><tr><td>05/08/2026</td><td>Ca 1</td><td>56</td><td>2.350.000 Ä‘</td><td>320.000 Ä‘</td><td className="money-green">2.030.000 Ä‘</td><td><span className="status-pill">ÄÃ£ káº¿t ca</span></td></tr><tr><td>04/08/2026</td><td>Ca 2</td><td>49</td><td>2.100.000 Ä‘</td><td>310.000 Ä‘</td><td className="money-green">1.790.000 Ä‘</td><td><span className="status-pill">ÄÃ£ káº¿t ca</span></td></tr></tbody></table></div></>; }
-function EmployeeHistory() { return <><div className="filter-card"><label>Tá»« ngÃ y<input type="date" defaultValue="2026-08-01"/></label><label>Äáº¿n ngÃ y<input type="date" defaultValue="2026-08-31"/></label><label>Ca lÃ m<select><option>Táº¥t cáº£</option><option>Ca 1</option><option>Ca 2</option></select></label><button className="primary-button">TÃ¬m kiáº¿m</button></div><div className="table-card"><div className="table-head"><h2>Lá»‹ch sá»­ ca lÃ m</h2><button>Xuáº¥t Excel â†“</button></div><table className="data-table"><thead><tr><th>NgÃ y lÃ m</th><th>MÃ£ nhÃ¢n viÃªn</th><th>Ca</th><th>Giá» vÃ o</th><th>Giá» káº¿t</th><th>Sá»‘ giá»</th><th>LÆ°Æ¡ng giá»</th><th>LÆ°Æ¡ng dá»± tÃ­nh</th></tr></thead><tbody>{[["05/08/2026", "NV001", "Ca 1", "07:02", "12:05", "5,05 giá»", "20.000 Ä‘", "101.000 Ä‘"], ["04/08/2026", "NV001", "Ca 2", "12:01", "17:03", "5,03 giá»", "20.000 Ä‘", "100.600 Ä‘"], ["03/08/2026", "NV001", "Ca 3", "17:00", "23:03", "6,05 giá»", "20.000 Ä‘", "121.000 Ä‘"], ["02/08/2026", "NV001", "Ca 1", "07:00", "12:00", "5,00 giá»", "20.000 Ä‘", "100.000 Ä‘"]].map((r, i) => <tr key={i}>{r.map((x, j) => <td key={j} className={j === 7 ? "money-green" : ""}>{x}</td>)}</tr>)}</tbody></table></div></>; }
-
-// Kept as visual fallbacks while the functional modules above handle all active routes.
-void [TasksView, ManagerPayroll, TransferView, DividendView, EmployeeHome, EmployeePayroll, EmployeeHistory];
+    <div className="store-grid">{loading ? Array.from({ length: 5 }, (_, i) => <div className="store-card loading-card" key={i}/>) : stores.map((store, index) => <article className="store-card" key={store.id}><div className={`store-cover cover-${index % 5}`}><div className="shop-sign"><b>DORE</b><span>{store.name.replace("DORE ", "")}</span></div><div className="shop-front"><i /><i /><i /></div></div><div className="store-card-body"><div className="store-status">â— Hoáº¡t Ä‘á»™ng</div><h3>{store.name}</h3><p>âŒ– {store.address}</p><div className="store-numbers"><span>Doanh thu thÃ¡ng <b>{money(store.revenue)}</b></span><span>Lá»£i nhuáº­n <×nyêÚ$z{-®éÜj×W7FöÖW%öæÖRóò""Â÷&FW"ç†öæRóò""Â÷&FW"ævRóò""Â÷&FW"æV×Æ÷–VTæÖRÂ6†–gBç6†–gD6öFRóò""Â÷&FW"æÖ÷VçBÂ÷&FW"ç–ÖVçEöÖWF†öBÓÓÒ$44‚"ò%F¸âŞ«wB"¢$6‡W¸6â¶†şª6â"ÂFFUF–ÖR†÷&FW"æ7&VFVEöB’Â÷&FW"ç7FGW2ÓÓÒ$4ôÕÄUDTB"ò$†ü:âNªWB"¢,I:2ºw’%Ò’ÀĞ¢Ó°Ğ¢6öç7B&Æö"ÒæWr&Æö"…²%ÇTdTdb"²&÷w2æÖ‡&÷rÓâ&÷ræÖ†77d6VÆÂ’æ¦ö–â‚"Â"’’æ¦ö–â‚%Ç%Æâ"•ÒÂ²G—S¢'FW‡Bö77c¶6†'6WC×WFbÓ‚"Ò“°Ğ¢6öç7BW&ÂÒU$Âæ7&VFTö&¦V7EU$Â†&Æö"“°Ğ¢6öç7BÆ–æ²ÒFö7VÖVçBæ7&VFTVÆVÖVçB‚&"“°Ğ¢Æ–æ²æ‡&VbÒW&Ã°Ğ¢Æ–æ²æF÷væÆöBÒFöâÖ†ærÒG·6†–gBç6†–gD6öFRóò&6Ö†–Vâ×F’'Òæ77f°Ğ¢Æ–æ²æ6Æ–6²‚“°Ğ¢U$Âç&Wfö¶Tö&¦V7EU$Â‡W&Â“°Ğ¢ĞĞ¢gVæ7F–öâWFFTf÷&Ò†f–VÆC¢¶W–öbG—Vöbf÷&ÒÂfÇVS¢7G&–ær’°Ğ¢6WDf÷&Ò†7W'&VçBÓâ‡²ââæ7W'&VçBÂ¶f–VÆEÓ¢fÇVRÒ’“°Ğ¢ĞĞ Ğ¢&WGW&âÇ6V7F–öâ6Æ74æÖSÒ&V×Æ÷–VRÖ÷&FW'2×67&VVâ#àĞ¢²6†–gBæ7F—fRbbÆF—b6Æ74æÖSÒ&Æö6¶VBÖ&ææW"#ï	ùI"Æ#ä.ªâ6Œk.ª÷BIªwR6Ì:Òf¸v3Âö#ãÇ7ãäŒ:7’I¸6ÒFæ‚Nª’G&ær6ºrI¸2Ş¹ò6º–2ìH6ærFŒ:¦ÒIjâŒ:ærãÂ÷7ããÂöF—cçĞĞ¢ÆF—b6Æ74æÖSÒ&÷&FW'2×æVÂ#àĞ¢ÆF—b6Æ74æÖSÒ&÷&FW'2×æVÂÖ†VB#àĞ¢ÆF—b6Æ74æÖSÒ&÷&FW'2Ö†VF–ær#ãÇ7â6Æ74æÖSÒ&÷&FW'2Ö†VF–ærÖ–6öâ#ãÅ6†÷–æt6'B6—¦S×³#7ÒóãÂ÷7ããÆF—cãÆƒ#ìIjâŒ8äsÂöƒ#ãÇå^ª6âÌ;ÒFæ‚<:6‚IjâŒ:æsÂ÷ãÂöF—cãÂöF—càĞ¢ÆF—b6Æ74æÖSÒ&÷&FW'2Ö7F–öç2#ãÆ'WGFöâ6Æ74æÖSÒ'6V6öæF'’Ö'WGFöâ"öä6Æ–6³×¶W‡÷'D77gÒF—6&ÆVC×¶f–ÇFW&VBæÆVæwF‚ÓÓÒÓãÄF÷væÆöB6—¦S×³wÒóâ‡^ªWBW†6VÃÂö'WGFöããÆ'WGFöâ6Æ74æÖSÒ'&–Ö'’Ö'WGFöâ"F—6&ÆVC×²6†–gBæ7F—fWÒöä6Æ–6³×¶&Vv–äFGÓãÅÇW26—¦S×³‡ÒóâFŒ:¦ÒIjâŒ:æsÂö'WGFöããÂöF—càĞ¢ÂöF—càĞ¢ÆF—b6Æ74æÖSÒ&÷&FW"×7FG2#àĞ¢ÆF—b6Æ74æÖSÒ&÷&FW"×7FBÖ6&B#ãÆ“ãÅ6†÷–æt&r6—¦S×³#gÒóãÂö“ãÇ7ãåN¹Vær>¹IjãÇ7G&öæsç¶6ö×ÆWFVBæÆVæwF‡ÓÂ÷7G&öæsãÂ÷7ããÂöF—càĞ¢ÆF—b6Æ74æÖSÒ&÷&FW"×7FBÖ6&B#ãÆ“ãÄ&FvTFöÆÆ%6–vâ6—¦S×³#gÒóãÂö“ãÇ7ãåN¹VærF¸â4³Ç7G&öæsç¶ÖöæW’†&æ²—ÓÂ÷7G&öæsãÂ÷7ããÂöF—càĞ¢ÆF—b6Æ74æÖSÒ&÷&FW"×7FBÖ6&B#ãÆ“ãÄ&æ¶æ÷FR6—¦S×³#gÒóãÂö“ãÇ7ãåN¹VærF¸âDÓÇ7G&öæsç¶ÖöæW’†66‚—ÓÂ÷7G&öæsãÂ÷7ããÂöF—càĞ¢ÆF—b6Æ74æÖSÒ&÷&FW"×7FBÖ6&B#ãÆ“ãÅvÆÆWD6&G26—¦S×³#gÒóãÂö“ãÇ7ãåN¹VærF¸ãÇ7G&öæsç¶ÖöæW’†66‚²&æ²—ÓÂ÷7G&öæsãÂ÷7ããÂöF—càĞ¢ÂöF—càĞ¢ÆF—b6Æ74æÖSÒ&÷&FW"Öf–ÇFW'2#àĞ¢ÆÆ&VÂ6Æ74æÖSÒ&÷&FW"×6V&6‚#ãÇ7â6Æ74æÖSÒ'7"ÖöæÇ’#åL:ÆÒ¶«öÒIjâŒ:æsÂ÷7ããÆ–çWBfÇVS×·6V&6‡Òöä6†ævS×¶WfVçBÓâ²6WE6V&6‚†WfVçBçF&vWBçfÇVR“²6WEvRƒ“²×ÒÆ6V†öÆFW#Ò%L:ÆÒ¶«öÒÜ:2IjâŒ:ærÂL:¦â¶Œ:6‚Œ:ærÂ<IBâââ"óãÂöÆ&VÃàĞ¢ÆÆ&VÃãÇ7â6Æ74æÖSÒ'7"ÖöæÇ’#åNº²æ|:“Â÷7ããÆ–çWBG—SÒ&FFR"fÇVS×¶g&öÔFFWÒöä6†ævS×¶WfVçBÓâ²6WDg&öÔFFR†WfVçBçF&vWBçfÇVR“²6WEvRƒ“²×ÒóãÂöÆ&VÃàĞ¢ÆÆ&VÃãÇ7â6Æ74æÖSÒ'7"ÖöæÇ’#ìI«öâæ|:“Â÷7ããÆ–çWBG—SÒ&FFR"fÇVS×·FôFFWÒöä6†ævS×¶WfVçBÓâ²6WEFôFFR†WfVçBçF&vWBçfÇVR“²6WEvRƒ“²×ÒóãÂöÆ&VÃàĞ¢ÆÆ&VÃãÇ7ãäŒ:Ææ‚Fº–2F†æ‚Fü:ãÂ÷7ããÇ6VÆV7BfÇVS×·–ÖVçGÒöä6†ævS×¶WfVçBÓâ²6WE–ÖVçB†WfVçBçF&vWBçfÇVR“²6WEvRƒ“²×ÓãÆ÷F–öâfÇVSÒ$ÄÂ#åNªWB>ª3Âö÷F–öããÆ÷F–öâfÇVSÒ$44‚#åF¸âŞ«wCÂö÷F–öããÆ÷F–öâfÇVSÒ$$äµõE$å4dU"#ä6‡W¸6â¶†şª6ãÂö÷F–öããÂ÷6VÆV7CãÂöÆ&VÃàĞ¢Æ'WGFöâ6Æ74æÖSÒ'&Vg&W6‚Ö'WGFöâ"öä6Æ–6³×·&W6WDf–ÇFW'7ÓãÅ&Vg&W6„7r6—¦S×³wÒóâÌ:ÒŞ¹¶“Âö'WGFöãàĞ¢ÂöF—càĞ¢ÆF—b6Æ74æÖSÒ&FF×F&ÆR×w&#àĞ¢ÇF&ÆR6Æ74æÖSÒ&÷&FW"×F&ÆR#ãÇF†VCãÇG#ãÇFƒå5ECÂ÷FƒãÇFƒäÜ:2IjâŒ:æsÂ÷FƒãÇFƒåL:¦â¶Œ:6‚Œ:æsÂ÷FƒãÇFƒå<ICÂ÷FƒãÇFƒåG^¹V“Â÷FƒãÇFƒäåb,:âŒ:æsÂ÷FƒãÇFƒävœ:G.¸²IjâŒ:æsÂ÷FƒãÇFƒäŒ:Ææ‚Fº–2F†æ‚Fü:ãÂ÷FƒãÇFƒåF¹Ö’v–âNªóÂ÷FƒãÇFƒåF†òL:3Â÷FƒãÂ÷G#ãÂ÷F†VCàĞ¢ÇF&öG“ç·vVBæÆVæwF‚ÓÓÒòÇG#ãÇFB6öÅ7ã×³Ò6Æ74æÖSÒ&V×G’Ö6VÆÂ#ç·6†–gBæ7F—fRò$6Œk<;2IjâŒ:ærŒ;’º7G&öær6†¸vâNª’â"¢$.ªâ6Œk.ª÷BIªwR6Ì:Òf¸v2'ÓÂ÷FCãÂ÷G#â¢vVBæÖ‚†÷&FW"Â–æFW‚’ÓâÇG"¶W“×¶÷&FW"æ–GÒ6Æ74æÖS×¶÷&FW"ç7FGW2ÓÓÒ%dô”B"ò'fö–BÖ÷&FW""¢"'ÓãÇFCç²„ÖF‚æÖ–â‡vRÂvW2’Ò’¢vU6—¦R²–æFW‚²ÓÂ÷FCãÇFCãÆ"6Æ74æÖSÒ&÷&FW"Ö6öFR#ç¶÷&FW"æ6öFWÓÂö#ãÂ÷FCãÇFCç¶÷&FW"æ7W7FöÖW%öæÖRÇÂ.(	B'ÓÂ÷FCãÇFCç¶÷&FW"ç†öæRÇÂ.(	B'ÓÂ÷FCãÇFCç¶÷&FW"ævRóò.(	B'ÓÂ÷FCãÇFCãÆ#ç¶÷&FW"æV×Æ÷–VTæÖWÓÂö#ãÇ6ÖÆÃç·6†–gBç6†–gD6öFRò‚G·6†–gBç6†–gD6öFWÒ–¢"'ÓÂ÷6ÖÆÃãÂ÷FCãÇFCãÆ#ç¶ÖöæW’†÷&FW"æÖ÷VçB—ÓÂö#ãÂ÷FCãÇFCãÇ7â6Æ74æÖS×¶÷&FW"×–ÖVçBG¶÷&FW"ç–ÖVçEöÖWF†öBÓÓÒ$44‚"ò&66‚"¢&&æ²'ÖÓç¶÷&FW"ç–ÖVçEöÖWF†öBÓÓÒ$44‚"ò%F¸âŞ«wB"¢$6‡W¸6â¶†şª6â'ÓÂ÷7ããÂ÷FCãÇFCç¶FFUF–ÖR†÷&FW"æ7&VFVEöB—ÓÂ÷FCãÇFCãÆF—b6Æ74æÖSÒ&÷&FW"×&÷rÖ7F–öç2#ãÆ'WGFöâF—FÆSÒ%†VÒ6†’F«÷B"öä6Æ–6³×²‚’Óâ6WDFWF–Â†÷&FW"—ÓãÄW–R6—¦S×³WÒóãÂö'WGFöããÆ'WGFöâF—FÆSÒ%>ºÖIjâ"F—6&ÆVC×²6†–gBæ7F—fRÇÂ÷&FW"ç7FGW2ÓÒ$4ôÕÄUDTB'Òöä6Æ–6³×²‚’Óâ&Vv–äVF—B†÷&FW"—ÓãÅVæ6–Â6—¦S×³WÒóãÂö'WGFöããÆ'WGFöâ6Æ74æÖSÒ&FævW""F—FÆSÒ$ºw’Ijâ"F—6&ÆVC×²6†–gBæ7F—fRÇÂ÷&FW"ç7FGW2ÓÒ$4ôÕÄUDTB'Òöä6Æ–6³×²‚’Óâ6æ6VÂ†÷&FW"æ–B—ÓãÅG&6ƒ"6—¦S×³WÒóãÂö'WGFöããÂöF—cãÂ÷FCãÂ÷G#â—ÓÂ÷F&öG“àĞ¢Â÷F&ÆSàĞ¢ÂöF—càĞ¢ÆF—b6Æ74æÖSÒ&÷&FW"×v–æF–öâ#ãÇ7ãä†¸6âF¸²¶f–ÇFW&VBæÆVæwF‚ÓÓÒò¢„ÖF‚æÖ–â‡vRÂvW2’Ò’¢vU6—¦R²ÒÒ´ÖF‚æÖ–â„ÖF‚æÖ–â‡vRÂvW2’¢vU6—¦RÂf–ÇFW&VBæÆVæwF‚—Ò>ºv¶f–ÇFW&VBæÆVæwF‡ÒIjâŒ:æsÂ÷7ããÆF—cãÆ'WGFöâF—6&ÆVC×·vRÃÒÒöä6Æ–6³×²‚’Óâ6WEvR†7W'&VçBÓâÖF‚æÖ‚ƒÂ7W'&VçBÒ’—Óî(“Âö'WGFöãç´'&’æg&öÒ‡²ÆVæwFƒ¢vW2ÒÂ…òÂ–æFW‚’Óâ–æFW‚²’ç6Æ–6RƒÂR’æÖ†çVÖ&W"ÓâÆ'WGFöâ¶W“×¶çVÖ&W'Ò6Æ74æÖS×´ÖF‚æÖ–â‡vRÂvW2’ÓÓÒçVÖ&W"ò&7F—fR"¢"'Òöä6Æ–6³×²‚’Óâ6WEvR†çVÖ&W"—Óç¶çVÖ&W'ÓÂö'WGFöãâ—ÓÆ'WGFöâF—6&ÆVC×·vRãÒvW7Òöä6Æ–6³×²‚’Óâ6WEvR†7W'&VçBÓâÖF‚æÖ–â‡vW2Â7W'&VçB²’—Óî(£Âö'WGFöããÂöF—cãÂöF—càĞ¢ÂöF—càĞ¢ÆF—b6Æ74æÖSÒ&÷&FW"Öf÷&ÒÖ6&B"&Vc×¶f÷&Õ&VgÓàĞ¢ÆF—b6Æ74æÖSÒ&÷&FW"Öf÷&Ò×F—FÆR#ãÅ6†÷–æt6'B6—¦S×³#ÒóãÆƒ#ç¶VF—F–ærò>ºÄIjâŒ8ärG¶VF—F–æræ6öFWÖ¢%DŒ8¤ÒIjâŒ8ärŞ¹¤’'ÓÂöƒ#ãÂöF—càĞ¢Æf÷&Òöå7V&Ö—C×·6fWÓàĞ¢Æf–VÆG6WBF—6&ÆVC×²6†–gBæ7F—fWÓàĞ¢ÆF—b6Æ74æÖSÒ&÷&FW"Öf÷&ÒÖw&–B#àĞ¢ÆÆ&VÃäÜ:2IjâŒ:æsÆ–çWBfÇVS×¶VF—F–æsòæ6öFRóò%N»I¹–ær¶†’ÌkR'ÒF—6&ÆVBóãÇ6ÖÆÃäÜ:2IjâŒ:ærIkº62NªòN»I¹–æsÂ÷6ÖÆÃãÂöÆ&VÃàĞ¢ÆÆ&VÃåL:¦â¶Œ:6‚Œ:ærÇ6ÖÆÃâ†¶Œ;Fær.ª÷B'^¹–2“Â÷6ÖÆÃãÆ–çWBfÇVS×¶f÷&Òæ7W7FöÖW$æÖWÒöä6†ævS×¶WfVçBÓâWFFTf÷&Ò‚&7W7FöÖW$æÖR"ÂWfVçBçF&vWBçfÇVR—ÒÆ6V†öÆFW#Ò$æª×L:¦â¶Œ:6‚Œ:ær"Ö„ÆVæwFƒ×³ÒóãÂöÆ&VÃàĞ¢ÆÆ&VÃå<IBÇ6ÖÆÃâ†¶Œ;Fær.ª÷B'^¹–2“Â÷6ÖÆÃãÆ–çWBfÇVS×¶f÷&Òç†öæWÒöä6†ævS×¶WfVçBÓâWFFTf÷&Ò‚'†öæR"ÂWfVçBçF&vWBçfÇVR—ÒÆ6V†öÆFW#Ò$æª×>¹I¸vâF†şª’"–çWDÖöFSÒ'FVÂ"Ö„ÆVæwFƒ×³#ÒóãÂöÆ&VÃàĞ¢ÆÆ&VÃåG^¹V’Ç6ÖÆÃâ†¶Œ;Fær.ª÷B'^¹–2“Â÷6ÖÆÃãÆ–çWBfÇVS×¶f÷&ÒævWÒöä6†ævS×¶WfVçBÓâWFFTf÷&Ò‚&vR"ÂWfVçBçF&vWBçfÇVR—ÒÆ6V†öÆFW#Ò$æª×G^¹V’"G—SÒ&çVÖ&W""Ö–ãÒ#"ÖƒÒ##"óãÂöÆ&VÃàĞ¢ÆÆ&VÃäåb,:âŒ:æsÆ–çWBfÇVS×¶G·W6W"ææÖWÒG·6†–gBç6†–gDæÖRò‚G·6†–gBç6†–gDæÖWÒ–¢6†–gBç6†–gD6öFRò‚G·6†–gBç6†–gD6öFWÒ–¢"'ÖÒF—6&ÆVBóãÇ6ÖÆÃåN»I¹–ær~ªöâF†VòL:’¶†şª6âl:6†¸vâNª“Â÷6ÖÆÃãÂöÆ&VÃàĞ¢ÆÆ&VÃävœ:G.¸²IjâŒ:æsÆ–çWBfÇVS×¶f÷&ÒæÖ÷VçGÒöä6†ævS×¶WfVçBÓâWFFTf÷&Ò‚&Ö÷VçB"ÂWfVçBçF&vWBçfÇVR—ÒÆ6V†öÆFW#Ò$æª×vœ:G.¸²IjâŒ:ær"G—SÒ&çVÖ&W""Ö–ãÒ#"7FWÒ#"&WV—&VBóãÂöÆ&VÃàĞ¢ÆÆ&VÃäŒ:Ææ‚Fº–2F†æ‚Fü:ãÇ6VÆV7BfÇVS×¶f÷&Òç–ÖVçDÖWF†öGÒöä6†ævS×¶WfVçBÓâWFFTf÷&Ò‚'–ÖVçDÖWF†öB"ÂWfVçBçF&vWBçfÇVR—Ò&WV—&VCãÆ÷F–öâfÇVSÒ$44‚#åF¸âŞ«wCÂö÷F–öããÆ÷F–öâfÇVSÒ$$äµõE$å4dU"#ä6‡W¸6â¶†şª6ãÂö÷F–öããÂ÷6VÆV7CãÂöÆ&VÃàĞ¢ÂöF—càĞ¢Âöf–VÆG6WCàĞ¢¶ÖW76vRbbÆF—b6Æ74æÖSÒ&f÷&ÒÖÖW76vR#ç¶ÖW76vWÓÂöF—cçĞĞ¢·7V66W72bbÆF—b6Æ74æÖSÒ&÷&FW"×7V66W72#î)É2·7V66W77ÓÂöF—cçĞĞ¢ÆF—b6Æ74æÖSÒ&÷&FW"Öf÷&ÒÖ7F–öç2#ãÆ'WGFöâG—SÒ&'WGFöâ"6Æ74æÖSÒ'6V6öæF'’Ö'WGFöâ"öä6Æ–6³×·&W6WDf÷&×Óäºw“Âö'WGFöããÆ'WGFöâ6Æ74æÖSÒ'&–Ö'’Ö'WGFöâ"F—6&ÆVC×²6†–gBæ7F—fWÓç¶VF—F–ærò$ÌkRF†’I¹V’"¢$ÌkRIjâŒ:ær'ÓÂö'WGFöããÂöF—càĞ¢Âöf÷&ÓàĞ¢ÂöF—càĞ¢¶FWF–ÂbbÆF—b6Æ74æÖSÒ&ÖöFÂÖ&6¶G&÷#ãÆF—b6Æ74æÖSÒ&ÖöFÂ÷&FW"ÖFWF–ÂÖÖöFÂ#ãÆF—b6Æ74æÖSÒ&ÖöFÂ×F—FÆR#ãÆƒ#ä6†’F«÷BIjâ¶FWF–Âæ6öFWÓÂöƒ#ãÆ'WGFöâöä6Æ–6³×²‚’Óâ6WDFWF–Â†çVÆÂ—Óì9sÂö'WGFöããÂöF—cãÆFÃãÆF—cãÆGCä¶Œ:6‚Œ:æsÂöGCãÆFCç¶FWF–Âæ7W7FöÖW%öæÖRÇÂ$¶Œ:6‚Î«²'ÓÂöFCãÂöF—cãÆF—cãÆGCå>¹I¸vâF†şª“ÂöGCãÆFCç¶FWF–Âç†öæRÇÂ$¶Œ;Fær7Vær>ªW'ÓÂöFCãÂöF—cãÆF—cãÆGCåG^¹V“ÂöGCãÆFCç¶FWF–ÂævRóò$¶Œ;Fær7Vær>ªW'ÓÂöFCãÂöF—cãÆF—cãÆGCäæŒ:&âfœ:¦âò6ÂöGCãÆFCç¶FWF–ÂæV×Æ÷–VTæÖWÒ+r·6†–gBç6†–gD6öFWÓÂöFCãÂöF—cãÆF—cãÆGCåF†æ‚Fü:ãÂöGCãÆFCç¶FWF–Âç–ÖVçEöÖWF†öBÓÓÒ$44‚"ò%F¸âŞ«wB"¢$6‡W¸6â¶†şª6â'ÓÂöFCãÂöF—cãÆF—cãÆGCävœ:G.¸³ÂöGCãÆFCç¶ÖöæW’†FWF–ÂæÖ÷VçB—ÓÂöFCãÂöF—cãÆF—cãÆGCåF¹Ö’v–âNªóÂöGCãÆFCç¶FFUF–ÖR†FWF–Âæ7&VFVEöB—ÓÂöFCãÂöF—cãÆF—cãÆGCåG.ªærFŒ:“ÂöGCãÆFCç¶FWF–Âç7FGW2ÓÓÒ$4ôÕÄUDTB"ò$†ü:âNªWB"¢,I:2ºw’'ÓÂöFCãÂöF—cãÂöFÃãÂöF—cãÂöF—cçĞĞ¢Â÷6V7F–öãã°Ğ§ĞĞ¦gVæ7F–öâ÷&FW%F&ÆR‡²÷&FW'2Âöä6æ6VÂÓ¢°Ğ¢÷&FW'3¢÷&FW%µÓ°Ğ¢öä6æ6VÃó¢†–C¢7G&–ær’Óâfö–C°Ğ§Ò’²&WGW&âÆF—b6Æ74æÖSÒ'F&ÆRÖ6&B#ãÆF—b6Æ74æÖSÒ'F&ÆRÖ†VB#ãÆƒ#äFæ‚<:6‚IjãÂöƒ#ãÇ7ãç¶÷&FW'2æÆVæwF‡ÒIjâG&öær6Â÷7ããÂöF—cãÆF—b6Æ74æÖSÒ&FF×F&ÆR×w&#ãÇF&ÆR6Æ74æÖSÒ&FF×F&ÆR#ãÇF†VCãÇG#ãÇFƒäÜ:2IjãÂ÷FƒãÇFƒåF¹Ö’v–ãÂ÷FƒãÇFƒä¶Œ:6‚Œ:æsÂ÷FƒãÇFƒäæŒ:&âfœ:¦ãÂ÷FƒãÇFƒåF†æ‚Fü:ãÂ÷FƒãÇFƒävœ:G.¸³Â÷FƒãÇFƒåG.ªærFŒ:“Â÷Fƒç¶öä6æ6VÂbbÇF‚óçÓÂ÷G#ãÂ÷F†VCãÇF&öG“ç¶÷&FW'2æÆVæwF‚ÓÓÒòÇG#ãÇFB6öÅ7ã×³‡Ò6Æ74æÖSÒ&V×G’Ö6VÆÂ#ä6Œk<;2IjâŒ:ærG&öær6†¸vâNª’ãÂ÷FCãÂ÷G#â¢÷&FW'2æÖ†òÓâÇG"¶W“×¶òæ–GÓãÇFCãÆ#ç¶òæ6öFWÓÂö#ãÂ÷FCãÇFCç¶FFUF–ÖR†òæ7&VFVEöB—ÓÂ÷FCãÇFCç¶òæ7W7FöÖW%öæÖRÇÂ$¶Œ:6‚Î«²'ÓÂ÷FCãÇFCç¶òæV×Æ÷–VTæÖWÓÂ÷FCãÇFCç¶òç–ÖVçEöÖWF†öBÓÓÒ$44‚"ò%F¸âŞ«wB"¢$6‡W¸6â¶†şª6â'ÓÂ÷FCãÇFCãÆ#ç¶ÖöæW’†òæÖ÷VçB—ÓÂö#ãÂ÷FCãÇFCãÇ7â6Æ74æÖS×¶òç7FGW2ÓÓÒ$4ôÕÄUDTB"ò'7FGW2×–ÆÂ"¢'fö–B×–ÆÂ'Óç¶òç7FGW2ÓÓÒ$4ôÕÄUDTB"ò$†ü:âNªWB"¢,I:2ºw’'ÓÂ÷7ããÂ÷FCç¶öä6æ6VÂbbÇFCãÆ'WGFöâ6Æ74æÖSÒ&FævW"ÖÆ–æ²"F—6&ÆVC×¶òç7FGW2ÓÒ$4ôÕÄUDTB'Òöä6Æ–6³×²‚’Óâöä6æ6VÂ†òæ–B—Óäºw“Âö'WGFöããÂ÷FCçÓÂ÷G#â—ÓÂ÷F&öG“ãÂ÷F&ÆSãÂöF—cãÂöF—cã²ĞĞ¦gVæ7F–öâV×Æ÷–VU—&öÆÂ‚’²&WGW&âÃãÆF—b6Æ74æÖSÒ&f–ÇFW"Ö6&B#ãÆÆ&VÃåFŒ:æsÆ–çWBG—SÒ&ÖöçF‚"FVfVÇEfÇVSÒ###bÓ‚"óãÂöÆ&VÃãÆÆ&VÃìI«öâæ|:“Æ–çWBG—SÒ&FFR"FVfVÇEfÇVSÒ###bÓ‚Ób"óãÂöÆ&VÃãÆ'WGFöâ6Æ74æÖSÒ'&–Ö'’Ö'WGFöâ#å†VÒF¹ær¼:£Âö'WGFöããÂöF—cãÆF—b6Æ74æÖSÒ'7FG2Öw&–Bf÷W"#ãÅ7FD6&BÆ&VÃÒ%N¹DärD…RäªÅ"fÇVSÒ#Rã#SãI"óãÅ7FD6&BÆ&VÃÒ%N¹DärÌjüjär"fÇVSÒ#BãƒãI"FöæSÒ&&ÇVR"óãÅ7FD6&BÆ&VÃÒ%N¹DärDŒjş¹äär"fÇVSÒ#CSãI"FöæSÒ&÷&ævR"óãÅ7FD6&BÆ&VÃÒ$„ü8âDŒ8ä‚4"fÇVSÒ#R"–6öãÒ.)É2"óãÂöF—cãÆF—b6Æ74æÖSÒ'F&ÆRÖ6&B#ãÆF—b6Æ74æÖSÒ'F&ÆRÖ†VB#ãÆƒ#ä6†’F«÷BÌkjærF†Vò6Âöƒ#ãÇ7ãìIjâvœ:#ãIöv¹ÓÂ÷7ããÂöF—cãÇF&ÆR6Æ74æÖSÒ&FF×F&ÆR#ãÇF†VCãÇG#ãÇFƒäæ|:’Ì:ÓÂ÷FƒãÇFƒä6Â÷FƒãÇFƒäv¹Òl:óÂ÷FƒãÇFƒäv¹Ò¾«÷CÂ÷FƒãÇFƒå>¹v¹ÓÂ÷FƒãÇFƒäÌkjær>º–æsÂ÷FƒãÇFƒåFŒk¹öæsÂ÷FƒãÇFƒåFŒ:æ‚F¸ãÂ÷FƒãÂ÷G#ãÂ÷F†VCãÇF&öG“çµµ²#Ró‚ó##b"Â$6"Â#s£""Â##£R"Â#RÃR"Â#ãI"Â#SãI"Â#SãI%ÒÂ²#Bó‚ó##b"Â$6""Â##£"Â#s£2"Â#RÃ2"Â#ãcI"Â#I"Â#ãcI%ÒÂ²#2ó‚ó##b"Â$62"Â#s£"Â##3£2"Â#bÃR"Â##ãI"Â#ƒãI"Â##ãI%ÕÒæÖ‚‡"Â’’ÓâÇG"¶W“×¶—Óç·"æÖ‚‡‚Â¢’ÓâÇFB¶W“×¶§Ò6Æ74æÖS×¶¢ÓÓÒrò&ÖöæW’Öw&VVâ"¢"'Óç·‡ÓÂ÷FCâ—ÓÂ÷G#â—ÓÂ÷F&öG“ãÂ÷F&ÆSãÂöF—cãÂóã²ĞĞ¦W‡÷'BgVæ7F–öâV×Æ÷–VT66†fÆ÷r‡²6†–gBÂ÷&FW'2Ó¢°Ğ¢6†–gC¢°Ğ¢7F—fS¢&ööÆVã°Ğ¢Ó°Ğ¢÷&FW'3¢÷&FW%µÓ°Ğ§Ò’²6öç7B7F—fRÒ÷&FW'2æf–ÇFW"†òÓâòç7FGW2ÓÓÒ$4ôÕÄUDTB"“²6öç7B&WfVçVRÒ7F—fRç&VGV6R‚†Âò’Óâ²òæÖ÷VçBÂ“²6öç7B6÷7BÒ6†–gBæ7F—fRò3S¢²&WGW&âÃç²6†–gBæ7F—fRbbÆF—b6Æ74æÖSÒ&Æö6¶VBÖ&ææW"#ãÆ#ä.ªâ6Œk.ª÷BIªwR6Ì:Òf¸v3Âö#ãÇ7ãå>¹Æ¸wRL;&ærF¸â>«Ò‡^ªWB†¸vâ¶†’6Ikº62¼:Ö6‚†şªBãÂ÷7ããÂöF—cçÓÆF—b6Æ74æÖSÒ'7FG2Öw&–BF‡&VR#ãÅ7FD6&BÆ&VÃÒ$Dôä‚D…R4"fÇVS×¶ÖöæW’‡&WfVçVR—Òæ÷FS×¶G¶7F—fRæÆVæwF‡ÒIjâŒ:ævÒóãÅ7FD6&BÆ&VÃÒ$4„’Œ8Ò4"fÇVS×¶ÖöæW’†6÷7B—ÒFöæSÒ&÷&ævR"æ÷FSÒ$6†’Œ:ÒŒ:B6–æ‚"óãÅ7FD6&BÆ&VÃÒ$Îº$’ä…^ªÄâNªÒL8Ôä‚"fÇVS×¶ÖöæW’„ÖF‚æÖ‚ƒÂ&WfVçVRÒ6÷7B’—ÒFöæSÒ&&ÇVR"æ÷FSÒ$Föæ‚F‡RÒ6†’Œ:Ò"óãÂöF—cãÆF—b6Æ74æÖSÒ'F&ÆRÖ6&B#ãÆF—b6Æ74æÖSÒ'F&ÆRÖ†VB#ãÆƒ#äÎ¸¶6‚>ºÒL;&ærF¸â<:26Âöƒ#ãÆ'WGFöãå‡^ªWBW†6VÂ(i3Âö'WGFöããÂöF—cãÇF&ÆR6Æ74æÖSÒ&FF×F&ÆR#ãÇF†VCãÇG#ãÇFƒäæ|:“Â÷FƒãÇFƒä6Â÷FƒãÇFƒå>¹IjãÂ÷FƒãÇFƒäFöæ‚F‡SÂ÷FƒãÇFƒä6†’Œ:ÓÂ÷FƒãÇFƒäÎº6’æ‡^ªÖãÂ÷FƒãÇFƒåG.ªærFŒ:“Â÷FƒãÂ÷G#ãÂ÷F†VCãÇF&öG“ãÇG#ãÇFCãRó‚ó##cÂ÷FCãÇFCä6Â÷FCãÇFCãScÂ÷FCãÇFCã"ã3SãIÂ÷FCãÇFCã3#ãIÂ÷FCãÇFB6Æ74æÖSÒ&ÖöæW’Öw&VVâ#ã"ã3ãIÂ÷FCãÇFCãÇ7â6Æ74æÖSÒ'7FGW2×–ÆÂ#ìI:2¾«÷B6Â÷7ããÂ÷FCãÂ÷G#ãÇG#ãÇFCãBó‚ó##cÂ÷FCãÇFCä6#Â÷FCãÇFCãC“Â÷FCãÇFCã"ããIÂ÷FCãÇFCã3ãIÂ÷FCãÇFB6Æ74æÖSÒ&ÖöæW’Öw&VVâ#ããs“ãIÂ÷FCãÇFCãÇ7â6Æ74æÖSÒ'7FGW2×–ÆÂ#ìI:2¾«÷B6Â÷7ããÂ÷FCãÂ÷G#ãÂ÷F&öG“ãÂ÷F&ÆSãÂöF—cãÂóã²ĞĞ¦gVæ7F–öâV×Æ÷–VT†—7F÷'’‚’²&WGW&âÃãÆF—b6Æ74æÖSÒ&f–ÇFW"Ö6&B#ãÆÆ&VÃåNº²æ|:“Æ–çWBG—SÒ&FFR"FVfVÇEfÇVSÒ###bÓ‚Ó"óãÂöÆ&VÃãÆÆ&VÃìI«öâæ|:“Æ–çWBG—SÒ&FFR"FVfVÇEfÇVSÒ###bÓ‚Ó3"óãÂöÆ&VÃãÆÆ&VÃä6Ì:ÓÇ6VÆV7CãÆ÷F–öãåNªWB>ª3Âö÷F–öããÆ÷F–öãä6Âö÷F–öããÆ÷F–öãä6#Âö÷F–öããÂ÷6VÆV7CãÂöÆ&VÃãÆ'WGFöâ6Æ74æÖSÒ'&–Ö'’Ö'WGFöâ#åL:ÆÒ¶«öÓÂö'WGFöããÂöF—cãÆF—b6Æ74æÖSÒ'F&ÆRÖ6&B#ãÆF—b6Æ74æÖSÒ'F&ÆRÖ†VB#ãÆƒ#äÎ¸¶6‚>ºÒ6Ì:ÓÂöƒ#ãÆ'WGFöãå‡^ªWBW†6VÂ(i3Âö'WGFöããÂöF—cãÇF&ÆR6Æ74æÖSÒ&FF×F&ÆR#ãÇF†VCãÇG#ãÇFƒäæ|:’Ì:ÓÂ÷FƒãÇFƒäÜ:2æŒ:&âfœ:¦ãÂ÷FƒãÇFƒä6Â÷FƒãÇFƒäv¹Òl:óÂ÷FƒãÇFƒäv¹Ò¾«÷CÂ÷FƒãÇFƒå>¹v¹ÓÂ÷FƒãÇFƒäÌkjærv¹ÓÂ÷FƒãÇFƒäÌkjærN»L:ÖæƒÂ÷FƒãÂ÷G#ãÂ÷F†VCãÇF&öG“çµµ²#Ró‚ó##b"Â$åc"Â$6"Â#s£""Â##£R"Â#RÃRv¹Ò"Â##ãI"Â#ãI%ÒÂ²#Bó‚ó##b"Â$åc"Â$6""Â##£"Â#s£2"Â#RÃ2v¹Ò"Â##ãI"Â#ãcI%ÒÂ²#2ó‚ó##b"Â$åc"Â$62"Â#s£"Â##3£2"Â#bÃRv¹Ò"Â##ãI"Â##ãI%ÒÂ²#"ó‚ó##b"Â$åc"Â$6"Â#s£"Â##£"Â#RÃv¹Ò"Â##ãI"Â#ãI%ÕÒæÖ‚‡"Â’’ÓâÇG"¶W“×¶—Óç·"æÖ‚‡‚Â¢’ÓâÇFB¶W“×¶§Ò6Æ74æÖS×¶¢ÓÓÒrò&ÖöæW’Öw&VVâ"¢"'Óç·‡ÓÂ÷FCâ—ÓÂ÷G#â—ÓÂ÷F&öG“ãÂ÷F&ÆSãÂöF—cãÂóã²ĞĞ Ğ¢òò¶WB2f—7VÂfÆÆ&6·2v†–ÆRF†RgVæ7F–öæÂÖöGVÆW2&÷fR†æFÆRÆÂ7F—fR&÷WFW2àĞ§fö–BµF6·5f–WrÂÖævW%—&öÆÂÂG&ç6fW%f–WrÂF—f–FVæEf–WrÂV×Æ÷–VT†öÖRÂV×Æ÷–VU—&öÆÂÂV×Æ÷–VT†—7F÷'•Ó°Ğ
