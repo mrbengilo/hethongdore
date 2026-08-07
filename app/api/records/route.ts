@@ -5,6 +5,8 @@ const allowedCategories = new Set([
   "TASKS", "MANAGER_PAYROLL", "TRANSFER", "DIVIDEND", "PROFILE",
   "CA_LAM_VIEC", "LICH_PHAN_CA", "NHAP_HANG", "CHAM_CONG",
   "LUONG_THUONG", "DONG_TIEN", "BAO_CAO", "CAI_DAT",
+  "CHI_PHI_CO_DINH", "CHI_PHI_PHAT_SINH", "EMPLOYEE_BONUS",
+  "EMPLOYEE_ALLOWANCE", "PAYROLL_PERIOD", "REPORT_SNAPSHOT",
 ]);
 
 type RecordBody = {
@@ -34,10 +36,10 @@ export async function GET(request: Request) {
   const requestedStore = params.get("storeId");
   const storeId = user.role === "EMPLOYEE" ? user.storeId : requestedStore;
   const result = storeId
-    ? await db.prepare("SELECT * FROM business_records WHERE category = ? AND store_id = ? AND status != 'DELETED' ORDER BY created_at DESC LIMIT 200").bind(category, storeId).all()
+    ? await db.prepare("SELECT * FROM business_records WHERE category = ? AND store_id = ? AND status != 'DELETED' ORDER BY created_at DESC LIMIT 300").bind(category, storeId).all()
     : category === "PROFILE"
-      ? await db.prepare("SELECT * FROM business_records WHERE category = ? AND store_id IS NULL AND status != 'DELETED' ORDER BY created_at DESC LIMIT 200").bind(category).all()
-    : await db.prepare("SELECT * FROM business_records WHERE category = ? AND status != 'DELETED' ORDER BY created_at DESC LIMIT 200").bind(category).all();
+      ? await db.prepare("SELECT * FROM business_records WHERE category = ? AND store_id IS NULL AND status != 'DELETED' ORDER BY created_at DESC LIMIT 300").bind(category).all()
+      : await db.prepare("SELECT * FROM business_records WHERE category = ? AND status != 'DELETED' ORDER BY created_at DESC LIMIT 300").bind(category).all();
   return json({ records: result.results.map((row) => parseRow(row as Record<string, unknown>)) });
 }
 
@@ -53,7 +55,7 @@ export async function POST(request: Request) {
   await db.prepare("INSERT INTO business_records (id, category, store_id, owner_id, title, data_json, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
     .bind(id, body.category, body.storeId ?? null, user.id, body.title.trim(), JSON.stringify(body.data ?? {}), body.status ?? "ACTIVE", now, now).run();
   await writeAudit(user.id, "CREATE", body.category, id, body.title);
-  return json({ id, message: "Đã lưu dữ liệu" }, 201);
+  return json({ id, createdAt: now, message: "Đã lưu dữ liệu" }, 201);
 }
 
 export async function PATCH(request: Request) {
@@ -79,10 +81,11 @@ export async function PATCH(request: Request) {
   }
   const title = body.title?.trim() || String(existing.title);
   const data = body.data ?? parseRow(existing).data;
+  const updatedAt = new Date().toISOString();
   await db.prepare("UPDATE business_records SET title = ?, data_json = ?, status = ?, updated_at = ? WHERE id = ?")
-    .bind(title, JSON.stringify(data), body.status ?? String(existing.status), new Date().toISOString(), body.id).run();
+    .bind(title, JSON.stringify(data), body.status ?? String(existing.status), updatedAt, body.id).run();
   await writeAudit(user.id, "UPDATE", String(existing.category), body.id, title);
-  return json({ ok: true });
+  return json({ ok: true, updatedAt });
 }
 
 export async function DELETE(request: Request) {
