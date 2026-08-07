@@ -17,6 +17,7 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     title,
     description,
+    icons: { icon: "/dore-manager-logo.svg", shortcut: "/dore-manager-logo.svg", apple: "/dore-manager-logo.svg" },
     openGraph: { title, description, type: "website", locale: "vi_VN", images: [{ url: imageUrl, width: 1680, height: 945, alt: "DORE · Quản lý chuỗi cửa hàng" }] },
     twitter: { card: "summary_large_image", title, description, images: [imageUrl] },
   };
