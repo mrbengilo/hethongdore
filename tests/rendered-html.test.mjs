@@ -64,3 +64,26 @@ test("contains core role and finance rules", async () => {
   assert.doesNotMatch(packageJson, /react-loading-skeleton/u);
   await assert.rejects(access(new URL("../app/_sites-preview/SkeletonPreview.tsx", import.meta.url)));
 });
+
+test("full demo chunks reconstruct valid browser JavaScript", async () => {
+  const parts = await Promise.all(
+    Array.from({ length: 5 }, (_, index) =>
+      readFile(new URL(`../public/full-demo-assets/chunk0${index + 1}.js`, import.meta.url), "utf8"),
+    ),
+  );
+  const encoded = parts.map((part) => {
+    const match = part.match(/\+"([A-Za-z0-9+/=]+)";/u);
+    assert.ok(match, "Each demo chunk must contain one Base64 payload");
+    return match[1];
+  }).join("");
+  const source = Buffer.from(encoded, "base64").toString("utf8");
+  assert.match(source, /dore_full_working_v1/u);
+  assert.match(source, /GRACE=60\*60000/u);
+  assert.match(source, /Tự động chuyển/u);
+  assert.match(source, /window\.D=/u);
+  assert.doesNotThrow(() => new Function(source));
+
+  const loader = await readFile(new URL("../public/full-demo-assets/loader.js", import.meta.url), "utf8");
+  assert.match(loader, /TextDecoder/u);
+  assert.match(loader, /Không thể tải hệ thống DORE/u);
+});
