@@ -82,3 +82,29 @@ test("system documentation locks store, money, cost and timezone contracts", asy
   assert.match(operations, /tests\/store-lifecycle\.test\.mjs/u);
   assert.match(operations, /employees\.store_id = users\.store_id/u);
 });
+
+test("latest store, transfer and employee operating flows stay wired end to end", async () => {
+  const [employees, login, shifts, shift, portal, employeeUi, managerUi] = await Promise.all([
+    source("../app/api/employees/route.ts"),
+    source("../app/api/auth/login/route.ts"),
+    source("../app/api/shifts/route.ts"),
+    source("../app/api/shift/route.ts"),
+    source("../app/components/Portal.tsx"),
+    source("../app/components/ReferenceEmployeeModules.tsx"),
+    source("../app/components/ReferenceManagerModules.tsx"),
+  ]);
+
+  assert.match(employees, /status = \?/u);
+  assert.match(employees, /405/u);
+  assert.match(employees, /DELETE FROM sessions WHERE user_id/u);
+  assert.match(login, /employee_status/u);
+  assert.match(login, /store_status/u);
+  assert.match(shifts, /supportAllowance/u);
+  assert.match(shifts, /sourceStoreName/u);
+  assert.match(shift, /UPDATE stores SET revenue = revenue \+ \?, expense = expense \+ \?/u);
+  assert.match(portal, /ReferenceEmployeeRevenue/u);
+  assert.match(portal, /"Doanh thu"/u);
+  assert.match(employeeUi, /CHI PHÍ TRONG CA/u);
+  assert.match(employeeUi, /CA HỖ TRỢ/u);
+  assert.match(managerUi, /sourceStoreId/u);
+});
