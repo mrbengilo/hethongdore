@@ -197,6 +197,8 @@ export async function POST(request: Request) {
     await db.batch([
       db.prepare("UPDATE shift_sessions SET ended_at = ?, duration_seconds = ?, tiktok = ?, tiktok_allowance = ?, tasks_completed = 1, expense_amount = ?, expense_note = ?, cash_revenue = ?, transfer_revenue = ?, status = 'COMPLETED' WHERE id = ? AND status = 'ACTIVE'")
         .bind(endedAt, workedSeconds, body.tiktok ? 1 : 0, allowance, expenseAmount, body.expenseNote?.trim() || null, cashRevenue, transferRevenue, activeSession.id),
+      db.prepare("UPDATE stores SET revenue = revenue + ?, expense = expense + ? WHERE id = ?")
+        .bind(cashRevenue + transferRevenue, expenseAmount, activeSession.storeId),
       db.prepare("UPDATE users SET shift_active = 0, current_shift = NULL, shift_started_at = NULL WHERE id = ? AND current_shift = ?").bind(user.id, user.currentShift),
     ]);
     await writeAudit(user.id, "SHIFT_END", "SHIFT", user.currentShift, JSON.stringify({ tiktok: Boolean(body.tiktok), expenseAmount, cashRevenue, transferRevenue, orderCount, workedSeconds, workedMinutes }));
