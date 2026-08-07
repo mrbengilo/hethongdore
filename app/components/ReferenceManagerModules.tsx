@@ -162,6 +162,7 @@ export function ReferenceManagerPayroll({ stores }: { stores: ReferenceStore[] }
 export function ReferenceManagerTransfer({ stores }: { stores: ReferenceStore[] }) {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [transfers, setTransfers] = useState<EmployeeTransfer[]>([]);
+  const [sourceStoreId, setSourceStoreId] = useState(stores.find((store) => store.status === "ACTIVE")?.id ?? stores[0]?.id ?? "");
   const [employeeId, setEmployeeId] = useState("");
   const [targetStore, setTargetStore] = useState(stores[1]?.id ?? stores[0]?.id ?? "");
   const [start, setStart] = useState(today());
@@ -177,16 +178,23 @@ export function ReferenceManagerTransfer({ stores }: { stores: ReferenceStore[] 
     const result = await response.json();
     if (response.ok) setTransfers(result.transfers ?? []);
   }, []);
-  useEffect(() => { fetch("/api/employees").then((response) => response.json()).then((result) => { setEmployees(result.employees ?? []); if (result.employees?.[0]) setEmployeeId((value) => value || result.employees[0].id); }); }, []);
+  useEffect(() => {
+    if (!sourceStoreId) return;
+    fetch(`/api/employees?storeId=${encodeURIComponent(sourceStoreId)}`).then((response) => response.json()).then((result) => {
+      const next = (result.employees ?? []).filter((item: Employee) => item.status !== "INACTIVE");
+      setEmployees(next);
+      setEmployeeId((current) => next.some((item: Employee) => item.id === current) ? current : next[0]?.id ?? "");
+    });
+  }, [sourceStoreId]);
   useEffect(() => { reload(); }, [reload]);
   const employee = employees.find((item) => item.id === employeeId);
-  const source = stores.find((item) => item.id === employee?.store_id);
+  const source = stores.find((item) => item.id === sourceStoreId);
   const target = stores.find((item) => item.id === targetStore);
   useEffect(() => {
     if (!employee) return;
     setHourlyRate(String(employee.hourly_rate));
-    if (!targetStore || targetStore === employee.store_id) setTargetStore(stores.find((item) => item.id !== employee.store_id)?.id ?? "");
-  }, [employee, stores, targetStore]);
+    if (!targetStore || targetStore === sourceStoreId) setTargetStore(stores.find((item) => item.id !== sourceStoreId && item.status === "ACTIVE")?.id ?? "");
+  }, [employee, sourceStoreId, stores, targetStore]);
   function toggleShift(value: string) {
     setShifts((current) => {
       if (value === "Cả ngày") return current.includes(value) ? [] : [value];
@@ -211,7 +219,7 @@ export function ReferenceManagerTransfer({ stores }: { stores: ReferenceStore[] 
   }
   const statusLabel = (status: EmployeeTransfer["status"]) => status === "ACTIVE" ? "Đang hỗ trợ" : status === "SCHEDULED" ? "Sắp hỗ trợ" : status === "COMPLETED" ? "Đã hoàn thành" : "Đã hủy";
   return <div className="page-content manager-reference"><div className="transfer-reference-grid transfer-new-layout">
-    <section className="manager-panel transfer-form"><h2>1. THÔNG TIN ĐIỀU CHUYỂN</h2><div className="two-fields"><label>Cửa hàng điều đi<input value={source?.name ?? "Chọn nhân viên"} disabled/></label><label>Chọn nhân viên<select value={employeeId} onChange={(event) => setEmployeeId(event.target.value)}>{employees.map((item) => <option key={item.id} value={item.id}>{item.code} · {item.name}</option>)}</select></label><label>Cửa hàng nhận hỗ trợ<select value={targetStore} onChange={(event) => setTargetStore(event.target.value)}>{stores.filter((item) => item.id !== employee?.store_id).map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label><label>Ngày bắt đầu<input type="date" value={start} onChange={(event) => setStart(event.target.value)}/></label><label>Ngày kết thúc<input type="date" value={end} min={start} onChange={(event) => setEnd(event.target.value)}/></label></div><b className="field-label">Ca làm việc áp dụng</b><div className="shift-checks">{["Ca sáng", "Ca chiều", "Ca tối", "Cả ngày"].map((item) => <label key={item}><input type="checkbox" checked={shifts.includes(item)} onChange={() => toggleShift(item)}/>{item}</label>)}</div><label>Lý do điều chuyển<textarea value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Nhập lý do điều chuyển"/></label></section>
+    <section className="manager-panel transfer-form"><h2>1. THÔNG TIN ĐIỀU CHUYỂN</h2><div className="two-fields"><label>Cửa hàng điều đi<select value={sourceStoreId} onChange={(event) => setSourceStoreId(event.target.value)}>{stores.filter((item) => item.status === "ACTIVE").map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label><label>Chọn nhân viên<select value={employeeId} onChange={(event) => setEmployeeId(event.target.value)}><option value="">Chọn nhân viên</option>{employees.map((item) => <option key={item.id} value={item.id}>{item.code} · {item.name}</option>)}</select></label><label>Cửa hàng nhận hỗ trợ<select value={targetStore} onChange={(event) => setTargetStore(event.target.value)}>{stores.filter((item) => item.id !== sourceStoreId && item.status === "ACTIVE").map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label><label>Ngày bắt đầu<input type="date" value={start} onChange={(event) => setStart(event.target.value)}/></label><label>Ngày kết thúc<input type="date" value={end} min={start} onChange={(event) => setEnd(event.target.value)}/></label></div><b className="field-label">Ca làm việc áp dụng</b><div className="shift-checks">{["Ca sáng", "Ca chiều", "Ca tối", "Cả ngày"].map((item) => <label key={item}><input type="checkbox" checked={shifts.includes(item)} onChange={() => toggleShift(item)}/>{item}</label>)}</div><label>Lý do điều chuyển<textarea value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Nhập lý do điều chuyển"/></label></section>
     <section className="manager-panel transfer-person"><h2>2. THÔNG TIN NHÂN VIÊN</h2><div className="transfer-profile"><i><UserRound size={30}/></i><div><small>{employee?.code ?? "NV000"}</small><strong>{employee?.name ?? "Chọn nhân viên"}</strong><span>{employee?.position ?? "Nhân viên bán hàng"}</span><em>Đang làm tại cửa hàng chính</em></div></div><p><Store size={15}/> Cửa hàng chính <b>{source?.name ?? employee?.store_name ?? "DORE"}</b></p><label>Lương hỗ trợ theo giờ (VNĐ)<input type="number" min="1" value={hourlyRate} onChange={(event) => setHourlyRate(event.target.value)}/></label><label>Phụ cấp hỗ trợ (VNĐ)<input type="number" min="0" value={allowance} onChange={(event) => setAllowance(event.target.value)}/></label></section>
     <section className="transfer-policy-card"><h2>3. QUYỀN TRUY CẬP HỆ THỐNG</h2><p><ShieldCheck/> <span><b>Được đăng nhập hệ thống của cửa hàng hỗ trợ</b><small>Quyền tại cửa hàng nhận được kích hoạt trong thời gian hỗ trợ.</small></span></p><p><XCircle/> <span><b>Thu hồi quyền sau khi kết thúc thời gian hỗ trợ</b><small>Tự động trả quyền đăng nhập về cửa hàng chính.</small></span></p></section>
     <section className="transfer-policy-card"><h2>4. CHÍNH SÁCH LƯƠNG & PHỤ CẤP</h2><p><BadgeDollarSign/> <span><b>Lương, thưởng và phụ cấp</b><small>Được tính cho cửa hàng nhận hỗ trợ.</small></span></p><p><BarChart3/> <span><b>Ghi nhận chi phí</b><small>Chi phí nhân sự được đưa vào báo cáo cửa hàng nhận.</small></span></p></section>
