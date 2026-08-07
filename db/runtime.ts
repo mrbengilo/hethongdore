@@ -21,11 +21,11 @@ const schemaStatements = [
 ];
 
 const employeeColumnMigrations = [
-  `ALTER TABLE employees ADD COLUMN address_province TEXT`,
-  `ALTER TABLE employees ADD COLUMN address_ward TEXT`,
-  `ALTER TABLE employees ADD COLUMN address_detail TEXT`,
-  `ALTER TABLE employees ADD COLUMN cccd_image TEXT`,
-  `ALTER TABLE employees ADD COLUMN age INTEGER`,
+  { name: "address_province", sql: `ALTER TABLE employees ADD COLUMN address_province TEXT` },
+  { name: "address_ward", sql: `ALTER TABLE employees ADD COLUMN address_ward TEXT` },
+  { name: "address_detail", sql: `ALTER TABLE employees ADD COLUMN address_detail TEXT` },
+  { name: "cccd_image", sql: `ALTER TABLE employees ADD COLUMN cccd_image TEXT` },
+  { name: "age", sql: `ALTER TABLE employees ADD COLUMN age INTEGER` },
 ];
 
 const initialStores = [
@@ -41,10 +41,12 @@ export async function initDb() {
   if (!db) throw new Error("D1 binding DB is unavailable");
   await db.batch(schemaStatements.map((sql) => db.prepare(sql)));
 
-  // CREATE TABLE IF NOT EXISTS does not add columns to older D1 databases.
-  // Apply additive migrations idempotently and ignore duplicate-column errors.
-  for (const sql of employeeColumnMigrations) {
-    try { await db.prepare(sql).run(); } catch { /* column already exists */ }
+  // CREATE TABLE IF NOT EXISTS does not add columns to an older D1 table.
+  // Inspect the schema first so normal requests do not intentionally trigger SQL errors.
+  const employeeColumns = await db.prepare("PRAGMA table_info(employees)").all();
+  const existingColumns = new Set((employeeColumns.results as Array<Record<string, unknown>>).map((column) => String(column.name)));
+  for (const migration of employeeColumnMigrations) {
+    if (!existingColumns.has(migration.name)) await db.prepare(migration.sql).run();
   }
 
   const count = await db.prepare("SELECT COUNT(*) AS count FROM stores").first<{ count: number }>();
