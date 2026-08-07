@@ -11,7 +11,7 @@ const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, code TEXT NOT NULL UNIQUE, store_id TEXT NOT NULL, employee_id TEXT NOT NULL, shift_code TEXT NOT NULL, customer_name TEXT, phone TEXT, age INTEGER, amount INTEGER NOT NULL, payment_method TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'COMPLETED', created_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS audit_logs (id TEXT PRIMARY KEY, user_id TEXT, action TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id TEXT, detail TEXT, created_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS business_records (id TEXT PRIMARY KEY, category TEXT NOT NULL, store_id TEXT, owner_id TEXT, title TEXT NOT NULL, data_json TEXT NOT NULL DEFAULT '{}', status TEXT NOT NULL DEFAULT 'ACTIVE', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
-  `CREATE TABLE IF NOT EXISTS shift_sessions (id TEXT PRIMARY KEY, shift_code TEXT NOT NULL UNIQUE, store_id TEXT NOT NULL, employee_id TEXT NOT NULL, started_at TEXT NOT NULL, ended_at TEXT, tiktok INTEGER NOT NULL DEFAULT 0, tiktok_allowance INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'ACTIVE')`,
+  `CREATE TABLE IF NOT EXISTS shift_sessions (id TEXT PRIMARY KEY, shift_code TEXT NOT NULL UNIQUE, store_id TEXT NOT NULL, employee_id TEXT NOT NULL, started_at TEXT NOT NULL, ended_at TEXT, tiktok INTEGER NOT NULL DEFAULT 0, tiktok_allowance INTEGER NOT NULL DEFAULT 0, tasks_completed INTEGER NOT NULL DEFAULT 0, expense_amount INTEGER NOT NULL DEFAULT 0, expense_note TEXT, cash_revenue INTEGER NOT NULL DEFAULT 0, transfer_revenue INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'ACTIVE')`,
   `CREATE INDEX IF NOT EXISTS idx_orders_store_shift ON orders(store_id, employee_id, shift_code, created_at)`,
   `CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token_hash, expires_at)`,
   `CREATE INDEX IF NOT EXISTS idx_employees_store ON employees(store_id, status)`,
@@ -31,6 +31,16 @@ export async function initDb() {
   const db = env.DB;
   if (!db) throw new Error("D1 binding DB is unavailable");
   await db.batch(schemaStatements.map((sql) => db.prepare(sql)));
+  const shiftColumns = await db.prepare("PRAGMA table_info(shift_sessions)").all<{ name: string }>();
+  const existingShiftColumns = new Set(shiftColumns.results.map((column) => column.name));
+  const missingShiftColumns = [
+    ["tasks_completed", "ALTER TABLE shift_sessions ADD COLUMN tasks_completed INTEGER NOT NULL DEFAULT 0"],
+    ["expense_amount", "ALTER TABLE shift_sessions ADD COLUMN expense_amount INTEGER NOT NULL DEFAULT 0"],
+    ["expense_note", "ALTER TABLE shift_sessions ADD COLUMN expense_note TEXT"],
+    ["cash_revenue", "ALTER TABLE shift_sessions ADD COLUMN cash_revenue INTEGER NOT NULL DEFAULT 0"],
+    ["transfer_revenue", "ALTER TABLE shift_sessions ADD COLUMN transfer_revenue INTEGER NOT NULL DEFAULT 0"],
+  ].filter(([column]) => !existingShiftColumns.has(column));
+  if (missingShiftColumns.length) await db.batch(missingShiftColumns.map(([, sql]) => db.prepare(sql)));
 
   const count = await db.prepare("SELECT COUNT(*) AS count FROM stores").first<{ count: number }>();
   if (Number(count?.count ?? 0) === 0) {

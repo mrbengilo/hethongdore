@@ -53,7 +53,52 @@ test("contains core role and finance rules", async () => {
   assert.match(portal, /Xuất Excel/u);
   assert.match(orders, /export async function PATCH/u);
   assert.match(orders, /store_id = \? AND employee_id = \? AND shift_code = \?/u);
-  assert.match(shift, /TikTok=1/u);
+  assert.match(shift, /tasksCompleted/u);
+  assert.match(shift, /cashRevenue/u);
+  assert.match(shift, /transferRevenue/u);
+  assert.match(shift, /expenseNote/u);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/u);
   await assert.rejects(access(new URL("../app/_sites-preview/SkeletonPreview.tsx", import.meta.url)));
+});
+
+test("implements the redesigned employee closing and store workflows", async () => {
+  const [employeeHome, storeModules, shift, runtime] = await Promise.all([
+    readFile(new URL("../app/components/ReferenceEmployeeHome.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/ReferenceStoreModules.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/shift/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../db/runtime.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(employeeHome, /CÔNG VIỆC CẦN LÀM/u);
+  assert.match(employeeHome, /THÔNG TIN KẾT CA/u);
+  assert.match(employeeHome, /allTasksDone/u);
+  assert.match(employeeHome, /Tiền mặt/u);
+  assert.match(employeeHome, /Chuyển khoản/u);
+  assert.match(storeModules, /Tạo ca làm việc/u);
+  assert.match(storeModules, /Lịch theo tuần/u);
+  assert.match(storeModules, /Tạo lịch phân ca/u);
+  assert.match(storeModules, /Tạo phụ cấp/u);
+  assert.match(storeModules, /Tạo thưởng/u);
+  assert.match(storeModules, /Lịch sử tạo phụ cấp và thưởng/u);
+  assert.match(shift, /tasks_completed = 1/u);
+  assert.match(runtime, /cash_revenue/u);
+});
+
+test("wires persistent functional modules", async () => {
+  const [records, employees, shifts, runtime, functionalUi] = await Promise.all([
+    readFile(new URL("../app/api/records/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/employees/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/shifts/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../db/runtime.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/FunctionalModules.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(records, /business_records/u);
+  assert.match(records, /TOGGLE_TASK/u);
+  assert.match(employees, /hashPassword/u);
+  assert.match(shifts, /shift_sessions/u);
+  assert.match(runtime, /CREATE TABLE IF NOT EXISTS business_records/u);
+  assert.match(runtime, /CREATE TABLE IF NOT EXISTS shift_sessions/u);
+  assert.match(functionalUi, /FunctionalTaskManager/u);
+  assert.match(functionalUi, /FunctionalEmployees/u);
+  assert.match(functionalUi, /FunctionalDividend/u);
+  assert.match(functionalUi, /FunctionalEmployeeHistory/u);
 });

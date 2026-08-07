@@ -90,5 +90,10 @@ export const shiftSessions = sqliteTable("shift_sessions", {
   endedAt: text("ended_at"),
   tiktok: integer("tiktok").notNull().default(0),
   tiktokAllowance: integer("tiktok_allowance").notNull().default(0),
+  tasksCompleted: integer("tasks_completed").notNull().default(0),
+  expenseAmount: integer("expense_amount").notNull().default(0),
+  expenseNote: text("expense_note"),
+  cashRevenue: integer("cash_revenue").notNull().default(0),
+  transferRevenue: integer("transfer_revenue").notNull().default(0),
   status: text("status").notNull().default("ACTIVE"),
 });

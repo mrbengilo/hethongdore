@@ -4,6 +4,7 @@ import { ArrowLeft, BadgeDollarSign, Banknote, BarChart3, Bell, Calendar, Calend
 import { FunctionalEmployeeTasks, FunctionalSettings, FunctionalTaskManager } from "./FunctionalModules";
 import { ReferenceManagerCashflow, ReferenceManagerDividend, ReferenceManagerPayroll, ReferenceManagerReports, ReferenceManagerTransfer } from "./ReferenceManagerModules";
 import { ReferenceEmployeeCashflow, ReferenceEmployeePayroll, ReferenceEmployeeShiftHistory } from "./ReferenceEmployeeModules";
+import { ReferenceEmployeeHome } from "./ReferenceEmployeeHome";
 import { ReferenceEmployees, ReferenceStoreModule } from "./ReferenceStoreModules";
 type Role = "MANAGER" | "EMPLOYEE";
 type User = {
@@ -37,6 +38,13 @@ type Order = {
     payment_method: "CASH" | "BANK_TRANSFER";
     status: string;
     created_at: string;
+};
+type ShiftClosePayload = {
+    tasksCompleted: boolean;
+    expenseAmount: number;
+    expenseNote: string;
+    cashRevenue: number;
+    transferRevenue: number;
 };
 const money = (value: number) => new Intl.NumberFormat("vi-VN").format(Math.round(value)) + " đ";
 const compactMoney = (value: number) => value >= 1000000000 ? `${(value / 1000000000).toFixed(2)} tỷ` : value >= 1000000 ? `${(value / 1000000).toFixed(1)} tr` : money(value);
@@ -215,7 +223,144 @@ function StoresView({ stores, totals, reload, openStore }: {
 }
 function TasksView({ stores }: {
     stores: Store[];
-}) { const [tasks, setTasks] = useState(["Mở cửa hàng, kiểm tra vệ sinh", "Sắp xếp và bổ sung hàng trên kệ", "Tư vấn và hỗ trợ khách hàng", "Báo cáo doanh thu cuối ca"]); const [sent, setSent] = useState(false); return <div className="page-content split-layout"><section className="form-card"><div className="form-grid three"><label>Cửa hàng<select>{stores.map(s => <option key={s.id}>{s.name}</option>)}</select></label><label>Ca làm<select><option>Ca 1 · 07:00 - 12:00</option><option>Ca 2 · 12:00 - 17:00</option><option>Ca 3 · 17:00 - 23:00</option></select></label><label>Ngày áp dụng<input type="date" defaultValue="2026-08-06"/></label></div><h2>Danh sách công việc</h2><div className="task-editor">{tasks.map((task, index) => <div key={index}><span>{index + 1}</span><input value={task} onChange={e => setTasks(tasks.map((t, i) => i === index ? e.target.value : t))}/><button onClick={() => setTasks(tasks.filter((_, i) => i !== index))}>×</button></div>)}</div><button className="ghost-button" onClick={() => setTasks([...tasks, ""])}>＋ Thêm công việc</button><button className="primary-button send-button" onClick={() => setSent(true)}>➤ Lưu và gửi</button>{sent && <div className="success-banner">✓ Đã gửi {t…6299 tokens truncated…ype="checkbox" checked={tiktok} onChange={e => setTiktok(e.target.checked)}/> Ca này có làm clip TikTok (+25.000 đ)</span></label></section></>; }
+}) { const [tasks, setTasks] = useState(["Mở cửa hàng, kiểm tra vệ sinh", "Sắp xếp và bổ sung hàng trên kệ", "Tư vấn và hỗ trợ khách hàng", "Báo cáo doanh thu cuối ca"]); const [sent, setSent] = useState(false); return <div className="page-content split-layout"><section className="form-card"><div className="form-grid three"><label>Cửa hàng<select>{stores.map(s => <option key={s.id}>{s.name}</option>)}</select></label><label>Ca làm<select><option>Ca 1 · 07:00 - 12:00</option><option>Ca 2 · 12:00 - 17:00</option><option>Ca 3 · 17:00 - 23:00</option></select></label><label>Ngày áp dụng<input type="date" defaultValue="2026-08-06"/></label></div><h2>Danh sách công việc</h2><div className="task-editor">{tasks.map((task, index) => <div key={index}><span>{index + 1}</span><input value={task} onChange={e => setTasks(tasks.map((t, i) => i === index ? e.target.value : t))}/><button onClick={() => setTasks(tasks.filter((_, i) => i !== index))}>×</button></div>)}</div><button className="ghost-button" onClick={() => setTasks([...tasks, ""])}>＋ Thêm công việc</button><button className="primary-button send-button" onClick={() => setSent(true)}>➤ Lưu và gửi</button>{sent && <div className="success-banner">✓ Đã gửi {tasks.length} công việc đến nhân viên trong ca.</div>}</section><aside className="help-card"><h2>Hướng dẫn</h2><ol><li>Chọn cửa hàng, ca và ngày áp dụng.</li><li>Nhập công việc cùng ghi chú cụ thể.</li><li>Nhân viên nhận việc trên trang chủ và tick khi hoàn thành.</li></ol><div className="phone-preview"><b>✓ Công việc cần làm</b><span>{tasks.length}</span></div></aside></div>; }
+export function CashflowView({ stores, totals }: {
+    stores: Store[];
+    totals: {
+        revenue: number;
+        expense: number;
+        profit: number;
+    };
+}) { return <div className="page-content"><div className="stats-grid three"><StatCard label="DOANH THU" value={money(totals.revenue)} note="↑ 12,45% so với kỳ trước"/><StatCard label="CHI PHÍ" value={money(totals.expense)} note="↑ 8,32% so với kỳ trước" tone="orange" icon="↓"/><StatCard label="LỢI NHUẬN" value={money(totals.profit)} note="↑ 16,78% so với kỳ trước" tone="blue" icon="▥"/></div><div className="chart-grid"><ChartCard title="Biểu đồ dòng tiền" values={[62, 70, 65, 80, 78, 73, 86]} labels={["01", "05", "10", "15", "20", "25", "31"]}/><DonutCard revenue={totals.revenue} expense={totals.expense} profit={totals.profit}/></div><div className="table-card"><div className="table-head"><h2>Chi tiết theo cửa hàng</h2><button onClick={() => exportCsvFile("dong-tien-he-thong.csv", [["Cửa hàng", "Doanh thu", "Chi phí", "Lợi nhuận", "Biên lợi nhuận"], ...stores.map(s => [s.name, s.revenue, s.expense, s.profit, `${((s.profit / Math.max(1, s.revenue)) * 100).toFixed(2)}%`])])}>Xuất báo cáo ↓</button></div><table className="data-table"><thead><tr><th>Cửa hàng</th><th>Doanh thu</th><th>Chi phí</th><th>Lợi nhuận</th><th>Biên lợi nhuận</th></tr></thead><tbody>{stores.map(s => <tr key={s.id}><td>{s.name}</td><td>{money(s.revenue)}</td><td>{money(s.expense)}</td><td className="money-green">{money(s.profit)}</td><td>{((s.profit / Math.max(1, s.revenue)) * 100).toFixed(2)}%</td></tr>)}</tbody></table></div></div>; }
+function ChartCard({ title, values, labels }: {
+    title: string;
+    values: number[];
+    labels: string[];
+}) { return <section className="chart-card"><div className="chart-title"><h2>{title}</h2><span>● Doanh thu　● Chi phí　● Lợi nhuận</span></div><div className="bar-chart">{values.map((v, i) => <div key={i} className="bar-column"><div className="bar greenbar" style={{ height: `${v}%` }}/><div className="bar orangebar" style={{ height: `${Math.max(18, v - 31)}%` }}/><div className="bar bluebar" style={{ height: `${Math.max(12, v - 43)}%` }}/><span>{labels[i]}</span></div>)}</div></section>; }
+function DonutCard({ revenue, expense, profit }: {
+    revenue: number;
+    expense: number;
+    profit: number;
+}) { const total = revenue + expense + profit; return <section className="chart-card"><h2>Tỷ lệ cơ cấu</h2><div className="donut-layout"><div className="donut" style={{ background: `conic-gradient(#07863b 0 ${(revenue / total) * 100}%,#ff7a15 0 ${((revenue + expense) / total) * 100}%,#2376ee 0)` }}><div><small>Tổng</small><b>{compactMoney(revenue)}</b></div></div><div className="legend"><span><i className="green-dot"/>Doanh thu <b>{money(revenue)}</b></span><span><i className="orange-dot"/>Chi phí <b>{money(expense)}</b></span><span><i className="blue-dot"/>Lợi nhuận <b>{money(profit)}</b></span></div></div></section>; }
+function ManagerPayroll({ stores }: {
+    stores: Store[];
+}) { const rows = stores.map(s => ({ ...s, salary: 3000000, bonus: Math.max(0, Math.round(s.profit * .02)) })); const total = rows.reduce((a, s) => a + s.salary + s.bonus, 0); return <div className="page-content"><div className="notice-banner">ℹ Lương cố định quản lý là 3.000.000 đ/cửa hàng/tháng. Thưởng = 2% lợi nhuận cơ sở dương; không có phụ cấp.</div><div className="stats-grid three"><StatCard label="TỔNG LƯƠNG" value={money(rows.length * 3000000)} icon="♕"/><StatCard label="TỔNG THƯỞNG" value={money(rows.reduce((a, s) => a + s.bonus, 0))} tone="orange" icon="✦"/><StatCard label="TỔNG NHẬN" value={money(total)} tone="blue" icon="₫"/></div><div className="table-card"><div className="table-head"><h2>Lương thưởng theo cửa hàng · 08/2026</h2><span className="status-pill">Đã tính</span></div><table className="data-table"><thead><tr><th>Cửa hàng</th><th>Lợi nhuận cơ sở</th><th>Lương cố định</th><th>Thưởng 2%</th><th>Tổng nhận</th></tr></thead><tbody>{rows.map(s => <tr key={s.id}><td>{s.name}</td><td>{money(s.profit)}</td><td>{money(s.salary)}</td><td className="money-green">{money(s.bonus)}</td><td><b>{money(s.salary + s.bonus)}</b></td></tr>)}</tbody><tfoot><tr><td>TỔNG CỘNG</td><td /><td>{money(rows.length * 3000000)}</td><td>{money(rows.reduce((a, s) => a + s.bonus, 0))}</td><td>{money(total)}</td></tr></tfoot></table></div></div>; }
+export function ReportsView({ stores, totals }: {
+    stores: Store[];
+    totals: {
+        revenue: number;
+        expense: number;
+        profit: number;
+    };
+}) { return <div className="page-content"><div className="stats-grid four"><StatCard label="Tổng doanh thu" value={compactMoney(totals.revenue)}/><StatCard label="Tổng chi phí" value={compactMoney(totals.expense)} tone="orange"/><StatCard label="Tổng lợi nhuận" value={compactMoney(totals.profit)} tone="blue"/><StatCard label="Tỷ lệ lợi nhuận" value={`${(totals.profit / totals.revenue * 100).toFixed(2)}%`} icon="%"/></div><div className="chart-grid"><ChartCard title="Xu hướng 7 kỳ gần nhất" values={[54, 62, 58, 69, 65, 77, 81]} labels={["T2", "T3", "T4", "T5", "T6", "T7", "T8"]}/><DonutCard revenue={totals.revenue} expense={totals.expense} profit={totals.profit}/></div><div className="analysis-strip">▥ <b>Xu hướng:</b> Doanh thu và lợi nhuận tăng ổn định; {stores[1]?.name ?? "DORE CẦN THƠ"} đang dẫn đầu doanh thu tháng.</div></div>; }
+function TransferView({ stores }: {
+    stores: Store[];
+}) { const [saved, setSaved] = useState(false); return <div className="page-content"><div className="transfer-layout"><section className="form-card"><h2>1. Thông tin nhân viên</h2><div className="employee-profile"><div className="avatar large">A</div><div><b>Nguyễn Văn An · NV0015</b><span>Nhân viên bán hàng</span><small>Đang làm tại cửa hàng chính</small></div></div><div className="detail-list"><span>Cửa hàng chính <b>DORE CẦN THƠ</b></span><span>Lương theo giờ <b>35.000 đ</b></span><span>Phụ cấp hỗ trợ <b>500.000 đ</b></span></div></section><section className="form-card"><h2>2. Thông tin điều chuyển</h2><div className="form-grid two"><label>Cửa hàng nhận<select>{stores.slice(1).map(s => <option key={s.id}>{s.name}</option>)}</select></label><label>Người phê duyệt<select><option>Quản trị viên DORE</option></select></label><label>Ngày bắt đầu<input type="date" defaultValue="2026-08-10"/></label><label>Ngày kết thúc<input type="date" defaultValue="2026-08-20"/></label></div><label>Ca áp dụng<div className="check-row"><span>☑ Ca sáng</span><span>☑ Ca chiều</span><span>☐ Ca tối</span></div></label><label>Lý do<textarea defaultValue="Hỗ trợ khai trương và ổn định hoạt động cửa hàng."/></label><button className="primary-button" onClick={() => setSaved(true)}>Lưu điều chuyển</button>{saved && <div className="success-banner">✓ Điều chuyển đã được lưu và chờ duyệt.</div>}</section><aside className="policy-card"><h2>3. Quyền truy cập</h2><p>✓ Được đăng nhập cửa hàng nhận trong thời gian hỗ trợ.</p><p>× Tự thu hồi quyền sau khi hết hạn.</p><p>⌂ Tự trở về cửa hàng chính.</p><hr /><h2>4. Lương & chi phí</h2><p>Lương, thưởng, phụ cấp phát sinh được tính cho cửa hàng nhận hỗ trợ.</p></aside></div><div className="table-card"><div className="table-head"><h2>Lịch sử điều chuyển</h2><button>Gia hạn thời gian</button></div><table className="data-table"><thead><tr><th>Thời gian</th><th>Cửa hàng hỗ trợ</th><th>Ca làm việc</th><th>Người duyệt</th><th>Trạng thái</th></tr></thead><tbody><tr><td>10/08 - 20/08/2026</td><td>DORE VĨNH LONG</td><td>Sáng, Chiều</td><td>Quản trị viên</td><td><span className="status-pill">Đang hỗ trợ</span></td></tr></tbody></table></div></div>; }
+function DividendView({ totals }: {
+    totals: {
+        revenue: number;
+        expense: number;
+        profit: number;
+    };
+}) { const profit = Math.max(0, totals.profit); const vi = Math.round(profit * .6); const thuy = profit - vi; const [locked, setLocked] = useState(false); return <div className="page-content"><div className="stats-grid four"><StatCard label="DOANH THU THÁNG" value={compactMoney(totals.revenue)}/><StatCard label="TỔNG CHI PHÍ" value={compactMoney(totals.expense)} tone="orange"/><StatCard label="LỢI NHUẬN SAU CÙNG" value={compactMoney(profit)} tone="blue"/><StatCard label="TỶ LỆ LỢI NHUẬN" value={`${(profit / totals.revenue * 100).toFixed(2)}%`} icon="%"/></div><div className="chart-grid dividend-grid"><section className="chart-card"><h2>Thông tin cổ đông</h2><div className="shareholder"><span>TRƯƠNG VIỆT VI <b>60%</b></span><strong>{money(vi)}</strong></div><div className="shareholder"><span>PHẠM THỊ DIỄM THÚY <b>40%</b></span><strong>{money(thuy)}</strong></div><div className="share-total"><span>Tổng cổ tức</span><b>{money(profit)}</b></div><button disabled={locked} className="primary-button wide" onClick={() => setLocked(true)}>{locked ? "✓ Kỳ cổ tức đã khóa" : "Xác nhận chia cổ tức"}</button></section><ChartCard title="Lợi nhuận 8 tháng gần nhất" values={[40, 48, 44, 58, 71, 50, 62, 78]} labels={["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8"]}/></div><div className="table-card"><div className="table-head"><h2>Lịch sử chia cổ tức</h2><button>Xuất Excel ↓</button></div><table className="data-table"><thead><tr><th>Kỳ</th><th>Doanh thu</th><th>Chi phí</th><th>Lợi nhuận</th><th>Việt Vi (60%)</th><th>Diễm Thúy (40%)</th><th>Trạng thái</th></tr></thead><tbody><tr><td>08/2026</td><td>{money(totals.revenue)}</td><td>{money(totals.expense)}</td><td>{money(profit)}</td><td>{money(vi)}</td><td>{money(thuy)}</td><td><span className="status-pill">{locked ? "Đã khóa" : "Chờ xác nhận"}</span></td></tr></tbody></table></div><div className="ai-analysis"><div className="analysis-illustration">↗</div><div><h2>📈 Kết luận phân tích kỳ 08/2026</h2><p>Lợi nhuận sau cùng đạt <b>{compactMoney(profit)}</b>, tương đương biên lợi nhuận <b>{(profit / totals.revenue * 100).toFixed(2)}%</b>. Doanh thu tăng nhanh hơn chi phí, cho thấy hiệu quả vận hành được cải thiện. Cổ đông Trương Việt Vi nhận {compactMoney(vi)} và Phạm Thị Diễm Thúy nhận {compactMoney(thuy)}.</p></div></div></div>; }
+function SettingsView({ name, email }: {
+    name: string;
+    email: string;
+}) { const [saved, setSaved] = useState(false); return <div className="page-content settings-layout"><aside className="settings-nav"><h2>Cài đặt</h2><button className="active">▣ Thông tin cá nhân</button><button>▢ Đổi mật khẩu</button><button>♧ Thông báo</button><button>◎ Ngôn ngữ</button></aside><section className="form-card"><h2>Thông tin cá nhân</h2><p className="muted">Cập nhật thông tin tài khoản của bạn.</p><div className="profile-form"><div className="profile-photo">{name.slice(0, 1)}<button>⌁</button></div><div className="form-grid two"><label>Họ và tên<input defaultValue={name}/></label><label>Email<input defaultValue={email}/></label><label>Số điện thoại<input defaultValue="0901 234 567"/></label><label>Chức vụ<select><option>Quản lý hệ thống</option></select></label></div></div><label>Địa chỉ<input defaultValue="Ninh Kiều, TP. Cần Thơ"/></label><label>Giới thiệu<textarea defaultValue="Quản lý hệ thống chuỗi cửa hàng DORE."/></label><button className="primary-button align-right" onClick={() => setSaved(true)}>Lưu thay đổi</button>{saved && <div className="success-banner">✓ Đã lưu thông tin.</div>}</section></div>; }
+function StoreWorkspace({ store, view }: {
+    store: Store;
+    view: string;
+}) {
+    const [orders, setOrders] = useState<Order[]>([]);
+    useEffect(() => { if (view === "Đơn hàng")
+        fetch(`/api/orders?storeId=${store.id}`).then(r => r.json()).then(d => setOrders(d.orders ?? [])); }, [view, store.id]);
+    const title = view === "Tổng quan" ? `Tổng quan ${store.name}` : view;
+    return <><div className="page-header store-header"><div><span className="breadcrumb">CỬA HÀNG · {store.address}</span><h1>{title}</h1><p>Dữ liệu vận hành độc lập của {store.name}.</p></div><div className="header-actions"><span className="date-control">▣ Tháng {new Date().toLocaleDateString("vi-VN", { month: "2-digit", year: "numeric" })}</span></div></div><div className="page-content">{view === "Tổng quan" && <><div className="stats-grid four"><StatCard label="Doanh thu" value={money(store.revenue)}/><StatCard label="Tổng chi phí" value={money(store.expense)} tone="orange"/><StatCard label="Lợi nhuận" value={money(store.profit)} tone="blue"/><StatCard label="Biên lợi nhuận" value={`${(store.profit / store.revenue * 100).toFixed(2)}%`} icon="%"/></div><div className="chart-grid"><ChartCard title="Doanh thu & lợi nhuận theo ngày" values={[38, 55, 43, 68, 61, 77, 59]} labels={["01", "05", "10", "15", "20", "25", "31"]}/><section className="chart-card"><h2>Hoạt động hôm nay</h2><div className="activity-list"><span><i>6</i> Nhân viên đang làm</span><span><i>3</i> Ca làm việc</span><span><i>{orders.filter((order) => order.status === "COMPLETED").length}</i> Đơn hàng</span><span><i>2</i> Nhân sự hỗ trợ</span></div></section></div></>}{view === "Đơn hàng" ? <ManagerOrders orders={orders}/> : view !== "Tổng quan" && <StoreModule store={store} view={view}/>}</div></>;
+}
+function ManagerOrders({ orders }: {
+    orders: Order[];
+}) { const active = orders.filter(o => o.status === "COMPLETED"); const cash = active.filter(o => o.payment_method === "CASH").reduce((a, o) => a + o.amount, 0); const bank = active.filter(o => o.payment_method === "BANK_TRANSFER").reduce((a, o) => a + o.amount, 0); return <><div className="stats-grid four"><StatCard label="Tổng số đơn" value={String(active.length)} icon="▧"/><StatCard label="Tiền chuyển khoản" value={money(bank)} tone="blue"/><StatCard label="Tiền mặt" value={money(cash)} tone="orange"/><StatCard label="Tổng doanh thu" value={money(cash + bank)}/></div><OrderTable orders={orders}/></>; }
+function StoreModule({ store, view }: {
+    store: Store;
+    view: string;
+}) {
+    if (view === "Cài đặt") return <FunctionalSettings name={`Quản lý ${store.name}`} email="quanly@dore.vn" storeId={store.id}/>;
+    if (view === "Nhân viên") return <ReferenceEmployees store={store}/>;
+    return <ReferenceStoreModule store={store} view={view}/>;
+    const moduleData: Record<string, {
+    stats: [
+        string,
+        string
+    ][];
+    columns: string[];
+    rows: string[][];
+}> = { "Ca làm việc": { stats: [["Tổng ca", "3 ca"], ["Tổng nhân viên", "18 người"], ["Tổng lượt ca", "32 lượt"]], columns: ["Ca", "Thời gian", "Nhân viên", "Trạng thái"], rows: [["Ca 1", "07:00 - 12:00", "6 nhân viên", "Đang hoạt động"], ["Ca 2", "12:00 - 17:00", "7 nhân viên", "Sắp tới"], ["Ca 3", "17:00 - 23:00", "5 nhân viên", "Sắp tới"]] }, "Lịch phân ca": { stats: [["Ca hôm nay", "3"], ["Nhân viên", "18"], ["Ca trống", "2"]], columns: ["Nhân viên", "Ca 1", "Ca 2", "Ca 3"], rows: [["Nguyễn Thị An", "07:00 - 12:00", "-", "-"], ["Trần Văn Bình", "-", "12:00 - 17:00", "-"], ["Lê Thị Cúc", "07:00 - 12:00", "-", "17:00 - 23:00"]] }, "Nhân viên": { stats: [["Tổng nhân viên", "3"], ["Đang làm việc", "3"], ["Tạm nghỉ", "0"]], columns: ["Mã NV", "Họ và tên", "Chức vụ", "SĐT", "Trạng thái"], rows: [["NV001", "Nguyễn Thị An", "Bán hàng", "0765 109 784", "Đang làm"], ["NV002", "Trần Văn Bình", "Bán hàng", "0923 456 789", "Đang làm"], ["NV003", "Lê Thị Cúc", "Thu ngân", "0812 345 678", "Đang làm"]] }, "Nhập hàng": { stats: [["Tổng mặt hàng", "28"], ["Số lượng", "128 bao"], ["Chi phí nhập", "124.850.000 đ"]], columns: ["Mặt hàng", "Số lượng", "Cân nặng", "Đơn giá/kg", "Thành tiền"], rows: [["Chân váy", "15 bao", "120 kg", "120.000 đ", "14.415.000 đ"], ["Đồ nam", "20 bao", "210,5 kg", "150.000 đ", "31.595.000 đ"], ["Áo dài", "10 bao", "80 kg", "200.000 đ", "16.015.000 đ"]] }, "Chấm công": { stats: [["Nhân viên", "6"], ["Tổng giờ làm", "27,91 giờ"], ["Tổng lương", "558.200 đ"]], columns: ["Nhân viên", "Ca", "Giờ vào", "Giờ kết ca", "Số giờ", "Lương nhận"], rows: [["Nguyễn Thị An", "Ca 1", "06:58", "12:05", "5,07", "101.400 đ"], ["Trần Văn Bình", "Ca 2", "11:59", "17:02", "5,05", "101.000 đ"], ["Lê Thị Cúc", "Ca 3", "16:58", "23:05", "6,12", "122.400 đ"]] }, "Lương thưởng": { stats: [["Tổng giờ", "612,5 giờ"], ["Lương cứng", "12.250.000 đ"], ["Tổng chi trả", "20.950.000 đ"]], columns: ["Nhân viên", "Giờ làm", "Lương cứng", "Phụ cấp TikTok", "Thưởng", "Tổng nhận"], rows: [["Nguyễn Thị An", "208,5", "4.170.000 đ", "500.000 đ", "3.000.000 đ", "7.670.000 đ"], ["Trần Văn Bình", "201", "4.020.000 đ", "700.000 đ", "2.000.000 đ", "6.720.000 đ"], ["Lê Thị Cúc", "203", "4.060.000 đ", "300.000 đ", "1.700.000 đ", "6.560.000 đ"]] }, "Dòng tiền": { stats: [["Doanh thu", money(store.revenue)], ["Chi phí", money(store.expense)], ["Lợi nhuận", money(store.profit)]], columns: ["Loại chi phí", "Số tiền", "Kỳ", "Ghi chú"], rows: [["Mặt bằng", "18.000.000 đ", "08/2026", "Chi phí cố định"], ["Marketing", "5.000.000 đ", "08/2026", "Quảng cáo tháng"], ["Điện, nước, wifi", "4.600.000 đ", "08/2026", "Đã đối soát"]] }, "Báo cáo": { stats: [["Nhân viên", "3"], ["Giờ làm", "612,5"], ["Tổng lương", "20.950.000 đ"]], columns: ["Nhân viên", "Giờ làm", "Lương cứng", "Thưởng", "Phụ cấp", "Lương nhận"], rows: [["Nguyễn Thị An", "208,5", "4.170.000 đ", "3.000.000 đ", "500.000 đ", "7.670.000 đ"], ["Trần Văn Bình", "201", "4.020.000 đ", "2.000.000 đ", "700.000 đ", "6.720.000 đ"]] } }; if (view === "Cài đặt")
+    return <SettingsView name={`Quản lý ${store.name}`} email="quanly@dore.vn"/>; const data = moduleData[view] ?? moduleData["Ca làm việc"]; return <><div className="stats-grid three">{data.stats.map(([label, value], i) => <StatCard key={label} label={label} value={value} tone={i === 1 ? "orange" : i === 2 ? "blue" : "green"}/>)}</div><div className="table-card"><div className="table-head"><h2>Chi tiết {view.toLowerCase()}</h2><div><button>Bộ lọc</button><button>Xuất Excel ↓</button></div></div><div className="data-table-wrap"><table className="data-table"><thead><tr>{data.columns.map(c => <th key={c}>{c}</th>)}</tr></thead><tbody>{data.rows.map((row, i) => <tr key={i}>{row.map((cell, j) => <td key={j} className={j === row.length - 1 ? "money-green" : ""}>{cell}</td>)}</tr>)}</tbody></table></div></div></>; }
+function EmployeePortal({ user, onUser }: {
+    user: User;
+    onUser: (user: User) => void;
+}) {
+    const [view, setView] = useState("Trang chủ");
+    const [shift, setShift] = useState({ active: Boolean(user.shiftActive), shiftCode: user.currentShift, startedAt: user.shiftStartedAt });
+    const [orders, setOrders] = useState<Order[]>([]);
+    const [tiktok, setTiktok] = useState(false);
+    const loadOrders = useCallback(() => fetch("/api/orders").then(response => response.json()).then(data => setOrders(data.orders ?? [])), []);
+    useEffect(() => {
+        if (view === "Đơn hàng" || view === "Dòng tiền" || view === "Trang chủ")
+            loadOrders();
+    }, [view, loadOrders, shift.active]);
+    async function shiftAction(action: "start" | "end", closing?: ShiftClosePayload) {
+        const response = await fetch("/api/shift", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, tiktok, ...closing }) });
+        const data = await response.json();
+        if (!response.ok)
+            return alert(data.message);
+        const next = { ...user, shiftActive: data.active ? 1 : 0, currentShift: data.active ? data.shiftCode : null, shiftStartedAt: data.active ? data.startedAt : null };
+        onUser(next);
+        setShift({ active: data.active, shiftCode: data.active ? data.shiftCode : null, startedAt: data.active ? data.startedAt : null });
+        if (action === "end" && data.tiktokAllowance)
+            alert(`Đã ghi nhận phụ cấp TikTok ${money(data.tiktokAllowance)}.`);
+        if (action === "end") setTiktok(false);
+        loadOrders();
+    }
+    const showStoreBrand = view === "Trang chủ" || view === "Đơn hàng";
+    return <AppShell brand="DORE THỐT NỐT" subtitle="Hệ thống làm việc nhân viên" menu={employeeMenu} active={view} onActive={setView} user={user} accent="employee">
+        <div className={`page-header employee-header ${showStoreBrand ? "employee-brand-header" : ""}`}>
+            <div>{showStoreBrand ? <div className="employee-brand-title"><strong>DORE THỐT NỐT</strong><span>HỆ THỐNG LÀM VIỆC NHÂN VIÊN</span></div> : <><span className="breadcrumb">NHÂN VIÊN · NV001</span><h1>{view}</h1><p>Dữ liệu cá nhân và ca làm việc hiện tại của bạn.</p></>}</div>
+            <div className="header-user"><button className="bell" aria-label="Thông báo"><Bell size={20}/><span>2</span></button><div className="avatar"><UserRound size={20}/></div><span><b>{user.name}</b><small>NV001</small></span></div>
+        </div>
+        <div className="page-content"><EmployeeView user={user} view={view} shift={shift} orders={orders} onShift={shiftAction} tiktok={tiktok} setTiktok={setTiktok} reloadOrders={loadOrders}/></div>
+    </AppShell>;
+}
+function EmployeeView({ user, view, shift, orders, onShift, tiktok, setTiktok, reloadOrders }: {
+    user: User;
+    view: string;
+    shift: {
+        active: boolean;
+        shiftCode: string | null;
+        startedAt: string | null;
+    };
+    orders: Order[];
+    onShift: (action: "start" | "end", closing?: ShiftClosePayload) => void;
+    tiktok: boolean;
+    setTiktok: (v: boolean) => void;
+    reloadOrders: () => void;
+}) { if (view === "Trang chủ")
+    return <ReferenceEmployeeHome user={user} shift={shift} orders={orders} onShift={onShift} tiktok={tiktok} setTiktok={setTiktok}/>; if (view === "Đơn hàng")
+    return <EmployeeOrders shift={shift} orders={orders} reload={reloadOrders}/>; if (view === "Bảng lương")
+    return <ReferenceEmployeePayroll/>; if (view === "Dòng tiền")
+    return <ReferenceEmployeeCashflow shift={shift} orders={orders}/>; return <ReferenceEmployeeShiftHistory/>; }
+function EmployeeHome({ user, shift, orders, onShift, tiktok, setTiktok }: {
+    user: User;
+    shift: {
+        active: boolean;
+        shiftCode: string | null;
+        startedAt: string | null;
+    };
+    orders: Order[];
+    onShift: (a: "start" | "end", closing?: ShiftClosePayload) => void;
+    tiktok: boolean;
+    setTiktok: (v: boolean) => void;
+}) { const activeOrders = orders.filter(o => o.status === "COMPLETED"); const total = activeOrders.reduce((a, o) => a + o.amount, 0); return <><div className="employee-hero-grid"><section className="attendance-card"><span>ĐIỂM DANH</span><strong>{new Date().toLocaleTimeString("vi-VN")}</strong><button className={shift.active ? "end-shift" : "primary-button"} onClick={() => onShift(shift.active ? "end" : "start")}>{shift.active ? "KẾT CA" : "ĐIỂM DANH VÀO CA"}</button><small>{shift.active ? `Đang làm · ${shift.shiftCode}` : "Bạn chưa bắt đầu ca làm việc"}</small></section><section className="info-card"><span>THÔNG TIN NHÂN VIÊN</span><p>Mã nhân viên <b>NV001</b></p><p>Họ và tên <b>{user.name}</b></p><p>Chức vụ <b>Nhân viên bán hàng</b></p><p>Cửa hàng <b>DORE THỐT NỐT</b></p></section><section className="shift-card"><span>CA LÀM VIỆC HÔM NAY</span><div><b>CA 1</b><strong>07:00 - 12:00</strong></div><small className={shift.active ? "active-text" : "warning-text"}>{shift.active ? "● Đang trong ca" : "Chưa điểm danh"}</small></section></div><FunctionalEmployeeTasks user={user}/><section className="closing-card"><div><h2>Thông tin kết ca</h2><p>Tổng số đơn <b>{activeOrders.length}</b></p><p>Doanh thu theo đơn <b>{money(total)}</b></p></div><label className="tiktok-box"><b>♪ CLIP TIKTOK</b><span>Nếu ca này có làm clip TikTok, vui lòng tick bên dưới.</span><span><input type="checkbox" checked={tiktok} onChange={e => setTiktok(e.target.checked)}/> Ca này có làm clip TikTok (+25.000 đ)</span></label></section></>; }
 function EmployeeOrders({ shift, orders, reload }: {
     shift: {
         active: boolean;
@@ -399,4 +544,4 @@ export function EmployeeCashflow({ shift, orders }: {
 function EmployeeHistory() { return <><div className="filter-card"><label>Từ ngày<input type="date" defaultValue="2026-08-01"/></label><label>Đến ngày<input type="date" defaultValue="2026-08-31"/></label><label>Ca làm<select><option>Tất cả</option><option>Ca 1</option><option>Ca 2</option></select></label><button className="primary-button">Tìm kiếm</button></div><div className="table-card"><div className="table-head"><h2>Lịch sử ca làm</h2><button>Xuất Excel ↓</button></div><table className="data-table"><thead><tr><th>Ngày làm</th><th>Mã nhân viên</th><th>Ca</th><th>Giờ vào</th><th>Giờ kết</th><th>Số giờ</th><th>Lương giờ</th><th>Lương dự tính</th></tr></thead><tbody>{[["05/08/2026", "NV001", "Ca 1", "07:02", "12:05", "5,05 giờ", "20.000 đ", "101.000 đ"], ["04/08/2026", "NV001", "Ca 2", "12:01", "17:03", "5,03 giờ", "20.000 đ", "100.600 đ"], ["03/08/2026", "NV001", "Ca 3", "17:00", "23:03", "6,05 giờ", "20.000 đ", "121.000 đ"], ["02/08/2026", "NV001", "Ca 1", "07:00", "12:00", "5,00 giờ", "20.000 đ", "100.000 đ"]].map((r, i) => <tr key={i}>{r.map((x, j) => <td key={j} className={j === 7 ? "money-green" : ""}>{x}</td>)}</tr>)}</tbody></table></div></>; }
 
 // Kept as visual fallbacks while the functional modules above handle all active routes.
-void [TasksView, ManagerPayroll, TransferView, DividendView, EmployeePayroll, EmployeeHistory];
+void [TasksView, ManagerPayroll, TransferView, DividendView, EmployeeHome, EmployeePayroll, EmployeeHistory];

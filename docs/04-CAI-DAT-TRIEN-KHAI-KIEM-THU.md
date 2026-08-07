@@ -97,6 +97,19 @@ Bản build phải tạo entrypoint Worker tương thích và không còn lỗi 
 - Không merge khi lint/test thất bại.
 - Mọi thay đổi công thức tài chính cần có kiểm thử và người nghiệp vụ phê duyệt.
 
+## 10. Các luồng đã kết nối dữ liệu thực
+
+- Quản lý cửa hàng: thêm, sửa, lưu trữ và tìm kiếm.
+- Quản lý nhân viên: tạo tài khoản, sửa hồ sơ/lương giờ, đặt lại mật khẩu và lưu trữ.
+- Giao việc: lưu theo cửa hàng, ngày, ca; nhân viên xem và xác nhận hoàn thành.
+- Ca làm: bắt đầu/kết thúc ca, lịch sử ca và phụ cấp TikTok được lưu vào D1.
+- Đơn hàng: tạo, xem, sửa, hủy và xuất CSV trong đúng ca hiện tại.
+- Dữ liệu cửa hàng: thêm, sửa, xóa và xuất CSV cho ca làm, lịch phân ca, nhập hàng, chấm công, lương thưởng, dòng tiền và báo cáo.
+- Lương quản lý: lương cố định 3.000.000 đồng/cửa hàng và thưởng 2% lợi nhuận.
+- Điều chuyển nhân sự: tạo, duyệt, kết thúc, hủy và xuất lịch sử.
+- Cổ tức: chụp số liệu, khóa kỳ và xuất lịch sử.
+- Cài đặt hồ sơ: lưu bền vững và khôi phục sau khi tải lại trang.
+
 ## 9. Checklist bàn giao production
 
 - [ ] Thay toàn bộ tài khoản/mật khẩu demo.
@@ -109,4 +122,3 @@ Bản build phải tạo entrypoint Worker tương thích và không còn lỗi 
 - [ ] Kiểm tra điều chuyển và chi phí nhân sự hỗ trợ.
 - [ ] Khóa các kỳ lương/cổ tức đã chốt.
 - [ ] Kiểm tra responsive và khả năng truy cập.
-

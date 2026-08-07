@@ -198,3 +198,29 @@ Ca làm tại cửa hàng nhận hỗ trợ chịu lương, thưởng và phụ 
 - Trang chủ: `nv_giaodienchinh.png`; đơn hàng: `nv_donhang.png`.
 - Bảng lương: `nv_bangluong.png`; dòng tiền: `nv_dongtien.png`; lịch sử ca: `nv_lichsuca.png`.
 - Mọi thống kê đơn hàng của nhân viên chỉ dùng dữ liệu thuộc ca đang hoạt động.
+
+## 13. Bổ sung nghiệm thu giao diện và nghiệp vụ cửa hàng (08/2026)
+
+### Trang chủ nhân viên và kết ca
+
+- Giao diện trang chủ bám theo `nv_giaodienchinh.png`: điểm danh, thông tin nhân viên, ca hôm nay, bảng công việc, thông tin kết ca, TikTok và lịch sử ca.
+- Nút **KẾT CA** chỉ được mở khi đồng thời thỏa mãn: đang có ca hoạt động; tất cả công việc bắt buộc đã được tick; đã nhập doanh thu tiền mặt; đã nhập doanh thu chuyển khoản; nếu chi phí phát sinh lớn hơn 0 thì phải nhập nội dung chi.
+- Backend kiểm tra lại toàn bộ điều kiện kết ca, không tin trạng thái nút ở trình duyệt; dữ liệu kết ca được lưu gồm doanh thu theo hình thức thanh toán, chi phí, nội dung chi, trạng thái công việc và cờ TikTok.
+
+### Ca làm việc và lịch phân ca
+
+- Ca làm việc có tên ca, giờ bắt đầu và giờ kết thúc; hỗ trợ thêm, sửa, xóa và xem lịch theo ngày hoặc theo tuần.
+- Lịch phân ca bám theo `ql_lichphanca.png`; quản lý chọn ngày, ca và nhiều nhân viên, sau đó có thể lưu, sửa, xóa, lọc và xuất dữ liệu.
+
+### Nhân viên, nhập hàng, chấm công, dòng tiền và báo cáo
+
+- Danh mục nhân viên bám theo `ql_nvch.png`, hỗ trợ tìm kiếm, lọc trạng thái, thêm, sửa, xóa và quản lý tài khoản đăng nhập.
+- Nhập hàng bám theo `ql_nhaphang.png`, tự tính thành tiền từ cân nặng, đơn giá và phí vận chuyển; hỗ trợ lịch sử, sửa, xóa và xuất dữ liệu.
+- Chấm công bám theo `ql_chamcongnv.png`, lấy dữ liệu ca thực tế, có lọc ngày/ca/trạng thái và xuất dữ liệu.
+- Dòng tiền và báo cáo bám theo `ql_dongtien_CH.png` và `ql_baocao_CH.png`, mọi số liệu luôn theo cửa hàng đang chọn và các bộ lọc đang áp dụng.
+
+### Tạo phụ cấp và thưởng nhân viên
+
+- Màn hình lương thưởng bám theo `ql_luongthuongnv.png` và có hai hành động riêng: **Tạo phụ cấp** và **Tạo thưởng**.
+- Mỗi lần tạo bắt buộc chọn nhân viên, nhập số tiền lớn hơn 0 và nội dung chi; hệ thống tự gắn cửa hàng, người tạo và thời điểm tạo.
+- Lịch sử phụ cấp/thưởng hiển thị đúng nhân viên nhận, loại khoản, số tiền, nội dung và ngày tạo; quản lý có thể lọc, xuất và xóa bản ghi khi kỳ chưa khóa.
