@@ -63,6 +63,7 @@ test("reports and payroll reject periods before the store existed", async () => 
 
   assert.match(storeFinance, /created_at AS createdAt/u);
   assert.match(storeFinance, /!store \|\| !storeExistsInPeriod\(store\.createdAt, period\)/u);
-  assert.match(reports, /return current \? \{ current, previous, evaluation: effectiveness\(current, previous\) \} : null/u);
+  assert.match(reports, /const population = financeComparisonPopulation\(rows\)/u);
+  assert.match(reports, /row\.current[\s\S]*evaluation: effectiveness\(row\.current, row\.previous\)/u);
   assert.match(payroll, /const store = await storePeriodFinance\(db, storeId, period\);[\s\S]*?if \(!store\) return null;/u);
 });

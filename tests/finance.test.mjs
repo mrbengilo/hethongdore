@@ -70,6 +70,118 @@ test("Vietnam payroll periods have exact UTC boundaries", async () => {
   assert.equal(localPeriod(instant), "2026-08");
 });
 
+test("Vietnam report ranges include the end date and compare the exact preceding span", async () => {
+  const {
+    dateRangeBoundsUtc,
+    localDateRangeKeys,
+    previousComparableDateRange,
+    previousEqualDateRange,
+  } = await financeModule();
+
+  const leapRange = { from: "2024-02-28", to: "2024-03-01" };
+  assert.deepEqual(localDateRangeKeys(leapRange), ["2024-02-28", "2024-02-29", "2024-03-01"]);
+  assert.deepEqual(dateRangeBoundsUtc(leapRange), {
+    localStart: "2024-02-28",
+    localEnd: "2024-03-02",
+    startUtc: "2024-02-27T17:00:00.000Z",
+    endUtc: "2024-03-01T17:00:00.000Z",
+  });
+  assert.deepEqual(previousEqualDateRange(leapRange), { from: "2024-02-25", to: "2024-02-27" });
+  assert.deepEqual(previousEqualDateRange({ from: "2026-01-01", to: "2026-01-02" }), {
+    from: "2025-12-30",
+    to: "2025-12-31",
+  });
+  assert.deepEqual(previousComparableDateRange(
+    { from: "2026-03-01", to: "2026-08-31" },
+    "month",
+  ), { from: "2025-09-01", to: "2026-02-28" });
+});
+
+test("finance ranges reject excessive and future windows", async () => {
+  const { validateFinanceDateRange } = await financeModule();
+  assert.deepEqual(validateFinanceDateRange(
+    { from: "2026-01-01", to: "2026-12-31" },
+    "day",
+    "2026-12-31",
+  ), { days: 365, months: 12 });
+  assert.throws(() => validateFinanceDateRange(
+    { from: "2025-12-30", to: "2026-12-31" },
+    "day",
+    "2026-12-31",
+  ), /366 ngày/u);
+  assert.throws(() => validateFinanceDateRange(
+    { from: "2021-12-01", to: "2026-12-31" },
+    "month",
+    "2026-12-31",
+  ), /60 tháng/u);
+  assert.throws(() => validateFinanceDateRange(
+    { from: "2026-08-01", to: "2026-08-09" },
+    "day",
+    "2026-08-08",
+  ), /ngày hiện tại/u);
+});
+
+test("timeline summaries remain exact for empty data, losses and VND totals", async () => {
+  const { evaluateFinancePerformance, summarizeAccrualTimeline, summarizeCashTimeline } = await financeModule();
+  assert.deepEqual(summarizeAccrualTimeline([]), { revenue: 0, expense: 0, profit: 0 });
+  assert.deepEqual(summarizeAccrualTimeline([
+    { revenue: 100_000, expense: 40_000 },
+    { revenue: 50_000, expense: 75_000 },
+  ]), { revenue: 150_000, expense: 115_000, profit: 35_000 });
+  assert.deepEqual(summarizeCashTimeline([
+    { inflow: 100_000, outflow: 40_000 },
+    { inflow: 50_000, outflow: 75_000 },
+  ]), { inflow: 150_000, outflow: 115_000, net: 35_000 });
+  assert.deepEqual(evaluateFinancePerformance(
+    { revenue: 0, expense: 10_000, profit: -10_000 },
+    { revenue: 0, expense: 0, profit: 0 },
+  ), {
+    margin: null,
+    revenueChange: 0,
+    expenseChange: 100,
+    profitChange: -100,
+    rating: "CẦN CẢI THIỆN",
+    direction: "SUY GIẢM",
+  });
+});
+
+test("comparison populations retain stores that closed between ranges", async () => {
+  const { financeComparisonPopulation } = await financeModule();
+  const closedStorePrevious = { id: "closed", revenue: 80_000, expense: 30_000, profit: 50_000 };
+  const continuingCurrent = { id: "open", revenue: 100_000, expense: 40_000, profit: 60_000 };
+  const continuingPrevious = { id: "open", revenue: 90_000, expense: 35_000, profit: 55_000 };
+  assert.deepEqual(financeComparisonPopulation([
+    { current: null, previous: closedStorePrevious },
+    { current: continuingCurrent, previous: continuingPrevious },
+  ]), {
+    current: [continuingCurrent],
+    previous: [closedStorePrevious, continuingPrevious],
+  });
+});
+
+test("fixed cash expenses can be recognized after their configured month", async () => {
+  const source = await readFile(new URL("../app/api/cashflow/route.ts", import.meta.url), "utf8");
+  assert.match(source, /OR \(r\.category = 'CHI_PHI_CO_DINH'\)/u);
+  assert.match(source, /\[data\.paymentDate, data\.paidAt, data\.date\]/u);
+  assert.match(source, /validEntryDate\(date, range\)/u);
+  assert.doesNotMatch(source, /r\.category = 'CHI_PHI_CO_DINH'[\s\S]{0,160}json_extract\(r\.data_json, '\$\.period'\) >= \?/u);
+});
+
+test("report settlement status and legacy current-month ranges stay truthful", async () => {
+  const [reports, storeFinance] = await Promise.all([
+    readFile(new URL("../app/api/reports/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/_lib/store-finance.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(reports, /to: month\.to > today \? today : month\.to/u);
+  assert.match(reports, /store\.settlementStatus === "LOCKED"/u);
+  assert.match(reports, /for \(const store of report\.stores\)/u);
+  assert.match(reports, /reportRangeData\(db, range, previousRange, "month"/u);
+  assert.match(storeFinance, /category = 'PAYROLL_CLOSING'.*status != 'DELETED'/u);
+  assert.match(storeFinance, /closingRow\?\.status === "LOCKED"/u);
+  assert.match(storeFinance, /calculationStatus: snapshotRow \? "LOCKED" : "PROVISIONAL"/u);
+  assert.match(storeFinance, /if \(activeDayCount === 0\) return null/u);
+});
+
 test("shift duration keeps actual seconds and derives exact minutes", async () => {
   const { durationMinutes, durationSeconds } = await financeModule();
   const seconds = durationSeconds("2026-08-01T00:00:00.000Z", "2026-08-01T05:03:00.000Z");

@@ -2,6 +2,152 @@ export type RoundingMode = "HALF_UP" | "DOWN" | "UP";
 
 export const FINANCE_TIME_ZONE = "Asia/Ho_Chi_Minh";
 
+export type LocalDateRange = { from: string; to: string };
+
+const localDatePattern = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
+
+export function isLocalDateValue(value: string) {
+  if (!localDatePattern.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return parsed.getUTCFullYear() === year
+    && parsed.getUTCMonth() === month - 1
+    && parsed.getUTCDate() === day;
+}
+
+export function addLocalDays(value: string, amount: number) {
+  if (!isLocalDateValue(value) || !Number.isSafeInteger(amount)) throw new Error("Ngày hoặc số ngày không hợp lệ.");
+  const [year, month, day] = value.split("-").map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day + amount));
+  return `${parsed.getUTCFullYear()}-${String(parsed.getUTCMonth() + 1).padStart(2, "0")}-${String(parsed.getUTCDate()).padStart(2, "0")}`;
+}
+
+export function localDateRangeDays(range: LocalDateRange) {
+  if (!isLocalDateValue(range.from) || !isLocalDateValue(range.to) || range.from > range.to) {
+    throw new Error("Khoảng ngày không hợp lệ.");
+  }
+  const start = Date.parse(`${range.from}T00:00:00.000Z`);
+  const end = Date.parse(`${range.to}T00:00:00.000Z`);
+  return Math.round((end - start) / 86_400_000) + 1;
+}
+
+export function localDateRangeKeys(range: LocalDateRange) {
+  const count = localDateRangeDays(range);
+  return Array.from({ length: count }, (_, index) => addLocalDays(range.from, index));
+}
+
+export function previousEqualDateRange(range: LocalDateRange): LocalDateRange {
+  const days = localDateRangeDays(range);
+  const to = addLocalDays(range.from, -1);
+  return { from: addLocalDays(to, 1 - days), to };
+}
+
+function isFullCalendarMonthRange(range: LocalDateRange) {
+  if (!isLocalDateValue(range.from) || !isLocalDateValue(range.to) || !range.from.endsWith("-01")) return false;
+  return addLocalDays(range.to, 1).endsWith("-01");
+}
+
+function addLocalMonths(value: string, amount: number) {
+  if (!isLocalDateValue(value) || !Number.isSafeInteger(amount)) throw new Error("Ngày hoặc số tháng không hợp lệ.");
+  const [year, month, day] = value.split("-").map(Number);
+  const targetStart = new Date(Date.UTC(year, month - 1 + amount, 1));
+  const targetDays = new Date(Date.UTC(targetStart.getUTCFullYear(), targetStart.getUTCMonth() + 1, 0)).getUTCDate();
+  return `${targetStart.getUTCFullYear()}-${String(targetStart.getUTCMonth() + 1).padStart(2, "0")}-${String(Math.min(day, targetDays)).padStart(2, "0")}`;
+}
+
+/** Full-month views compare the same number of calendar months; custom day spans compare the exact preceding N days. */
+export function previousComparableDateRange(range: LocalDateRange, granularity: "day" | "month") {
+  localDateRangeDays(range);
+  if (granularity !== "month" || !isFullCalendarMonthRange(range)) return previousEqualDateRange(range);
+  const monthCount = (Number(range.to.slice(0, 4)) - Number(range.from.slice(0, 4))) * 12
+    + Number(range.to.slice(5, 7)) - Number(range.from.slice(5, 7)) + 1;
+  const to = addLocalDays(range.from, -1);
+  const from = addLocalMonths(range.from, -monthCount);
+  return { from, to };
+}
+
+export function validateFinanceDateRange(
+  range: LocalDateRange,
+  granularity: "day" | "month",
+  today = localDate(),
+) {
+  const days = localDateRangeDays(range);
+  const months = (Number(range.to.slice(0, 4)) - Number(range.from.slice(0, 4))) * 12
+    + Number(range.to.slice(5, 7)) - Number(range.from.slice(5, 7)) + 1;
+  if (granularity === "day" && days > 366) throw new Error("Phạm vi theo ngày tối đa là 366 ngày.");
+  if (granularity === "month" && months > 60) throw new Error("Phạm vi theo tháng tối đa là 60 tháng.");
+  if (range.to > today) throw new Error("Phạm vi không được vượt quá ngày hiện tại tại Việt Nam.");
+  return { days, months };
+}
+
+type FinanceSnapshot = { revenue: number; expense: number; profit: number };
+
+function financePercentChange(current: number, previous: number) {
+  if (previous === 0) return current > 0 ? 100 : current < 0 ? -100 : 0;
+  return (current - previous) / Math.abs(previous) * 100;
+}
+
+export function evaluateFinancePerformance(
+  current: FinanceSnapshot,
+  previous: FinanceSnapshot | null,
+  change = financePercentChange,
+) {
+  const margin = current.revenue === 0 ? null : current.profit / current.revenue * 100;
+  const revenueChange = change(current.revenue, previous?.revenue ?? 0);
+  const expenseChange = change(current.expense, previous?.expense ?? 0);
+  const profitChange = change(current.profit, previous?.profit ?? 0);
+  const score = ((margin ?? 0) >= 15 ? 2 : (margin ?? 0) >= 5 ? 1 : 0)
+    + (revenueChange > 0 ? 1 : 0)
+    + (profitChange > 0 ? 1 : 0)
+    + (expenseChange <= revenueChange ? 1 : 0);
+  return {
+    margin,
+    revenueChange,
+    expenseChange,
+    profitChange,
+    rating: current.profit < 0 ? "CẦN CẢI THIỆN" : score >= 4 ? "TỐT" : score >= 2 ? "CẦN THEO DÕI" : "CẦN CẢI THIỆN",
+    direction: current.profit < 0 || profitChange < 0 ? "SUY GIẢM" : profitChange > 0 && revenueChange > 0 ? "TĂNG TRƯỞNG" : "ỔN ĐỊNH",
+  };
+}
+
+export function summarizeAccrualTimeline(rows: Array<{ revenue: number; expense: number }>) {
+  const revenue = sumVnd(rows.map((row) => row.revenue));
+  const expense = sumVnd(rows.map((row) => row.expense));
+  return { revenue, expense, profit: revenue - expense };
+}
+
+export function summarizeCashTimeline(rows: Array<{ inflow: number; outflow: number }>) {
+  const inflow = sumVnd(rows.map((row) => row.inflow));
+  const outflow = sumVnd(rows.map((row) => row.outflow));
+  return { inflow, outflow, net: inflow - outflow };
+}
+
+/** Keep both comparison populations independent when a store opens or closes between ranges. */
+export function financeComparisonPopulation<T>(
+  rows: Array<{ current: T | null; previous: T | null }>,
+) {
+  return {
+    current: rows.flatMap((row) => row.current ? [row.current] : []),
+    previous: rows.flatMap((row) => row.previous ? [row.previous] : []),
+  };
+}
+
+export function dateRangeBoundsUtc(range: LocalDateRange) {
+  localDateRangeDays(range);
+  const localEnd = addLocalDays(range.to, 1);
+  return {
+    localStart: range.from,
+    localEnd,
+    startUtc: new Date(`${range.from}T00:00:00+07:00`).toISOString(),
+    endUtc: new Date(`${localEnd}T00:00:00+07:00`).toISOString(),
+  };
+}
+
+export function localMonthRange(period: string): LocalDateRange {
+  const bounds = periodBoundsUtc(period);
+  return { from: bounds.localStart, to: addLocalDays(bounds.localEnd, -1) };
+}
+
 export function isVnd(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value);
 }

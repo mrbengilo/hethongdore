@@ -93,8 +93,9 @@ test("reports compare periods and dividend closing requires every store ledger t
     "../app/components/FinancialReports.tsx",
   ]);
 
-  assert.match(reportsApi, /const priorPeriod = previousPeriod\(period\)/u);
-  assert.match(reportsApi, /storePeriodFinance\(db, id, period\)/u);
+  assert.match(reportsApi, /const range = localMonthRange\(period\)/u);
+  assert.match(reportsApi, /reportRangeData\(db, range, previousRange, "month"/u);
+  assert.match(reportsApi, /for \(const store of report\.stores\)/u);
   assert.match(reportsApi, /comparison:/u);
   assert.match(reportsApi, /category = 'PAYROLL_CLOSING'.*status = 'LOCKED'/su);
   assert.match(reportsApi, /category = 'DIVIDEND'.*status = 'LOCKED'/su);

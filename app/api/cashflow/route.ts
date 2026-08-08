@@ -1,5 +1,17 @@
 import { initDb } from "../../../db/runtime";
-import { localPeriod, periodBoundsUtc, shiftAccountingDate, sumVnd } from "../../lib/finance";
+import {
+  type LocalDateRange,
+  dateRangeBoundsUtc,
+  localDate as vietnamDate,
+  localDateRangeKeys,
+  localMonthRange,
+  localPeriod,
+  previousComparableDateRange,
+  shiftAccountingDate,
+  summarizeCashTimeline,
+  sumVnd,
+  validateFinanceDateRange,
+} from "../../lib/finance";
 import { getSessionUser, json } from "../_lib/auth";
 
 type Granularity = "day" | "month";
@@ -7,6 +19,8 @@ type Granularity = "day" | "month";
 type StoreRow = {
   id: string;
   name: string;
+  status: string;
+  createdAt: string;
 };
 
 type ShiftRow = {
@@ -45,7 +59,6 @@ type CashEntry = {
 
 const periodPattern = /^\d{4}-(0[1-9]|1[0-2])$/;
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
-const localDateFormatter = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh" });
 
 function addMonths(period: string, amount: number) {
   const [year, month] = period.split("-").map(Number);
@@ -69,10 +82,11 @@ function safeVnd(value: unknown) {
   return Number.isSafeInteger(amount) && amount >= 0 ? amount : 0;
 }
 
-function localDate(value: string | null | undefined) {
+function recognizedLocalDate(value: string | null | undefined) {
   if (!value) return "";
+  if (datePattern.test(value)) return value;
   const parsed = new Date(value);
-  return Number.isFinite(parsed.getTime()) ? localDateFormatter.format(parsed) : "";
+  return Number.isFinite(parsed.getTime()) ? vietnamDate(parsed) : "";
 }
 
 function inventoryTotal(data: Record<string, unknown>) {
@@ -101,27 +115,21 @@ function fixedCostTotal(data: Record<string, unknown>) {
   return sumVnd(["setup", "rent", "electricity", "water", "wifi", "marketing", "garbage", "other"].map((key) => safeVnd(data[key])));
 }
 
-function validEntryDate(value: string, startDate: string, endDate: string) {
-  return datePattern.test(value) && value >= startDate && value < endDate;
+function validEntryDate(value: string, range: LocalDateRange) {
+  return datePattern.test(value) && value >= range.from && value <= range.to;
 }
 
-function bucketKeys(period: string, granularity: Granularity) {
-  if (granularity === "month") return Array.from({ length: 6 }, (_, index) => addMonths(period, index - 5));
-  const [year, month] = period.split("-").map(Number);
-  const dayCount = new Date(Date.UTC(year, month, 0)).getUTCDate();
-  return Array.from({ length: dayCount }, (_, index) => `${period}-${String(index + 1).padStart(2, "0")}`);
+function bucketKeys(range: LocalDateRange, granularity: Granularity) {
+  const dates = localDateRangeKeys(range);
+  return granularity === "day" ? dates : [...new Set(dates.map((date) => date.slice(0, 7)))];
 }
 
 async function collectEntries(
   db: Awaited<ReturnType<typeof initDb>>,
-  startPeriod: string,
-  endPeriod: string,
+  range: LocalDateRange,
   storeId: string | null,
 ) {
-  const start = periodBoundsUtc(startPeriod);
-  const end = periodBoundsUtc(endPeriod);
-  const endUtc = end.endUtc;
-  const endDate = end.localEnd;
+  const bounds = dateRangeBoundsUtc(range);
   const recordStoreSql = storeId ? " AND r.store_id = ?" : "";
   const shiftStatement = db.prepare(`
     SELECT s.store_id AS storeId, st.name AS storeName, s.shift_name AS shiftName,
@@ -133,6 +141,7 @@ async function collectEntries(
     FROM shift_sessions s
     JOIN stores st ON st.id = s.store_id
     WHERE s.status = 'COMPLETED' AND s.ended_at IS NOT NULL
+      AND st.status IN ('ACTIVE', 'INACTIVE')
       AND (
         (NULLIF(s.work_date, '') IS NOT NULL AND s.work_date >= ? AND s.work_date < ?)
         OR (NULLIF(s.work_date, '') IS NULL AND s.started_at >= ? AND s.started_at < ?)
@@ -145,12 +154,12 @@ async function collectEntries(
     FROM business_records r
     JOIN stores s ON s.id = r.store_id
     WHERE r.category IN ('DONG_TIEN', 'NHAP_HANG', 'CHI_PHI_CO_DINH', 'PAYROLL_CLOSING')
+      AND s.status IN ('ACTIVE', 'INACTIVE')
       AND r.status != 'DELETED'${recordStoreSql}
       AND (
         (r.category IN ('DONG_TIEN', 'NHAP_HANG')
           AND json_extract(r.data_json, '$.date') >= ? AND json_extract(r.data_json, '$.date') < ?)
-        OR (r.category = 'CHI_PHI_CO_DINH'
-          AND json_extract(r.data_json, '$.period') >= ? AND json_extract(r.data_json, '$.period') <= ?)
+        OR (r.category = 'CHI_PHI_CO_DINH')
         OR (r.category = 'PAYROLL_CLOSING'
           AND json_extract(r.data_json, '$.paymentConfirmedAt') >= ?
           AND json_extract(r.data_json, '$.paymentConfirmedAt') < ?)
@@ -158,11 +167,11 @@ async function collectEntries(
     ORDER BY r.updated_at
   `);
 
-  const shiftBinds: unknown[] = [start.localStart, endDate, start.startUtc, endUtc];
+  const shiftBinds: unknown[] = [bounds.localStart, bounds.localEnd, bounds.startUtc, bounds.endUtc];
   if (storeId) shiftBinds.push(storeId);
   const recordBinds: unknown[] = [];
   if (storeId) recordBinds.push(storeId);
-  recordBinds.push(start.localStart, endDate, startPeriod, endPeriod, start.startUtc, endUtc);
+  recordBinds.push(bounds.localStart, bounds.localEnd, bounds.startUtc, bounds.endUtc);
   const [shiftResult, recordResult] = await Promise.all([
     shiftStatement.bind(...shiftBinds).all<ShiftRow>(),
     recordStatement.bind(...recordBinds).all<RecordRow>(),
@@ -171,7 +180,7 @@ async function collectEntries(
   const entries: CashEntry[] = [];
   for (const row of shiftResult.results) {
     const date = shiftAccountingDate(row.workDate, row.startedAt);
-    if (!validEntryDate(date, start.localStart, endDate)) continue;
+    if (!validEntryDate(date, range)) continue;
     const revenue = sumVnd([safeVnd(row.cashRevenue), safeVnd(row.transferRevenue)]);
     if (revenue > 0) entries.push({
       date,
@@ -209,17 +218,21 @@ async function collectEntries(
       note = String(data.receiptNo ?? data.note ?? row.title);
     } else if (row.category === "CHI_PHI_CO_DINH") {
       amount = fixedCostTotal(data);
-      source = "Chi phí cố định";
+      source = "Chi phí cố định (ngày ghi nhận)";
       const period = String(data.period ?? "");
-      const updatedDate = localDate(row.updatedAt);
-      date = updatedDate.startsWith(period) ? updatedDate : `${period}-01`;
+      const explicitDate = [data.paymentDate, data.paidAt, data.date]
+        .map((value) => recognizedLocalDate(typeof value === "string" ? value : ""))
+        .find(Boolean) ?? "";
+      const updatedDate = recognizedLocalDate(row.updatedAt);
+      date = explicitDate || (updatedDate.startsWith(period) ? updatedDate : `${period}-01`);
+      note = `${String(data.note ?? row.title)} · Ngày ghi nhận: ${date}`;
     } else if (row.category === "PAYROLL_CLOSING") {
       amount = safeVnd(data.grandTotal);
       source = "Chi lương, thưởng và phụ cấp";
-      date = localDate(String(data.paymentConfirmedAt ?? ""));
+      date = recognizedLocalDate(String(data.paymentConfirmedAt ?? ""));
       note = `Kỳ lương ${String(data.period ?? "")}`;
     }
-    if (amount <= 0 || !validEntryDate(date, start.localStart, endDate)) continue;
+    if (amount <= 0 || !validEntryDate(date, range)) continue;
     entries.push({ date, storeId: row.storeId, storeName: row.storeName, inflow: 0, outflow: amount, source, note });
   }
   return entries;
@@ -239,6 +252,7 @@ function aggregateTimeline(entries: CashEntry[], keys: string[], granularity: Gr
     net: 0,
     transactionCount: 0,
     sources: new Set<string>(),
+    notes: new Set<string>(),
   }]));
   for (const entry of entries) {
     const key = granularity === "day" ? entry.date : entry.date.slice(0, 7);
@@ -249,8 +263,34 @@ function aggregateTimeline(entries: CashEntry[], keys: string[], granularity: Gr
     row.net = row.inflow - row.outflow;
     row.transactionCount += 1;
     row.sources.add(entry.source);
+    if (entry.note) row.notes.add(entry.note);
   }
-  return [...rows.values()].map((row) => ({ ...row, sources: [...row.sources] }));
+  return [...rows.values()].map((row) => ({ ...row, sources: [...row.sources], notes: [...row.notes] }));
+}
+
+function percentChange(current: number, previous: number) {
+  if (previous === 0) return current > 0 ? 100 : current < 0 ? -100 : 0;
+  return (current - previous) / Math.abs(previous) * 100;
+}
+
+function requestedRange(params: URLSearchParams, period: string, granularity: Granularity) {
+  const from = params.get("from");
+  const to = params.get("to");
+  const explicitRange = Boolean(from || to);
+  let range: LocalDateRange;
+  if (!from && !to) {
+    range = granularity === "day"
+      ? localMonthRange(period)
+      : { from: `${addMonths(period, -5)}-01`, to: localMonthRange(period).to };
+    const today = vietnamDate();
+    if (range.from > today) throw new Error("Không thể xem dòng tiền cho kỳ trong tương lai.");
+    if (range.to > today) range = { ...range, to: today };
+  } else {
+    if (!from || !to) throw new Error("Vui lòng chọn đầy đủ ngày bắt đầu và ngày kết thúc.");
+    range = { from, to };
+  }
+  validateFinanceDateRange(range, granularity, explicitRange ? vietnamDate() : range.to);
+  return range;
 }
 
 export async function GET(request: Request) {
@@ -258,41 +298,72 @@ export async function GET(request: Request) {
   if (!user || user.role !== "MANAGER") return json({ message: "Không có quyền xem dòng tiền." }, 403);
   const params = new URL(request.url).searchParams;
   const period = params.get("period") ?? localPeriod();
-  const granularity = params.get("granularity") === "month" ? "month" : "day";
+  const requestedGranularity = params.get("granularity") ?? "day";
+  if (requestedGranularity !== "day" && requestedGranularity !== "month") {
+    return json({ message: "Mức tổng hợp dòng tiền không hợp lệ." }, 400);
+  }
+  const granularity: Granularity = requestedGranularity;
   const storeId = params.get("storeId") || null;
   if (!periodPattern.test(period)) return json({ message: "Kỳ dòng tiền không hợp lệ." }, 400);
+  let range: LocalDateRange;
+  try {
+    range = requestedRange(params, period, granularity);
+  } catch (error) {
+    return json({ message: error instanceof Error ? error.message : "Khoảng dòng tiền không hợp lệ." }, 400);
+  }
+  const previousRange = previousComparableDateRange(range, granularity);
 
   const db = await initDb();
-  if (storeId) {
-    const store = await db.prepare("SELECT id FROM stores WHERE id = ? AND status IN ('ACTIVE', 'INACTIVE') LIMIT 1")
-      .bind(storeId).first<{ id: string }>();
-    if (!store) return json({ message: "Cửa hàng không tồn tại." }, 404);
-  }
-  const storesPromise = db.prepare("SELECT id, name FROM stores WHERE status IN ('ACTIVE', 'INACTIVE') ORDER BY created_at").all<StoreRow>();
-  const startPeriod = granularity === "month" ? addMonths(period, -5) : period;
-  const previousEndPeriod = addMonths(startPeriod, -1);
-  const previousStartPeriod = granularity === "month" ? addMonths(previousEndPeriod, -5) : previousEndPeriod;
+  const storesPromise = db.prepare(`SELECT id, name, status, created_at AS createdAt
+    FROM stores WHERE status IN ('ACTIVE', 'INACTIVE') ORDER BY created_at`).all<StoreRow>();
   const [storesResult, currentEntries, previousEntries] = await Promise.all([
     storesPromise,
-    collectEntries(db, startPeriod, period, storeId),
-    collectEntries(db, previousStartPeriod, previousEndPeriod, storeId),
+    collectEntries(db, range, storeId),
+    collectEntries(db, previousRange, storeId),
   ]);
-  const keys = bucketKeys(period, granularity);
+  if (storeId && !storesResult.results.some((store) => store.id === storeId)) {
+    return json({ message: "Cửa hàng không tồn tại." }, 404);
+  }
+  currentEntries.sort((first, second) => first.date.localeCompare(second.date));
+  const keys = bucketKeys(range, granularity);
   const byStore = storesResult.results
     .filter((store) => !storeId || store.id === storeId)
     .map((store) => ({
       storeId: store.id,
       storeName: store.name,
       ...summarize(currentEntries.filter((entry) => entry.storeId === store.id)),
+      transactionCount: currentEntries.filter((entry) => entry.storeId === store.id).length,
+      sources: [...new Set(currentEntries.filter((entry) => entry.storeId === store.id).map((entry) => entry.source))],
     }));
+  const timeline = aggregateTimeline(currentEntries, keys, granularity);
+  const currentTotals = summarizeCashTimeline(timeline);
+  const priorTotals = summarize(previousEntries);
   return json({
-    period,
+    period: range.to.slice(0, 7),
     granularity,
-    range: { startPeriod, endPeriod: period },
+    scope: storeId ? "STORE" : "ALL",
+    storeId,
+    range: { ...range, startPeriod: range.from.slice(0, 7), endPeriod: range.to.slice(0, 7) },
+    previousRange,
+    request: { scope: storeId ? "STORE" : "ALL", storeId, from: range.from, to: range.to, granularity },
     stores: storesResult.results,
-    totals: summarize(currentEntries),
-    previousTotals: summarize(previousEntries),
-    timeline: aggregateTimeline(currentEntries, keys, granularity),
+    totals: currentTotals,
+    previousTotals: priorTotals,
+    comparison: {
+      inflowChange: percentChange(currentTotals.inflow, priorTotals.inflow),
+      outflowChange: percentChange(currentTotals.outflow, priorTotals.outflow),
+      netChange: percentChange(currentTotals.net, priorTotals.net),
+    },
+    timeline,
     byStore,
+    entries: currentEntries,
+    financeStatus: "ACTUAL_CASH",
+    recognitionPolicy: {
+      timeZone: "Asia/Ho_Chi_Minh",
+      endDateInclusive: true,
+      revenue: "Doanh thu được ghi nhận theo ngày kế toán của ca đã kết thúc.",
+      expenses: "Chi phí có ngày được ghi đúng ngày nghiệp vụ; chi phí cố định ưu tiên paymentDate/paidAt và nếu thiếu dùng ngày cập nhật hoặc đầu kỳ với nhãn ngày ghi nhận.",
+      payroll: "Lương, thưởng và phụ cấp chỉ là dòng tiền ra sau khi đã xác nhận thanh toán.",
+    },
   });
 }

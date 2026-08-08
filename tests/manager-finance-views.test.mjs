@@ -13,6 +13,7 @@ test("manager report and cash-flow menu items open separate views", async () => 
   assert.match(portal, /view === "Dòng tiền"[\s\S]*?<ManagerCashflow\/>/u);
   assert.match(portal, /view === "Báo cáo"[\s\S]*?<ManagerBusinessReport\/>/u);
   assert.doesNotMatch(portal, /view === "Dòng tiền"[\s\S]{0,100}<ManagerBusinessReport\/>/u);
+  assert.match(portal, /financeOwnsHeader = view === "Báo cáo" \|\| view === "Dòng tiền"/u);
 });
 
 test("cash-flow API derives totals from persisted operational records", async () => {
