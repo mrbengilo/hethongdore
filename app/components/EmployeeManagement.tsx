@@ -345,7 +345,7 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
           <option value="ACTIVE">Đang làm việc</option>
           <option value="INACTIVE">Ngưng làm việc</option>
         </select>
-        <button type="button" className="primary-button" disabled={inactive} onClick={() => begin()}><Plus size={17}/> Thêm nhân viên</button>
+        <button type="button" className="primary-button employee-add-button" disabled={inactive} onClick={() => begin()}><Plus size={17}/> THÊM NHÂN VIÊN</button>
       </div>
     </div>
 

@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 
 const MANAGER_HASH = "pbkdf2$100000$ZG9yZS1tYW5hZ2VyLTIwMjY=$d5VqMFL5PfeL24Iqy9+fDO394WhyMImlit02OntW4OM=";
-const DATA_RESET_KEY = "data_reset_2026_08_08";
+const DATA_RESET_KEY = "data_reset_2026_08_08_v2";
 const RESET_UPLOADS_PENDING = "R2_PENDING";
 const RESET_COMPLETE = "COMPLETE";
 
@@ -42,8 +42,9 @@ async function ensureOneTimeDataReset(db: D1Database) {
   if (state) return;
 
   const now = new Date().toISOString();
-  // The reset is intentionally idempotent. Manager sessions survive, while
-  // every operational row and every non-manager account is removed.
+  // This second reset intentionally preserves store identities and manager
+  // accounts/sessions. Only operational data, employees and employee access
+  // are removed, while the two store financial counters return to zero.
   await db.batch([
     db.prepare("DELETE FROM employee_payroll_closings"),
     db.prepare("DELETE FROM orders"),
@@ -55,9 +56,8 @@ async function ensureOneTimeDataReset(db: D1Database) {
     db.prepare("DELETE FROM users WHERE role != 'MANAGER'"),
     db.prepare("UPDATE users SET employee_id = NULL, store_id = NULL, failed_attempts = 0, locked_until = NULL, shift_active = 0, current_shift = NULL, shift_started_at = NULL WHERE role = 'MANAGER'"),
     db.prepare("DELETE FROM employees"),
-    db.prepare("DELETE FROM stores"),
-    db.prepare("DELETE FROM system_state WHERE key = ?").bind(DATA_RESET_KEY),
-    db.prepare("INSERT INTO system_state (key, value, updated_at) VALUES (?, ?, ?)").bind(DATA_RESET_KEY, RESET_UPLOADS_PENDING, now),
+    db.prepare("UPDATE stores SET revenue = 0, expense = 0"),
+    db.prepare("INSERT OR IGNORE INTO system_state (key, value, updated_at) VALUES (?, ?, ?)").bind(DATA_RESET_KEY, RESET_UPLOADS_PENDING, now),
   ]);
 }
 

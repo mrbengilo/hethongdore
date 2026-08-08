@@ -31,6 +31,25 @@ test("fixed-cost primary buttons expose readable action labels", async () => {
   assert.match(styles, /\.fixed-cost-save-actions \.primary-button/u);
 });
 
+test("employee save action and current-shift summary remain legible", async () => {
+  const [management, employeeHome, styles] = await Promise.all([
+    source("../app/components/EmployeeManagement.tsx"),
+    source("../app/components/ReferenceEmployeeHome.tsx"),
+    source("../app/globals.css"),
+  ]);
+
+  assert.match(management, /<Save size=\{17\}\/> \{saving \? "ĐANG LƯU\.\.\." : "LƯU NHÂN VIÊN"\}/u);
+  assert.match(management, /className="primary-button employee-add-button"/u);
+  assert.match(management, /<Plus size=\{17\}\/> THÊM NHÂN VIÊN/u);
+  assert.match(styles, /\.employee-drawer \.drawer-actions \.primary-button(?:,[^{]+)?\{[^}]*background:linear-gradient\([^}]*color:#fff;[^}]*white-space:nowrap;/u);
+  assert.match(styles, /\.ref-toolbar-actions>\.employee-add-button\{[^}]*background:linear-gradient\([^}]*color:#fff;/u);
+  assert.match(employeeHome, /className="employee-shift-summary" aria-label=/u);
+  assert.match(employeeHome, /className="employee-shift-name"/u);
+  assert.match(styles, /\.employee-home-reference \.shift-card \.employee-shift-summary\{[^}]*grid-template-columns:minmax\(112px,max-content\) minmax\(0,1fr\);/u);
+  assert.match(styles, /\.employee-home-reference \.shift-card \.employee-shift-name\{[^}]*height:auto;[^}]*white-space:nowrap;/u);
+  assert.match(styles, /@media\(max-width:420px\)\{\.employee-home-reference \.shift-card \.employee-shift-summary\{grid-template-columns:1fr;/u);
+});
+
 test("manager password change verifies the current secret and revokes other sessions", async () => {
   const [settings, route] = await Promise.all([
     source("../app/components/FunctionalModules.tsx"),

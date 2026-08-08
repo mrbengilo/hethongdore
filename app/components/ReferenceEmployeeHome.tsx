@@ -231,8 +231,11 @@ export function ReferenceEmployeeHome({ user, shift, orders, onShift, tiktok, se
       </section>
       <section className="shift-card">
         <span>CA LÀM VIỆC HÔM NAY</span>
-        <div><b>{shiftName.toLocaleUpperCase("vi-VN")}</b><strong>{scheduledTime}</strong></div>
-        <p>Giờ vào <b>{time(shift.startedAt)}</b><span>Giờ kết ca <b>{time(lastEndedAt)}</b></span></p>
+        <div className="employee-shift-summary" aria-label={`Ca hôm nay: ${shiftName}, ${scheduledTime}`}>
+          <b className="employee-shift-name">{shiftName.toLocaleUpperCase("vi-VN")}</b>
+          <strong className="employee-shift-schedule">{scheduledTime}</strong>
+        </div>
+        <p className="employee-shift-times">Giờ vào <b>{time(shift.startedAt)}</b><span>Giờ kết ca <b>{time(lastEndedAt)}</b></span></p>
         <small className={shift.active ? "active-text" : "warning-text"}>{shift.active ? "● Đang trong ca" : "Chưa điểm danh"}</small>
       </section>
     </div>
