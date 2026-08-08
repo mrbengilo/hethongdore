@@ -64,3 +64,28 @@ test("the shift API persists exact schedule bounds and performs an idempotent ro
   // Preserve the existing manual-close aggregation contract.
   assert.match(source, /UPDATE stores SET revenue = revenue \+ \?, expense = expense \+ \? WHERE id = \?/u);
 });
+
+test("manual early close requires explicit confirmation using the persisted schedule end", async () => {
+  const [api, ui] = await Promise.all([
+    readFile(new URL("../app/api/shift/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/ReferenceEmployeeHome.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(api, /scheduled_end_at AS scheduledEndAt/u);
+  assert.match(api, /earlyEndConfirmed\?: boolean/u);
+  assert.match(api, /earlyEnd && body\.earlyEndConfirmed !== true/u);
+  assert.match(api, /requiresEarlyEndConfirmation: true/u);
+  assert.match(api, /MANUAL_EARLY/u);
+  assert.match(ui, /fetch\("\/api\/shift", \{ cache: "no-store" \}\)/u);
+  assert.match(ui, /window\.confirm\("Chưa hết giờ kết ca, bạn có muốn kết ca không\?"\)/u);
+  assert.match(ui, /earlyEndConfirmed: earlyEnd/u);
+});
+
+test("employee close-out money inputs group thousands while preserving integer payloads", async () => {
+  const ui = await readFile(new URL("../app/components/ReferenceEmployeeHome.tsx", import.meta.url), "utf8");
+  assert.match(ui, /const formatMoneyInput/u);
+  assert.match(ui, /const parseMoneyInput/u);
+  assert.match(ui, /inputMode="numeric"/u);
+  assert.match(ui, /expenseAmount: enteredExpense/u);
+  assert.match(ui, /cashRevenue: enteredCash/u);
+  assert.match(ui, /transferRevenue: enteredTransfer/u);
+});

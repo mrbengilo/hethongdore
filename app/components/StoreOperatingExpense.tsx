@@ -2,6 +2,7 @@
 
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { Download, Plus, ReceiptText, RefreshCw, WalletCards, X } from "lucide-react";
+import { formatVndInput, parseVndInput } from "../lib/format";
 
 type ExpenseStore = {
   id: string;
@@ -143,8 +144,8 @@ export function StoreOperatingExpense({ store, onSaved }: {
     event.preventDefault();
     setError("");
     setMessage("");
-    const parsedAmount = Number(amount);
-    if (!/^\d+$/.test(amount) || !Number.isSafeInteger(parsedAmount) || parsedAmount <= 0) {
+    const parsedAmount = parseVndInput(amount);
+    if (!Number.isSafeInteger(parsedAmount) || parsedAmount <= 0) {
       return setError("Số tiền phải là số nguyên VND dương.");
     }
     if (!date || !title.trim() || !note.trim()) return setError("Vui lòng nhập đủ ngày, loại chi phí và ghi chú.");
@@ -214,7 +215,7 @@ export function StoreOperatingExpense({ store, onSaved }: {
         <label>Ngày chi *<input type="date" required value={date} onChange={(event) => setDate(event.target.value)}/></label>
         <label>Loại / tên chi phí *<input list="operating-expense-types" required maxLength={100} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Ví dụ: Sửa chữa thiết bị"/><datalist id="operating-expense-types"><option value="Marketing"/><option value="Sửa chữa"/><option value="Vật tư tiêu hao"/><option value="Phí dịch vụ"/><option value="Khác"/></datalist></label>
       </div>
-      <label>Số tiền *<input type="number" inputMode="numeric" min="1" step="1" required value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="Ví dụ: 15000"/><small>{money(Number(amount || 0))}</small></label>
+      <label>Số tiền *<input type="text" inputMode="numeric" required value={amount} onChange={(event) => setAmount(formatVndInput(event.target.value))} placeholder="Ví dụ: 15,000"/><small>{money(parseVndInput(amount))}</small></label>
       <label>Ghi chú *<textarea required maxLength={500} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Nội dung, lý do hoặc thông tin đối soát khoản chi"/></label>
       {error && <div className="form-message">{error}</div>}
       <div className="modal-actions"><button type="button" disabled={saving} onClick={() => setOpen(false)}>Hủy</button><button type="submit" className="primary-button" disabled={saving || inactive}>{saving ? "ĐANG LƯU..." : "LƯU"}</button></div>

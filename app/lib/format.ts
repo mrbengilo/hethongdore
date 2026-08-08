@@ -11,6 +11,20 @@ export function formatNumber(value: number | null | undefined, maximumFractionDi
   return new Intl.NumberFormat("en-US", { maximumFractionDigits }).format(Number(value ?? 0));
 }
 
+export function formatVndInput(value: string | number | null | undefined) {
+  const digits = String(value ?? "").replace(/\D/g, "").replace(/^0+(?=\d)/, "");
+  if (!digits) return "";
+  const amount = Number(digits);
+  return Number.isSafeInteger(amount) ? new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(amount) : "";
+}
+
+export function parseVndInput(value: string | number | null | undefined) {
+  const digits = String(value ?? "").replace(/\D/g, "");
+  if (!digits) return 0;
+  const amount = Number(digits);
+  return Number.isSafeInteger(amount) ? amount : Number.NaN;
+}
+
 export function formatTime24(value: Date | string | number | null | undefined) {
   if (value === null || value === undefined || value === "") return "—";
   const date = value instanceof Date ? value : new Date(value);

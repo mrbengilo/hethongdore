@@ -85,6 +85,17 @@ function shortDate(value: string) {
   return `${day}/${month}/${year}`;
 }
 
+function updatedAtLabel(value?: string) {
+  if (!value) return "Chưa ghi nhận thời gian";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Chưa ghi nhận thời gian";
+  return new Intl.DateTimeFormat("vi-VN", {
+    day: "2-digit", month: "2-digit", year: "numeric",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+    hourCycle: "h23", timeZone: "Asia/Ho_Chi_Minh",
+  }).format(date);
+}
+
 function safeString(value: unknown, fallback = "") {
   return typeof value === "string" ? value : fallback;
 }
@@ -225,12 +236,12 @@ function ShiftCards({ shifts, schedules, date, onEdit, onRemove }: {
   onEdit?: (shift: ShiftDefinition) => void;
   onRemove?: (shift: ShiftDefinition) => void;
 }) {
-  return <div className={styles.shiftCards}>
+  return <div className={`${styles.shiftCards} ${shifts.length > 3 ? styles.compactShiftCards : ""}`}>
     {shifts.map((shift, index) => {
       const people = new Set(schedules.filter((entry) => entry.date === date && (entry.shiftId === shift.id || entry.shiftName === shift.name)).flatMap((entry) => entry.employeeIds)).size;
       return <article className={`${styles.shiftCard} ${styles[`tone${index % 3 + 1}`]}`} key={shift.id}>
         <i><Clock3 size={25}/></i>
-        <div><span>{shift.name}</span><strong>{shift.start} - {shift.end}</strong><small>{formatShiftDuration(shift.duration)}{shift.overnight ? " · Qua đêm" : ""} · {people} nhân viên</small></div>
+        <div><span>{shift.name}</span><strong>{shift.start} - {shift.end}</strong><small>{formatShiftDuration(shift.duration)}{shift.overnight ? " · Qua đêm" : ""} · {people} nhân viên</small>{shift.record && <small className={styles.updatedAt}>Cập nhật: {updatedAtLabel(shift.record.updated_at ?? shift.record.created_at)}</small>}</div>
         {onEdit && <div className={styles.cardActions}>
           <button type="button" aria-label={`Sửa ${shift.name}`} onClick={() => onEdit(shift)}><Edit3 size={15}/></button>
           <button type="button" aria-label={`Xóa ${shift.name}`} disabled={!shift.persisted} onClick={() => onRemove?.(shift)}><Trash2 size={15}/></button>
@@ -383,7 +394,6 @@ export function StoreScheduleManagement({ store }: { store: SchedulingStore }) {
   const [date, setDate] = useState(localDate());
   const [view, setView] = useState<"day" | "week" | "employee">("day");
   const [open, setOpen] = useState(false);
-  const [step, setStep] = useState<1 | 2>(1);
   const [editing, setEditing] = useState<ScheduleEntry | null>(null);
   const [shiftId, setShiftId] = useState("");
   const [selectedEmployees, setSelectedEmployees] = useState<string[]>([]);
@@ -404,15 +414,7 @@ export function StoreScheduleManagement({ store }: { store: SchedulingStore }) {
     setNote(entry?.note ?? "");
     setSearch("");
     setMessage("");
-    setStep(1);
     setOpen(true);
-  }
-
-  function continueToEmployees() {
-    if (inactive) return setMessage("Không thể tạo lịch cho cửa hàng đã ngưng hoạt động.");
-    if (!selectedShift) return setMessage("Vui lòng tạo và chọn một ca làm việc trước.");
-    setMessage("");
-    setStep(2);
   }
 
   function toggleEmployee(id: string) {
@@ -485,25 +487,21 @@ export function StoreScheduleManagement({ store }: { store: SchedulingStore }) {
         return <article key={employee.id}><EmployeeName employee={employee}/><div>{entries.length ? entries.map((entry) => <button type="button" disabled={inactive} key={entry.id} onClick={() => begin(entry)}><b>{shortDate(entry.date)} · {entry.shiftName}</b><small>{entry.start} - {entry.end}{entry.overnight ? " · Qua đêm" : ""}</small></button>) : <span>Chưa có lịch trong tuần</span>}</div></article>;
       })}</div>}
     </section>
-    <section className={styles.historyPanel}><div className={styles.historyTitle}><div><h3>Lịch đã tạo ngày {shortDate(date)}</h3><p>{inactive ? "Cửa hàng ngưng hoạt động: chỉ xem lịch sử." : "Chọn một lịch để sửa danh sách nhân viên hoặc ghi chú."}</p></div><button type="button" className={styles.secondaryButton} onClick={() => setDate(localDate())}>Hôm nay</button></div>{daySchedules.length ? <div className={styles.scheduleHistory}>{daySchedules.map((entry) => <article key={entry.id}><i><Clock3 size={19}/></i><span><b>{entry.shiftName} · {entry.start} - {entry.end}</b><small>{entry.employeeNames.join(", ") || `${entry.employeeIds.length} nhân viên`}{entry.note ? ` · ${entry.note}` : ""}</small></span><div><button type="button" disabled={inactive} aria-label="Sửa lịch" onClick={() => begin(entry)}><Edit3 size={16}/></button><button type="button" disabled={inactive} aria-label="Xóa lịch" onClick={() => remove(entry)}><Trash2 size={16}/></button></div></article>)}</div> : <p className={styles.empty}>Chưa tạo lịch phân ca cho ngày này.</p>}</section>
+    <section className={styles.historyPanel}><div className={styles.historyTitle}><div><h3>Lịch đã tạo ngày {shortDate(date)}</h3><p>{inactive ? "Cửa hàng ngưng hoạt động: chỉ xem lịch sử." : "Chọn một lịch để sửa danh sách nhân viên hoặc ghi chú."}</p></div><button type="button" className={styles.secondaryButton} onClick={() => setDate(localDate())}>Hôm nay</button></div>{daySchedules.length ? <div className={styles.scheduleHistory}>{daySchedules.map((entry) => <article key={entry.id}><i><Clock3 size={19}/></i><span><b>{entry.shiftName}</b><small className={styles.historyShiftTime}>{entry.start} - {entry.end}{entry.overnight ? " · Qua đêm" : ""}</small><small>{entry.employeeNames.join(", ") || `${entry.employeeIds.length} nhân viên`}{entry.note ? ` · ${entry.note}` : ""}</small><small className={styles.updatedAt}>Cập nhật: {updatedAtLabel(entry.record.updated_at ?? entry.record.created_at)}</small></span><div><button type="button" disabled={inactive} aria-label="Sửa lịch" onClick={() => begin(entry)}><Edit3 size={16}/></button><button type="button" disabled={inactive} aria-label="Xóa lịch" onClick={() => remove(entry)}><Trash2 size={16}/></button></div></article>)}</div> : <p className={styles.empty}>Chưa tạo lịch phân ca cho ngày này.</p>}</section>
     {(shiftSource.error || scheduleSource.error || message) && !open && <p className={styles.error}>{message || shiftSource.error || scheduleSource.error}</p>}
     {open && <div className={styles.backdrop}><form className={`${styles.modal} ${styles.scheduleModal}`} onSubmit={save}>
-      <div className={styles.modalHeader}><div><h3>{editing ? "Sửa lịch phân ca" : "Tạo lịch phân ca"}</h3><p>Chọn ca trước, sau đó chọn các nhân viên áp dụng.</p></div><button type="button" onClick={() => setOpen(false)}><X size={20}/></button></div>
-      <div className={styles.steps}><span className={step === 1 ? styles.currentStep : styles.completedStep}><b>1</b> Chọn ca</span><i/><span className={step === 2 ? styles.currentStep : ""}><b>2</b> Chọn nhân viên</span></div>
-      {step === 1 ? <div className={styles.stepBody}>
+      <div className={styles.modalHeader}><div><h3>{editing ? "Sửa lịch phân ca" : "Tạo lịch phân ca"}</h3><p>Chọn ngày, ca, nhân viên và ghi chú trên cùng một màn hình.</p></div><button type="button" onClick={() => setOpen(false)}><X size={20}/></button></div>
+      <div className={styles.stepBody}>
         <label>Ngày áp dụng *<input type="date" required value={date} onChange={(event) => setDate(event.target.value)}/></label>
-        <fieldset className={styles.shiftPicker}><legend>Chọn ca làm việc *</legend>{shifts.map((shift, index) => <label className={shiftId === shift.id ? styles.selectedShift : ""} key={shift.id}><input type="radio" name="shift" checked={shiftId === shift.id} onChange={() => setShiftId(shift.id)}/><i className={styles[`dot${index % 3 + 1}`]}/><span><b>{shift.name}</b><small>{shift.start} - {shift.end} · {formatShiftDuration(shift.duration)}{shift.overnight ? " · Qua đêm" : ""}</small></span><Check size={17}/></label>)}</fieldset>
-        <label>Ghi chú <textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Nhập ghi chú cho lịch phân ca..." maxLength={300}/></label>
-        {message && <p className={styles.error}>{message}</p>}
-        <div className={styles.modalActions}><button type="button" className={styles.secondaryButton} onClick={() => setOpen(false)}>Hủy</button><button type="button" className={styles.primaryButton} onClick={continueToEmployees}>Tiếp tục chọn nhân viên <ChevronRight size={17}/></button></div>
-      </div> : <div className={styles.stepBody}>
+        <fieldset className={styles.shiftPicker}><legend>Chọn ca làm việc *</legend><div className={styles.scheduleShiftPicker}>{shifts.map((shift, index) => <label className={shiftId === shift.id ? styles.selectedShift : ""} key={shift.id}><input type="radio" name="shift" checked={shiftId === shift.id} onChange={() => setShiftId(shift.id)}/><i className={styles[`dot${index % 3 + 1}`]}/><span><b>{shift.name}</b><small>{shift.start} - {shift.end}</small><small>{formatShiftDuration(shift.duration)}{shift.overnight ? " · Qua đêm" : ""}</small></span><Check size={17}/></label>)}</div></fieldset>
         <div className={styles.selectedSummary}><Clock3 size={19}/><span><b>{selectedShift?.name}</b><small>{dateLabel(date)} · {selectedShift?.start} - {selectedShift?.end}</small></span></div>
         <label className={styles.employeeSearch}><Search size={17}/><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm mã, tên hoặc vị trí nhân viên..."/></label>
         <div className={styles.selectionTools}><b>Chọn nhân viên ({selectedEmployees.length}/{employees.length})</b><button type="button" onClick={() => setSelectedEmployees(selectedEmployees.length === employees.length ? [] : employees.map((employee) => employee.id))}>{selectedEmployees.length === employees.length ? "Bỏ chọn tất cả" : "Chọn tất cả"}</button></div>
         <fieldset className={styles.employeePicker}>{employeeSource.loading ? <p>Đang tải nhân viên...</p> : visibleEmployees.map((employee) => <label key={employee.id}><input type="checkbox" checked={selectedEmployees.includes(employee.id)} onChange={() => toggleEmployee(employee.id)}/><EmployeeName employee={employee}/><Check size={17}/></label>)}</fieldset>
+        <label>Ghi chú <textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Nhập ghi chú cho lịch phân ca..." maxLength={300}/></label>
         {message && <p className={styles.error}>{message}</p>}
-        <div className={styles.modalActions}><button type="button" className={styles.secondaryButton} onClick={() => setStep(1)}><ChevronLeft size={17}/> Quay lại</button><button className={styles.primaryButton} disabled={saving || inactive || !selectedEmployees.length}>{saving ? "Đang lưu..." : editing ? "Cập nhật lịch" : "Lưu lịch ca"}</button></div>
-      </div>}
+        <div className={styles.modalActions}><button type="button" className={styles.secondaryButton} onClick={() => setOpen(false)}>Hủy</button><button className={styles.primaryButton} disabled={saving || inactive || !selectedEmployees.length}>{saving ? "Đang lưu..." : editing ? "Cập nhật lịch" : "Lưu lịch ca"}</button></div>
+      </div>
     </form></div>}
   </section>;
 }

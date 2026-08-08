@@ -1,6 +1,7 @@
 "use client";
+/* eslint-disable @next/next/no-img-element -- Logo thương hiệu tĩnh do người dùng cung cấp và dùng đồng nhất trong toàn hệ thống. */
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, BadgeDollarSign, Banknote, BarChart3, Bell, Calendar, CalendarDays, CalendarRange, CheckCircle2, ClipboardCheck, Clock3, Download, Eye, Flower2, Gift, History, Home, LayoutDashboard, LogOut, Menu, PackageOpen, Pencil, Percent, PieChart, Plus, ReceiptText, RefreshCw, Settings, ShoppingBag, ShoppingCart, Store, Trash2, TrendingUp, UserRound, UsersRound, WalletCards, X, type LucideIcon } from "lucide-react";
+import { ArrowLeft, BadgeDollarSign, Banknote, BarChart3, Bell, Calendar, CalendarDays, CalendarRange, CheckCircle2, ClipboardCheck, Clock3, Download, Eye, Gift, History, Home, LayoutDashboard, LogOut, Menu, PackageOpen, Pencil, Percent, PieChart, Plus, ReceiptText, RefreshCw, Settings, ShoppingBag, ShoppingCart, Store, Trash2, TrendingUp, UserRound, UsersRound, WalletCards, X, type LucideIcon } from "lucide-react";
 import { FunctionalEmployeeTasks, FunctionalSettings, FunctionalTaskManager } from "./FunctionalModules";
 import { ReferenceManagerTransfer } from "./ReferenceManagerModules";
 import { ReferenceEmployeeCashflow, ReferenceEmployeePayroll, ReferenceEmployeeRevenue, ReferenceEmployeeShiftHistory } from "./ReferenceEmployeeModules";
@@ -12,6 +13,7 @@ import { ManagerDividendClosing, ManagerFinancialReports, StoreFinancialReport }
 import { StoreInventoryManagement } from "./InventoryManagement";
 import { StoreEmployeeManagement } from "./EmployeeManagement";
 import { StoreOperatingExpense } from "./StoreOperatingExpense";
+import { formatVndInput, parseVndInput } from "../lib/format";
 type Role = "MANAGER" | "EMPLOYEE";
 type User = {
     id: string;
@@ -118,7 +120,7 @@ export default function Portal({ expectedRole }: {
         }).finally(() => setLoading(false));
     }, [expectedRole]);
     if (loading || !user)
-        return <div className="app-loading"><div className="pulse-logo">DORE</div><p>Đang tải dữ liệu vận hành...</p></div>;
+        return <div className="app-loading"><div className="pulse-logo"><img className="brand-logo-image" src="/dore-logo.jpg" alt="Logo DORE Quản Lý" width={1254} height={1254}/></div><p>Đang tải dữ liệu vận hành...</p></div>;
     return expectedRole === "MANAGER" ? <ManagerPortal user={user}/> : <EmployeePortal user={user} onUser={setUser}/>;
 }
 function AppShell({ brand, subtitle, menu, active, onActive, user, children, onBack, accent = "dark" }: {
@@ -136,7 +138,7 @@ function AppShell({ brand, subtitle, menu, active, onActive, user, children, onB
     async function logout() { await fetch("/api/auth/logout", { method: "POST" }); window.location.href = "/"; }
     return <div className={`app-shell ${accent}`}>
     <aside className={`sidebar ${open ? "open" : ""}`}>
-      <div className="sidebar-brand"><div className="mini-mark">{accent === "dark" ? <Flower2 size={27}/> : accent === "employee" ? <b>DORE</b> : <Store size={24}/>}</div><div><strong>{brand}</strong><span>{subtitle}</span></div><button className="close-menu" onClick={() => setOpen(false)} aria-label="Đóng menu"><X size={21}/></button></div>
+      <div className="sidebar-brand"><div className="mini-mark"><img className="brand-logo-image" src="/dore-logo.jpg" alt="Logo DORE Quản Lý" width={1254} height={1254}/></div><div><strong>{brand}</strong><span>{subtitle}</span></div><button className="close-menu" onClick={() => setOpen(false)} aria-label="Đóng menu"><X size={21}/></button></div>
       {onBack && <button className="back-system" onClick={onBack}><ArrowLeft size={17}/> Tổng quan hệ thống</button>}
       <nav>{menu.map((item) => { const Icon = menuIcons[item] ?? LayoutDashboard; return <button key={item} className={active === item ? "active" : ""} onClick={() => { onActive(item); setOpen(false); window.scrollTo({ top: 0, behavior: "smooth" }); }}><i><Icon size={19} strokeWidth={1.8}/></i>{item}</button>; })}</nav>
       <div className="sidebar-user"><div className="avatar"><UserRound size={20}/></div><div><b>{user.name}</b><span>{user.role === "MANAGER" ? "Quản lý hệ thống" : `${user.employeeCode ?? "NV"} · ${user.employeePosition ?? "Nhân viên"}`}</span></div></div>
@@ -211,7 +213,7 @@ function ManagerView({ view, stores, loading, reload, openStore }: {
     if (view === "Dòng tiền")
         return <ManagerFinancialReports/>;
     if (view === "Lương thưởng quản lý")
-        return <ManagerFinancialReports/>;
+        return <ManagerPayroll/>;
     if (view === "Báo cáo")
         return <ManagerFinancialReports/>;
     if (view === "Điều chuyển nhân sự")
@@ -243,7 +245,7 @@ function DashboardOverview({ stores, totals, loading, openStore }: {
     return <div className="page-content">
     <div className="stats-grid three"><StatCard label="TỔNG DOANH THU" value={compactMoney(totals.revenue)} note={note("revenue")} icon="₫"/><StatCard label="TỔNG CHI PHÍ" value={compactMoney(totals.expense)} note={note("expense")} tone="orange" icon="▤"/><StatCard label="TỔNG LỢI NHUẬN" value={compactMoney(totals.profit)} note={note("profit")} tone="blue" icon="▥"/></div>
     <div className="section-title"><div><h2>Quản lý cửa hàng</h2><p>Chọn cửa hàng để xem và quản lý chi tiết.</p></div><span>{stores.filter((store) => store.status === "ACTIVE").length} cửa hàng đang hoạt động</span></div>
-    <div className="store-grid">{loading ? Array.from({ length: 5 }, (_, i) => <div className="store-card loading-card" key={i}/>) : stores.map((store, index) => <article className={`store-card ${store.status === "INACTIVE" ? "inactive" : ""}`} key={store.id}><div className={`store-cover cover-${index % 5}`}><div className="shop-sign"><b>DORE</b><span>{store.name.replace("DORE ", "")}</span></div><div className="shop-front"><i /><i /><i /></div></div><div className="store-card-body"><div className={`store-status ${store.status === "INACTIVE" ? "inactive" : ""}`}>● {store.status === "INACTIVE" ? "Ngưng hoạt động" : "Đang hoạt động"}</div><h3>{store.name}</h3><p>⌖ {store.address}</p><div className="store-numbers"><span>Doanh thu tháng <b>{money(store.revenue)}</b></span><span>Lợi nhuận <b>{money(store.profit)}</b></span></div><button className="store-open" onClick={() => openStore(store)}>Xem cửa hàng <span>→</span></button></div></article>)}</div>
+    <div className="store-grid">{loading ? Array.from({ length: 5 }, (_, i) => <div className="store-card loading-card" key={i}/>) : stores.map((store, index) => <article className={`store-card ${store.status === "INACTIVE" ? "inactive" : ""}`} key={store.id}><div className={`store-cover cover-${index % 5}`}><div className="shop-sign"><img className="store-logo-image" src="/dore-logo.jpg" alt={`Logo ${store.name}`} width={1254} height={1254}/><span>{store.name.replace("DORE ", "")}</span></div><div className="shop-front"><i /><i /><i /></div></div><div className="store-card-body"><div className={`store-status ${store.status === "INACTIVE" ? "inactive" : ""}`}>● {store.status === "INACTIVE" ? "Ngưng hoạt động" : "Đang hoạt động"}</div><h3>{store.name}</h3><p>⌖ {store.address}</p><div className="store-numbers"><span>Doanh thu tháng <b>{money(store.revenue)}</b></span><span>Lợi nhuận <b>{money(store.profit)}</b></span></div><button className="store-open" onClick={() => openStore(store)}>Xem cửa hàng <span>→</span></button></div></article>)}</div>
   </div>;
 }
 function StoresView({ stores, totals, reload, openStore }: {
@@ -301,9 +303,69 @@ function DonutCard({ revenue, expense, profit }: {
     expense: number;
     profit: number;
 }) { const total = revenue + expense + profit; return <section className="chart-card"><h2>Tỷ lệ cơ cấu</h2><div className="donut-layout"><div className="donut" style={{ background: `conic-gradient(#07863b 0 ${(revenue / total) * 100}%,#ff7a15 0 ${((revenue + expense) / total) * 100}%,#2376ee 0)` }}><div><small>Tổng</small><b>{compactMoney(revenue)}</b></div></div><div className="legend"><span><i className="green-dot"/>Doanh thu <b>{money(revenue)}</b></span><span><i className="orange-dot"/>Chi phí <b>{money(expense)}</b></span><span><i className="blue-dot"/>Lợi nhuận <b>{money(profit)}</b></span></div></div></section>; }
-function ManagerPayroll({ stores }: {
-    stores: Store[];
-}) { const rows = stores.map(s => ({ ...s, salary: 3000000, bonus: Math.max(0, Math.round(s.profit * .02)) })); const total = rows.reduce((a, s) => a + s.salary + s.bonus, 0); return <div className="page-content"><div className="notice-banner">ℹ Lương cố định quản lý là 3.000.000 đ/cửa hàng/tháng. Thưởng = 2% lợi nhuận cơ sở dương; không có phụ cấp.</div><div className="stats-grid three"><StatCard label="TỔNG LƯƠNG" value={money(rows.length * 3000000)} icon="♕"/><StatCard label="TỔNG THƯỞNG" value={money(rows.reduce((a, s) => a + s.bonus, 0))} tone="orange" icon="✦"/><StatCard label="TỔNG NHẬN" value={money(total)} tone="blue" icon="₫"/></div><div className="table-card"><div className="table-head"><h2>Lương thưởng theo cửa hàng · 08/2026</h2><span className="status-pill">Đã tính</span></div><table className="data-table"><thead><tr><th>Cửa hàng</th><th>Lợi nhuận cơ sở</th><th>Lương cố định</th><th>Thưởng 2%</th><th>Tổng nhận</th></tr></thead><tbody>{rows.map(s => <tr key={s.id}><td>{s.name}</td><td>{money(s.profit)}</td><td>{money(s.salary)}</td><td className="money-green">{money(s.bonus)}</td><td><b>{money(s.salary + s.bonus)}</b></td></tr>)}</tbody><tfoot><tr><td>TỔNG CỘNG</td><td /><td>{money(rows.length * 3000000)}</td><td>{money(rows.reduce((a, s) => a + s.bonus, 0))}</td><td>{money(total)}</td></tr></tfoot></table></div></div>; }
+type ManagerPayrollRow = {
+    period: string;
+    storeId: string;
+    storeName: string;
+    profitBeforePerformanceRewards: number;
+    employeeKpiBonus: number;
+    finalProfit: number;
+    managerSalary: number;
+    managerBonus: number;
+    managerTotal: number;
+    paymentConfirmedAt: string | null;
+    closedAt: string | null;
+    status: "LOCKED";
+};
+type ManagerPayrollReport = {
+    period: string;
+    policy: { salaryPerStore: number; bonusRate: number };
+    rows: ManagerPayrollRow[];
+    totals: { storeCount: number; totalSalary: number; totalBonus: number; totalPay: number };
+};
+function ManagerPayroll() {
+    const [period, setPeriod] = useState(() => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh", year: "numeric", month: "2-digit" }).format(new Date()));
+    const [report, setReport] = useState<ManagerPayrollReport | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState("");
+    const load = useCallback(async () => {
+        setLoading(true);
+        setError("");
+        try {
+            const params = new URLSearchParams({ scope: "manager", period });
+            const response = await fetch(`/api/payroll?${params}`, { cache: "no-store" });
+            const payload = await response.json() as { managerPayroll?: ManagerPayrollReport; message?: string };
+            if (!response.ok || !payload.managerPayroll) throw new Error(payload.message || "Không thể tải lương thưởng quản lý.");
+            setReport(payload.managerPayroll);
+        } catch (cause) {
+            setReport(null);
+            setError(cause instanceof Error ? cause.message : "Không thể tải lương thưởng quản lý.");
+        } finally {
+            setLoading(false);
+        }
+    }, [period]);
+    useEffect(() => { void load(); }, [load]);
+
+    const exportReport = () => {
+        if (!report) return;
+        exportCsvFile(`luong-thuong-quan-ly-${report.period}.csv`, [
+            ["Cửa hàng", "Kỳ", "Lợi nhuận cơ sở", "Lương quản lý", "Thưởng KPI 2%", "Tổng nhận", "Lợi nhuận sau cùng", "Đã chi lúc", "Khóa lúc"],
+            ...report.rows.map((row) => [row.storeName, row.period, row.profitBeforePerformanceRewards, row.managerSalary, row.managerBonus, row.managerTotal, row.finalProfit, row.paymentConfirmedAt, row.closedAt]),
+        ]);
+    };
+    const policy = report?.policy ?? { salaryPerStore: 3_000_000, bonusRate: 0.02 };
+    const totals = report?.totals ?? { storeCount: 0, totalSalary: 0, totalBonus: 0, totalPay: 0 };
+    const rows = report?.rows ?? [];
+    return <div className="page-content manager-reference payroll-page">
+        <div className="ref-toolbar"><div><h2>LƯƠNG THƯỞNG QUẢN LÝ</h2><p>Chỉ ghi nhận số liệu thật từ các cửa hàng đã xác nhận chi và khóa kỳ.</p></div><div className="ref-toolbar-actions"><input aria-label="Kỳ lương quản lý" type="month" value={period} onChange={(event) => setPeriod(event.target.value)}/><button onClick={() => void load()} disabled={loading}><RefreshCw size={16}/> {loading ? "Đang tải…" : "Làm mới"}</button><button onClick={exportReport} disabled={!rows.length}><Download size={16}/> Xuất CSV</button></div></div>
+        <div className="notice-banner">ℹ Lương mặc định {money(policy.salaryPerStore)}/cửa hàng/kỳ. Thưởng KPI quản lý = {(policy.bonusRate * 100).toFixed(0)}% lợi nhuận cơ sở dương của từng cửa hàng.</div>
+        {error && <div className="form-message">{error}</div>}
+        <div className="stats-grid four"><StatCard label="TỔNG LƯƠNG QUẢN LÝ" value={money(totals.totalSalary)} note={`${totals.storeCount} cửa hàng đã khóa kỳ`} icon="♕"/><StatCard label="TỔNG THƯỞNG KPI" value={money(totals.totalBonus)} note="2% theo từng cửa hàng" tone="orange" icon="✦"/><StatCard label="TỔNG THỰC NHẬN" value={money(totals.totalPay)} note={`Kỳ ${period}`} tone="blue" icon="₫"/><StatCard label="CỬA HÀNG ĐÃ CHỐT" value={String(totals.storeCount)} note="Đã xác nhận chi và khóa" icon="✓"/></div>
+        <section className="table-card"><div className="table-head"><div><h2>Lương thưởng theo từng cửa hàng · {period}</h2><p>Số liệu được lấy từ bản chốt bất biến của mỗi cửa hàng.</p></div><span className="status-pill">{rows.length} kỳ cửa hàng đã khóa</span></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>Cửa hàng</th><th>Lợi nhuận cơ sở</th><th>Lương mặc định</th><th>Thưởng KPI 2%</th><th>Tổng thực nhận</th><th>Lợi nhuận sau cùng</th><th>Đã chi lúc</th><th>Khóa kỳ lúc</th><th>Trạng thái</th></tr></thead><tbody>
+            {loading && !report ? <tr><td colSpan={9} className="empty-cell">Đang tải số liệu lương thưởng quản lý…</td></tr> : rows.length === 0 ? <tr><td colSpan={9} className="empty-cell">Chưa có cửa hàng nào hoàn tất xác nhận chi và khóa kỳ {period}.</td></tr> : rows.map((row) => <tr key={`${row.storeId}-${row.period}`}><td><b>{row.storeName}</b></td><td>{money(row.profitBeforePerformanceRewards)}</td><td>{money(row.managerSalary)}</td><td className="money-green">{money(row.managerBonus)}</td><td><b>{money(row.managerTotal)}</b></td><td>{money(row.finalProfit)}</td><td>{row.paymentConfirmedAt ? dateTime(row.paymentConfirmedAt) : "—"}</td><td>{row.closedAt ? dateTime(row.closedAt) : "—"}</td><td><span className="status-pill">Đã khóa</span></td></tr>)}
+        </tbody><tfoot><tr><td>TỔNG CỘNG</td><td/><td>{money(totals.totalSalary)}</td><td>{money(totals.totalBonus)}</td><td>{money(totals.totalPay)}</td><td colSpan={4}/></tr></tfoot></table></div></section>
+    </div>;
+}
 export function ReportsView({ stores, totals }: {
     stores: Store[];
     totals: {
@@ -534,7 +596,7 @@ function EmployeeOrders({ user, shift, orders, reload }: {
         if (!shift.active || order.status !== "COMPLETED")
             return;
         setEditing(order);
-        setForm({ customerName: order.customer_name ?? "", phone: order.phone ?? "", age: order.age?.toString() ?? "", amount: order.amount.toString(), paymentMethod: order.payment_method });
+        setForm({ customerName: order.customer_name ?? "", phone: order.phone ?? "", age: order.age?.toString() ?? "", amount: formatVndInput(order.amount), paymentMethod: order.payment_method });
         setMessage("");
         setSuccess("");
         scrollToForm();
@@ -550,10 +612,14 @@ function EmployeeOrders({ user, shift, orders, reload }: {
             return setMessage("Bạn chưa bắt đầu ca làm việc");
         setMessage("");
         setSuccess("");
+        const parsedAmount = parseVndInput(form.amount);
+        if (!Number.isSafeInteger(parsedAmount) || parsedAmount <= 0)
+            return setMessage("Giá trị đơn hàng phải là số tiền hợp lệ lớn hơn 0.");
+        const payload = { ...form, amount: parsedAmount };
         const response = await fetch("/api/orders", {
             method: editing ? "PATCH" : "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(editing ? { id: editing.id, ...form } : form),
+            body: JSON.stringify(editing ? { id: editing.id, ...payload } : payload),
         });
         const result = await response.json();
         if (!response.ok)
@@ -641,7 +707,7 @@ function EmployeeOrders({ user, shift, orders, reload }: {
                         <label>SĐT <small>(không bắt buộc)</small><input value={form.phone} onChange={event => updateForm("phone", event.target.value)} placeholder="Nhập số điện thoại" inputMode="tel" maxLength={20}/></label>
                         <label>Tuổi <small>(không bắt buộc)</small><input value={form.age} onChange={event => updateForm("age", event.target.value)} placeholder="Nhập tuổi" type="number" min="1" max="120"/></label>
                         <label>NV bán hàng<input value={`${user.name}${shift.shiftName ? ` (${shift.shiftName})` : shift.shiftCode ? ` (${shift.shiftCode})` : ""}`} disabled/><small>Tự động gắn theo tài khoản và ca hiện tại</small></label>
-                        <label>Giá trị đơn hàng<input value={form.amount} onChange={event => updateForm("amount", event.target.value)} placeholder="Nhập giá trị đơn hàng" type="number" min="1" step="1" required/></label>
+                        <label>Giá trị đơn hàng<input value={form.amount} onChange={event => updateForm("amount", formatVndInput(event.target.value))} placeholder="Nhập giá trị đơn hàng" inputMode="numeric" required/><small>Ví dụ: 15000 sẽ hiển thị 15,000.</small></label>
                         <label>Hình thức thanh toán<select value={form.paymentMethod} onChange={event => updateForm("paymentMethod", event.target.value)} required><option value="CASH">Tiền mặt</option><option value="BANK_TRANSFER">Chuyển khoản</option></select></label>
                     </div>
                 </fieldset>

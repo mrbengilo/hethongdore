@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, Fragment, useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, Download, PackageOpen, Plus, Save, Trash2 } from "lucide-react";
+import { Banknote, ChevronDown, ChevronRight, Download, PackageOpen, Plus, ReceiptText, Save, Trash2, Truck } from "lucide-react";
 
 type InventoryStore = {
   id: string;
@@ -72,6 +72,16 @@ function formatNumber(value: number, maximumFractionDigits = 2) {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits }).format(Number.isFinite(value) ? value : 0);
 }
 
+function moneyDigits(value: string) {
+  const digits = value.replace(/\D/g, "");
+  return digits.replace(/^0+(?=\d)/, "");
+}
+
+function formatMoneyInput(value: string) {
+  const digits = moneyDigits(value);
+  return digits ? digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",") : "";
+}
+
 function formatTimestamp(value: string) {
   if (!value || Number.isNaN(Date.parse(value))) return "—";
   return new Intl.DateTimeFormat("vi-VN", {
@@ -96,8 +106,12 @@ function asObject(value: unknown): Record<string, unknown> {
 }
 
 function finiteNumber(value: unknown) {
-  const parsed = Number(value);
+  const parsed = Number(typeof value === "string" ? value.replaceAll(",", "") : value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function InventoryMetric({ icon: Icon, label, value, tone = "" }: { icon: typeof PackageOpen; label: string; value: string; tone?: string }) {
+  return <article className={`ref-metric ${tone}`}><i><Icon size={23}/></i><div><span>{label}</span><strong>{value}</strong></div></article>;
 }
 
 function calculateLineGoods(weight: number, unitPrice: number) {
@@ -257,7 +271,8 @@ export function StoreInventoryManagement({ store }: { store: InventoryStore }) {
   }, { quantity: 0, weight: 0, goods: 0, shipping: 0, amount: 0 }), [items]);
 
   function updateItem(id: string, field: DraftField, value: string) {
-    setItems((current) => current.map((item) => item.id === id ? { ...item, [field]: value } : item));
+    const nextValue = field === "unitPrice" || field === "shipping" ? moneyDigits(value) : value;
+    setItems((current) => current.map((item) => item.id === id ? { ...item, [field]: nextValue } : item));
     setFormError("");
     setSuccess("");
   }
@@ -354,6 +369,13 @@ export function StoreInventoryManagement({ store }: { store: InventoryStore }) {
 
     {inactive && <div className="form-message">Cửa hàng đang ngưng hoạt động. Lịch sử vẫn xem và xuất được nhưng không thể tạo phiếu mới.</div>}
 
+    <div className="ref-metrics four inventory-draft-metrics" aria-label="Tổng hợp phiếu nhập hiện tại">
+      <InventoryMetric icon={PackageOpen} label="Tổng mặt hàng" value={`${items.length} mặt hàng`}/>
+      <InventoryMetric icon={Truck} label="Chi phí vận chuyển" value={formatMoney(draftTotals.shipping)} tone="blue"/>
+      <InventoryMetric icon={Banknote} label="Tiền nhập hàng" value={formatMoney(draftTotals.goods)} tone="purple"/>
+      <InventoryMetric icon={ReceiptText} label="Tổng cộng" value={formatMoney(draftTotals.amount)} tone="orange"/>
+    </div>
+
     <form className="table-card" onSubmit={saveReceipt}>
       <div className="table-head">
         <div>
@@ -380,8 +402,8 @@ export function StoreInventoryManagement({ store }: { store: InventoryStore }) {
               <td><input aria-label={`Số lượng dòng ${index + 1}`} type="number" min="1" step="1" required value={item.quantity} onChange={(event) => updateItem(item.id, "quantity", event.target.value)}/></td>
               <td><select aria-label={`Đơn vị dòng ${index + 1}`} value={item.unit} onChange={(event) => updateItem(item.id, "unit", event.target.value)}><option>Bao</option><option>Kiện</option><option>Thùng</option><option>Cái</option></select></td>
               <td><input aria-label={`Cân nặng dòng ${index + 1}`} type="number" min="0.01" step="0.01" required value={item.weight} onChange={(event) => updateItem(item.id, "weight", event.target.value)}/></td>
-              <td><input aria-label={`Đơn giá dòng ${index + 1}`} type="number" min="1" step="1" required value={item.unitPrice} onChange={(event) => updateItem(item.id, "unitPrice", event.target.value)}/></td>
-              <td><input aria-label={`Phí vận chuyển dòng ${index + 1}`} type="number" min="0" step="1" required value={item.shipping} onChange={(event) => updateItem(item.id, "shipping", event.target.value)}/></td>
+              <td><input aria-label={`Đơn giá dòng ${index + 1}`} inputMode="numeric" pattern="[0-9,]*" required value={formatMoneyInput(item.unitPrice)} onChange={(event) => updateItem(item.id, "unitPrice", event.target.value)} placeholder="0"/></td>
+              <td><input aria-label={`Phí vận chuyển dòng ${index + 1}`} inputMode="numeric" pattern="[0-9,]*" required value={formatMoneyInput(item.shipping)} onChange={(event) => updateItem(item.id, "shipping", event.target.value)} placeholder="0"/></td>
               <td><b>{formatMoney(calculateDraftAmount(item))}</b></td>
               <td><button type="button" disabled={items.length === 1} onClick={() => removeItem(item.id)} aria-label={`Xóa dòng ${index + 1}`}><Trash2 size={16}/></button></td>
             </tr>)}</tbody>

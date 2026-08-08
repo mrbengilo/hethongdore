@@ -1,12 +1,13 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
   BarChart3, CheckCircle2, ChevronLeft, ChevronRight, Clock3,
   Download, Edit3, Gift, PackageOpen, Plus, Search, Trash2, UserRound,
   UsersRound, WalletCards, X,
 } from "lucide-react";
 import StorePayrollClosing from "./StorePayrollClosing";
+import { formatVndInput, parseVndInput } from "../lib/format";
 
 export type ReferenceStore = {
   id: string; name: string; address: string; revenue: number; expense: number;
@@ -42,10 +43,19 @@ type PayrollSummary = {
 };
 
 const money = (value: number) => new Intl.NumberFormat("en-US").format(Math.round(value)) + " đồng";
+const hourlyMoney = (value: number) => `${money(value)}/giờ`;
 const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh" }).format(new Date());
 const dateLabel = (value: string) => new Intl.DateTimeFormat("vi-VN", { dateStyle: "short", timeZone: "Asia/Ho_Chi_Minh" }).format(new Date(value + "T12:00:00+07:00"));
 const timeLabel = (value: string | null) => value ? new Intl.DateTimeFormat("vi-VN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Ho_Chi_Minh", hourCycle: "h23" }).format(new Date(value)) : "—";
 const sessionRate = (shift: { hourlyRate: number; appliedHourlyRate?: number | null }) => Number(shift.appliedHourlyRate ?? shift.hourlyRate ?? 0);
+const sessionSeconds = (shift: ShiftSession) => {
+  if (Number(shift.duration_seconds) > 0) return Number(shift.duration_seconds);
+  const start = new Date(shift.started_at).getTime();
+  const end = shift.ended_at ? new Date(shift.ended_at).getTime() : Date.now();
+  return Number.isFinite(start) && Number.isFinite(end) ? Math.max(0, Math.round((end - start) / 1_000)) : 0;
+};
+const sessionDate = (shift: ShiftSession) => shift.workDate
+  ?? new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh" }).format(new Date(shift.started_at));
 type ShiftDisplay = { id: string; title: string; start: string; end: string; tone: string; record?: BusinessRecord };
 const defaultShifts: ShiftDisplay[] = [
   { id: "default-1", title: "Ca 1", start: "07:00", end: "12:00", tone: "s1" },
@@ -273,14 +283,80 @@ function GoodsManagement({ store }: { store: ReferenceStore }) {
 }
 
 function AttendanceManagement({ store }: { store: ReferenceStore }) {
-  const { shifts }=useShiftSessions(store.id); const [tab,setTab]=useState<"day"|"shift">("day"); const [query,setQuery]=useState(""); const [date,setDate]=useState(today());
-  const actual=shifts.filter(s=>s.employeeName.toLocaleLowerCase("vi").includes(query.toLocaleLowerCase("vi")));
-  const fallback: ShiftSession[]=samplePeople.map((p,i)=>({id:"sample-"+i,employeeName:p[0],employeeCode:"NV00"+(i+1),started_at:"2025-05-15T"+["06:58","11:59","16:58","12:03","07:02","17:10"][i]+":00+07:00",ended_at:"2025-05-15T"+["12:05","17:02","23:05","17:00","12:00","22:55"][i]+":00+07:00",hourlyRate:20000,status:"COMPLETED",shift_code:"Ca "+((i%3)+1)})); const rows: ShiftSession[]=actual.length?actual:fallback;
-  const totalHours=rows.reduce((sum,row)=>sum+Math.max(0,(new Date(row.ended_at??new Date()).getTime()-new Date(row.started_at).getTime())/3600000),0); const totalPay=rows.reduce((sum,row)=>sum+Math.round(Math.max(0,(new Date(row.ended_at??new Date()).getTime()-new Date(row.started_at).getTime())/3600000)*sessionRate(row)),0);
-  return <div className="reference-module attendance-page"><div className="ref-toolbar"><div><h2>Chấm công</h2><p>Theo dõi giờ làm việc của nhân viên</p></div><div className="ref-toolbar-actions"><input type="date" value={date} onChange={(e)=>setDate(e.target.value)}/><button><ChevronLeft size={16}/></button><button><ChevronRight size={16}/></button><button onClick={()=>csv("cham-cong.csv",[["Nhân viên","Mã ca","Giờ vào","Giờ kết","Lương"],...rows.map(r=>[r.employeeName,r.shiftName ?? r.shift_code,r.started_at,r.ended_at,Math.round(((new Date(r.ended_at??new Date()).getTime()-new Date(r.started_at).getTime())/3600000)*sessionRate(r))])])}><Download size={16}/> Xuất Excel</button></div></div>
-    <div className="ref-metrics four"><Metric icon={UsersRound} label="Tổng số nhân viên" value={rows.length+" người"}/><Metric icon={Clock3} label="Tổng giờ làm" value={totalHours.toFixed(2)+" giờ"} note={"TB: "+(totalHours/Math.max(1,rows.length)).toFixed(2)+" giờ/người"}/><Metric icon={WalletCards} label="Tổng lương cứng" value={money(totalPay)} note="Theo lương giờ"/><Metric icon={WalletCards} label="Tổng lương nhận" value={money(totalPay)}/></div>
-    <section className="table-card"><div className="table-head"><div className="ref-tabs compact"><button className={tab==="day"?"active":""} onClick={()=>setTab("day")}>Tổng hợp theo ngày</button><button className={tab==="shift"?"active":""} onClick={()=>setTab("shift")}>Chi tiết theo ca</button></div><label className="ref-search"><Search size={16}/><input placeholder="Tìm kiếm nhân viên..." value={query} onChange={(e)=>setQuery(e.target.value)}/></label></div><div className="data-table-wrap"><table className="data-table attendance-table"><thead><tr><th>STT</th><th>Nhân viên</th><th>Ca làm việc</th><th>Giờ vào</th><th>Giờ kết ca</th><th>Số giờ làm</th><th>Lương cứng</th><th>Lương nhận</th><th>Trạng thái</th></tr></thead><tbody>{rows.map((row,index)=>{const hours=row.duration_seconds?row.duration_seconds/3600:Math.max(0,(new Date(row.ended_at??new Date()).getTime()-new Date(row.started_at).getTime())/3600000);const pay=Math.round(hours*sessionRate(row));const late=new Date(row.started_at).getMinutes()>5;const supporting=Boolean(row.transfer_id);return <tr key={row.id}><td>{index+1}</td><td><Person name={row.employeeName} position={supporting?`${row.employeeCode} · Hỗ trợ từ ${row.sourceStoreName ?? "cửa hàng khác"}`:row.employeeCode}/></td><td><b className={"shift-text c"+((index%3)+1)}>{row.shiftName ?? row.shift_code}</b>{supporting&&<small className="support-note">CA HỖ TRỢ · {row.targetStoreName ?? store.name}</small>}</td><td className={late?"money-orange":"money-green"}>{timeLabel(row.started_at)}</td><td>{timeLabel(row.ended_at)}</td><td>{hours.toFixed(2)} giờ</td><td>{money(pay)}</td><td className="money-green">{money(pay+(supporting?Number(row.supportAllowance??0):0))}</td><td><span className={"status-pill "+(late?"late":"")}>{supporting?"Hỗ trợ":late?"Trễ":"Đúng giờ"}</span></td></tr>})}</tbody></table></div></section>
-    <div className="ref-bottom-grid"><article className="chart-card"><h3>Giải thích</h3><p>• Số giờ làm = Giờ kết ca − Giờ vào</p><p>• Lương cứng = Số giờ làm × lương theo giờ</p></article><article className="chart-card"><h3>Tổng hợp theo ca</h3><div className="shift-info"><span><b>Ca 1</b>{(totalHours*.36).toFixed(2)} giờ</span><span><b>Ca 2</b>{(totalHours*.35).toFixed(2)} giờ</span><span><b>Ca 3</b>{(totalHours*.29).toFixed(2)} giờ</span></div></article><article className="chart-card donut-small"><div className="ref-donut attendance"><b>{rows.length}</b><small>tổng số</small></div><div><b>Tỷ lệ chấm công</b><p>Đúng giờ: 83,33%</p><p>Trễ: 16,67%</p></div></article></div>
+  type Mode = "shift" | "day" | "month";
+  type AttendanceRow = {
+    key: string; employeeCode: string; employeeName: string; workDate: string;
+    shiftNames: string[]; startedAt: string | null; endedAt: string | null;
+    durationSeconds: number; salary: number; rates: number[]; sessionCount: number;
+    active: boolean; supporting: boolean; sourceStoreNames: string[];
+  };
+  const { shifts } = useShiftSessions(store.id);
+  const [mode, setMode] = useState<Mode>("shift");
+  const [query, setQuery] = useState("");
+  const [date, setDate] = useState(today());
+  const [month, setMonth] = useState(today().slice(0, 7));
+
+  const monthSessions = useMemo(() => shifts.filter((shift) => {
+    const matchesMonth = sessionDate(shift).slice(0, 7) === month;
+    const searchable = `${shift.employeeCode} ${shift.employeeName} ${shift.shiftName ?? shift.shift_code}`.toLocaleLowerCase("vi");
+    return matchesMonth && searchable.includes(query.toLocaleLowerCase("vi"));
+  }), [month, query, shifts]);
+
+  const aggregate = useCallback((sessions: ShiftSession[], keyOf: (shift: ShiftSession) => string): AttendanceRow[] => {
+    const groups = new Map<string, AttendanceRow>();
+    for (const shift of sessions) {
+      const seconds = sessionSeconds(shift);
+      const rate = sessionRate(shift);
+      const key = keyOf(shift);
+      const current = groups.get(key) ?? {
+        key, employeeCode: shift.employeeCode, employeeName: shift.employeeName, workDate: sessionDate(shift),
+        shiftNames: [], startedAt: null, endedAt: null, durationSeconds: 0, salary: 0, rates: [], sessionCount: 0,
+        active: false, supporting: false, sourceStoreNames: [],
+      };
+      current.shiftNames = [...new Set([...current.shiftNames, shift.shiftName ?? shift.shift_code])];
+      current.rates = [...new Set([...current.rates, rate])];
+      current.sourceStoreNames = [...new Set([...current.sourceStoreNames, ...(shift.sourceStoreName ? [shift.sourceStoreName] : [])])];
+      current.startedAt = !current.startedAt || new Date(shift.started_at) < new Date(current.startedAt) ? shift.started_at : current.startedAt;
+      current.endedAt = !shift.ended_at ? current.endedAt : !current.endedAt || new Date(shift.ended_at) > new Date(current.endedAt) ? shift.ended_at : current.endedAt;
+      current.durationSeconds += seconds;
+      current.salary += Math.round(seconds / 3_600 * rate);
+      current.sessionCount += 1;
+      current.active ||= !shift.ended_at || shift.status === "ACTIVE";
+      current.supporting ||= Boolean(shift.transfer_id);
+      groups.set(key, current);
+    }
+    return [...groups.values()].sort((a, b) => b.workDate.localeCompare(a.workDate) || a.employeeCode.localeCompare(b.employeeCode, "vi"));
+  }, []);
+
+  const rows = useMemo(() => {
+    if (mode === "shift") return aggregate(monthSessions.filter((shift) => sessionDate(shift) === date), (shift) => shift.id);
+    if (mode === "day") return aggregate(monthSessions, (shift) => `${sessionDate(shift)}:${shift.employeeCode}`);
+    return aggregate(monthSessions, (shift) => shift.employeeCode);
+  }, [aggregate, date, mode, monthSessions]);
+  const totalSeconds = rows.reduce((sum, row) => sum + row.durationSeconds, 0);
+  const totalPay = rows.reduce((sum, row) => sum + row.salary, 0);
+  const employeeCount = new Set(rows.map((row) => row.employeeCode)).size;
+  const shiftSummary = useMemo(() => {
+    const totals = new Map<string, number>();
+    for (const shift of monthSessions) {
+      const name = shift.shiftName ?? shift.shift_code;
+      totals.set(name, (totals.get(name) ?? 0) + sessionSeconds(shift));
+    }
+    return [...totals.entries()].sort(([a], [b]) => a.localeCompare(b, "vi"));
+  }, [monthSessions]);
+  const rowRate = (row: AttendanceRow) => row.rates.length === 1
+    ? hourlyMoney(row.rates[0])
+    : row.rates.map((rate) => money(rate)).join(" · ") + "/giờ";
+
+  return <div className="reference-module attendance-page"><div className="ref-toolbar"><div><h2>Chấm công</h2><p>Danh sách ca và thống kê lương theo giờ làm thực tế</p></div><div className="ref-toolbar-actions">
+    {mode === "shift" ? <input aria-label="Ngày chấm công" type="date" value={date} onChange={(event) => { setDate(event.target.value); setMonth(event.target.value.slice(0, 7)); }}/>: <input aria-label="Tháng chấm công" type="month" value={month} onChange={(event) => setMonth(event.target.value)}/>}
+    <button onClick={() => csv("cham-cong.csv", [["Ngày", "Nhân viên", "Ca", "Số giờ", "Lương cứng/giờ", "Lương thực nhận"], ...rows.map((row) => [row.workDate, row.employeeName, row.shiftNames.join(", "), (row.durationSeconds / 3_600).toFixed(2), rowRate(row), row.salary])])}><Download size={16}/> Xuất Excel</button>
+  </div></div>
+    <div className="ref-metrics four"><Metric icon={UsersRound} label="Nhân viên có chấm công" value={employeeCount + " người"}/><Metric icon={Clock3} label="Tổng giờ làm thực tế" value={(totalSeconds / 3_600).toFixed(2) + " giờ"} note={`Từ ${rows.reduce((sum, row) => sum + row.sessionCount, 0)} ca làm`}/><Metric icon={WalletCards} label="Lương cứng" value="Theo mức / giờ" note="Quản lý thiết lập cho từng nhân viên"/><Metric icon={WalletCards} label="Tổng lương thực nhận" value={money(totalPay)} note="Lương cứng/giờ × giờ thực tế"/></div>
+    <section className="table-card"><div className="table-head"><div className="ref-tabs compact"><button className={mode === "shift" ? "active" : ""} onClick={() => setMode("shift")}>Theo ca</button><button className={mode === "day" ? "active" : ""} onClick={() => setMode("day")}>Theo ngày</button><button className={mode === "month" ? "active" : ""} onClick={() => setMode("month")}>Theo tháng · từng nhân viên</button></div><label className="ref-search"><Search size={16}/><input placeholder="Tìm nhân viên hoặc ca..." value={query} onChange={(event) => setQuery(event.target.value)}/></label></div><div className="data-table-wrap"><table className="data-table attendance-table"><thead><tr><th>STT</th>{mode !== "month" && <th>Ngày</th>}<th>Nhân viên</th><th>Ca làm việc</th>{mode === "shift" && <><th>Giờ vào</th><th>Giờ kết ca</th></>}<th>Số giờ thực tế</th><th>Lương cứng</th><th>Lương thực nhận</th><th>Trạng thái</th></tr></thead><tbody>
+      {rows.length === 0 ? <tr><td colSpan={mode === "shift" ? 10 : 8} className="empty-cell">Chưa có dữ liệu chấm công thực tế trong thời gian đã chọn.</td></tr> : rows.map((row, index) => <tr key={row.key}><td>{index + 1}</td>{mode !== "month" && <td>{dateLabel(row.workDate)}</td>}<td><Person name={row.employeeName} position={row.supporting ? `${row.employeeCode} · Hỗ trợ từ ${row.sourceStoreNames.join(", ") || "cửa hàng khác"}` : row.employeeCode}/></td><td><b className={`shift-text c${(index % 3) + 1}`}>{row.shiftNames.join(", ") || "—"}</b>{mode !== "shift" && <small className="support-note">{row.sessionCount} ca</small>}</td>{mode === "shift" && <><td>{timeLabel(row.startedAt)}</td><td>{row.active ? "Đang làm" : timeLabel(row.endedAt)}</td></>}<td>{(row.durationSeconds / 3_600).toFixed(2)} giờ</td><td>{rowRate(row)}</td><td className="money-green"><b>{money(row.salary)}</b></td><td><span className="status-pill">{row.active ? "Đang làm" : row.supporting ? "Ca hỗ trợ" : "Đã kết ca"}</span></td></tr>)}
+    </tbody></table></div></section>
+    <div className="ref-bottom-grid"><article className="chart-card"><h3>Cách tính lương</h3><p>• Lương cứng là mức lương quản lý đặt theo giờ cho từng nhân viên.</p><p>• Lương thực nhận = Lương cứng/giờ × số giờ làm thực tế.</p></article><article className="chart-card"><h3>Tổng hợp theo ca · {month}</h3><div className="shift-info">{shiftSummary.length ? shiftSummary.map(([name, seconds]) => <span key={name}><b>{name}</b>{(seconds / 3_600).toFixed(2)} giờ</span>) : <p>Chưa có ca đã ghi nhận.</p>}</div></article><article className="chart-card donut-small"><div className="ref-donut attendance"><b>{employeeCount}</b><small>nhân viên</small></div><div><b>Thống kê tháng</b><p>{monthSessions.length} ca làm thực tế</p><p>{money(monthSessions.reduce((sum, shift) => sum + Math.round(sessionSeconds(shift) / 3_600 * sessionRate(shift)), 0))} tiền lương</p></div></article></div>
   </div>;
 }
 
@@ -336,12 +412,13 @@ function PayrollManagement({ store }: { store: ReferenceStore }) {
   async function save(event: FormEvent) {
     event.preventDefault();
     const employee = employees.find((item) => item.id === employeeId);
-    if (!employee || Number(amount) <= 0) return setMessage("Vui lòng chọn nhân viên và nhập số tiền hợp lệ.");
+    const parsedAmount = parseVndInput(amount);
+    if (!employee || !Number.isSafeInteger(parsedAmount) || parsedAmount <= 0) return setMessage("Vui lòng chọn nhân viên và nhập số tiền hợp lệ.");
     try {
       await saveRecord({
         category: "LUONG_THUONG", storeId: store.id,
         title: (kind === "ALLOWANCE" ? "Phụ cấp" : "Thưởng") + " · " + employee.name,
-        data: { kind, employeeId, employeeName: employee.name, amount: Number(amount), note, date },
+        data: { kind, employeeId, employeeName: employee.name, amount: parsedAmount, note, date },
       });
       setOpen(false);
       await reload();
@@ -381,7 +458,7 @@ function PayrollManagement({ store }: { store: ReferenceStore }) {
   return <div className="reference-module payroll-page">
     <div className="ref-toolbar"><div><h2>Lương thưởng nhân viên</h2><p>Tổng kết lương và thưởng KPI theo giờ làm thực tế của từng cửa hàng</p></div><div className="ref-toolbar-actions">
       <input aria-label="Tháng tổng kết" type="month" value={month} onChange={(event) => setMonth(event.target.value)}/>
-      <button onClick={() => csv("luong-thuong.csv", [["Nhân viên", "Giờ làm", "Lương cứng", "Phụ cấp", "Thưởng khác", "Thưởng KPI", "Tổng nhận"], ...items.map((item) => [item.employeeName, item.hours.toFixed(2), item.baseSalary, item.tiktokAllowance + item.supportAllowance + item.manualAllowance, item.manualBonus, item.kpiBonus, item.totalPay])])}><Download size={16}/> Xuất Excel</button>
+      <button onClick={() => csv("luong-thuong.csv", [["Nhân viên", "Lương cứng/giờ", "Giờ thực tế", "Lương thực nhận", "Phụ cấp", "Thưởng khác", "Thưởng KPI", "Tổng nhận"], ...items.map((item) => [item.employeeName, item.hourlyRate, item.hours.toFixed(2), item.baseSalary, item.tiktokAllowance + item.supportAllowance + item.manualAllowance, item.manualBonus, item.kpiBonus, item.totalPay])])}><Download size={16}/> Xuất Excel</button>
       <button disabled={locked} onClick={() => begin("ALLOWANCE")}><Plus size={16}/> Tạo phụ cấp</button>
       <button disabled={locked} onClick={() => begin("BONUS")}><Gift size={16}/> Tạo thưởng</button>
       <button className="primary-button" disabled={locked || loading} onClick={finalize}><CheckCircle2 size={16}/>{locked ? "Đã khóa kỳ" : loading ? "Đang tính..." : "Tổng kết tháng"}</button>
@@ -391,24 +468,24 @@ function PayrollManagement({ store }: { store: ReferenceStore }) {
     <div className="report-profit-note"><CheckCircle2 size={18}/><span>Lợi nhuận cửa hàng <b>{money(summary?.profit ?? store.profit)}</b> · Tổng giờ <b>{(summary?.totalHours ?? 0).toFixed(2)}</b> · Lợi nhuận/giờ <b>{money(summary?.profitPerHour ?? 0)}</b> · Ngưỡng KPI <b>{rateLabel}</b></span></div>
     <div className="ref-metrics six">
       <Metric icon={Clock3} label="Tổng giờ làm" value={(summary?.totalHours ?? 0).toFixed(2) + " giờ"}/>
-      <Metric icon={WalletCards} label="Tổng lương" value={money(summary?.totalBaseSalary ?? 0)}/>
+      <Metric icon={WalletCards} label="Tổng lương thực nhận" value={money(summary?.totalBaseSalary ?? 0)} note="Lương cứng/giờ × giờ thực tế"/>
       <Metric icon={Gift} label="Thưởng KPI" value={money(summary?.totalKpiBonus ?? 0)} note={`Một ngưỡng duy nhất: ${rateLabel}`} tone="orange"/>
       <Metric icon={WalletCards} label="Tổng phụ cấp" value={money(totalAllowance)}/>
       <Metric icon={UsersRound} label="Tổng chi trả" value={money(summary?.totalPay ?? 0)} tone="teal"/>
       <Metric icon={UserRound} label="Tổng nhân viên" value={items.length + " nhân viên"}/>
     </div>
 
-    <section className="table-card"><div className="table-head"><h2>Chi tiết lương thưởng tháng {month}</h2><span className={locked ? "status-pill" : "shift-pill s2"}>{locked ? "Đã tổng kết · Đã khóa" : "Bản xem trước"}</span></div><div className="data-table-wrap"><table className="data-table payroll-table"><thead><tr><th>Nhân viên</th><th>Tổng giờ làm</th><th>Lương cứng</th><th>Phụ cấp</th><th>Thưởng đã tạo</th><th>Thưởng KPI</th><th>Tổng nhận</th></tr></thead><tbody>
-      {items.length ? items.map((item) => <tr key={item.employeeId}><td><Person name={item.employeeName} position={`${item.employeeCode} · ${item.position}`}/></td><td>{item.hours.toFixed(2)} giờ</td><td>{money(item.baseSalary)}</td><td className="money-green">{money(item.tiktokAllowance + item.supportAllowance + item.manualAllowance)}</td><td>{money(item.manualBonus)}</td><td className="money-green"><b>{money(item.kpiBonus)}</b></td><td><b>{money(item.totalPay)}</b></td></tr>) : <tr><td colSpan={7} className="empty-cell">{loading ? "Đang tổng hợp dữ liệu..." : "Chưa có nhân viên trong cửa hàng."}</td></tr>}
+    <section className="table-card"><div className="table-head"><div><h2>Chi tiết lương thưởng tháng {month}</h2><p>Lương thực nhận được tính từ lương cứng theo giờ và giờ làm thực tế.</p></div><span className={locked ? "status-pill" : "shift-pill s2"}>{locked ? "Đã tổng kết · Đã khóa" : "Bản xem trước"}</span></div><div className="data-table-wrap"><table className="data-table payroll-table"><thead><tr><th>Nhân viên</th><th>Lương cứng</th><th>Giờ thực tế</th><th>Lương thực nhận</th><th>Phụ cấp</th><th>Thưởng đã tạo</th><th>Thưởng KPI</th><th>Tổng nhận</th></tr></thead><tbody>
+      {items.length ? items.map((item) => <tr key={item.employeeId}><td><Person name={item.employeeName} position={`${item.employeeCode} · ${item.position}`}/></td><td>{hourlyMoney(item.hourlyRate)}</td><td>{item.hours.toFixed(2)} giờ</td><td><b>{money(item.baseSalary)}</b></td><td className="money-green">{money(item.tiktokAllowance + item.supportAllowance + item.manualAllowance)}</td><td>{money(item.manualBonus)}</td><td className="money-green"><b>{money(item.kpiBonus)}</b></td><td><b>{money(item.totalPay)}</b></td></tr>) : <tr><td colSpan={8} className="empty-cell">{loading ? "Đang tổng hợp dữ liệu..." : "Chưa có nhân viên trong cửa hàng."}</td></tr>}
     </tbody></table></div></section>
 
     <section className="table-card"><div className="table-head"><h2>Lịch sử tạo phụ cấp và thưởng tháng {month}</h2><span>{periodRecords.length} bản ghi</span></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>Thời gian</th><th>Nhân viên</th><th>Loại</th><th>Số tiền</th><th>Nội dung chi</th><th>Người tạo</th><th>Thao tác</th></tr></thead><tbody>
       {periodRecords.length ? periodRecords.map((record) => <tr key={record.id}><td>{String(record.data.date)}</td><td><b>{String(record.data.employeeName)}</b></td><td><span className={record.data.kind === "BONUS" ? "bonus-pill" : "allowance-pill"}>{record.data.kind === "BONUS" ? "Thưởng" : "Phụ cấp"}</span></td><td className="money-green"><b>{money(Number(record.data.amount))}</b></td><td>{String(record.data.note || "—")}</td><td>Quản lý cửa hàng</td><td><button disabled={locked} className="danger-link" onClick={() => remove(record.id)}>Xóa</button></td></tr>) : <tr><td colSpan={7} className="empty-cell">Chưa phát sinh phụ cấp hoặc thưởng trong kỳ.</td></tr>}
     </tbody></table></div></section>
 
-    <div className="ref-chart-row"><article className="chart-card donut-small"><div className="ref-donut payroll"><b>{money(summary?.totalPay ?? 0)}</b><small>Tổng chi trả</small></div><div><b>Cơ cấu chi trả</b><p>Lương theo giờ thực tế</p><p>Thưởng KPI không cộng dồn</p></div></article><article className="chart-card"><h3>Thống kê giờ làm theo ngày</h3><MiniBars/></article><article className="chart-card quick-total"><h3>Tóm tắt nhanh</h3><p><span>Lương cứng</span><b>{money(summary?.totalBaseSalary ?? 0)}</b></p><p><span>Phụ cấp</span><b>{money(totalAllowance)}</b></p><p><span>Thưởng khác</span><b>{money(summary?.totalManualBonus ?? 0)}</b></p><p><span>Thưởng KPI</span><b>{money(summary?.totalKpiBonus ?? 0)}</b></p><p><span>Tổng thưởng</span><b>{money(totalBonus)}</b></p></article></div>
+    <div className="ref-chart-row"><article className="chart-card donut-small"><div className="ref-donut payroll"><b>{money(summary?.totalPay ?? 0)}</b><small>Tổng chi trả</small></div><div><b>Cơ cấu chi trả</b><p>Lương theo giờ thực tế</p><p>Thưởng KPI không cộng dồn</p></div></article><article className="chart-card"><h3>Thống kê giờ làm theo ngày</h3><MiniBars/></article><article className="chart-card quick-total"><h3>Tóm tắt nhanh</h3><p><span>Lương thực nhận</span><b>{money(summary?.totalBaseSalary ?? 0)}</b></p><p><span>Phụ cấp</span><b>{money(totalAllowance)}</b></p><p><span>Thưởng khác</span><b>{money(summary?.totalManualBonus ?? 0)}</b></p><p><span>Thưởng KPI</span><b>{money(summary?.totalKpiBonus ?? 0)}</b></p><p><span>Tổng thưởng</span><b>{money(totalBonus)}</b></p></article></div>
 
-    {open && <div className="modal-backdrop"><form className="modal payroll-action-modal" onSubmit={save}><div className="modal-title"><div><h2>{kind === "ALLOWANCE" ? "Tạo phụ cấp" : "Tạo thưởng"}</h2><p>Khoản chi được ghi nhận đúng nhân viên, cửa hàng và tháng lương</p></div><button type="button" onClick={() => setOpen(false)}><X size={19}/></button></div><label>Nhân viên được nhận *<select value={employeeId} onChange={(event) => setEmployeeId(event.target.value)}>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.code} · {employee.name}</option>)}</select></label><label>Số tiền {kind === "ALLOWANCE" ? "phụ cấp" : "thưởng"} *<input type="number" min="1" required value={amount} onChange={(event) => setAmount(event.target.value)}/></label><label>Ngày ghi nhận<input type="date" min={`${month}-01`} max={`${month}-31`} value={date} onChange={(event) => setDate(event.target.value)}/></label><label>Nội dung chi *<textarea required value={note} onChange={(event) => setNote(event.target.value)} placeholder={kind === "ALLOWANCE" ? "Ví dụ: Phụ cấp chuyên cần" : "Ví dụ: Thưởng hoàn thành công việc"}/></label>{message && <div className="form-message">{message}</div>}<div className="modal-actions"><button type="button" onClick={() => setOpen(false)}>Hủy</button><button className="primary-button">Lưu {kind === "ALLOWANCE" ? "phụ cấp" : "thưởng"}</button></div></form></div>}
+    {open && <div className="modal-backdrop"><form className="modal payroll-action-modal" onSubmit={save}><div className="modal-title"><div><h2>{kind === "ALLOWANCE" ? "Tạo phụ cấp" : "Tạo thưởng"}</h2><p>Khoản chi được ghi nhận đúng nhân viên, cửa hàng và tháng lương</p></div><button type="button" onClick={() => setOpen(false)}><X size={19}/></button></div><label>Nhân viên được nhận *<select value={employeeId} onChange={(event) => setEmployeeId(event.target.value)}>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.code} · {employee.name}</option>)}</select></label><label>Số tiền {kind === "ALLOWANCE" ? "phụ cấp" : "thưởng"} *<input inputMode="numeric" required value={amount} onChange={(event) => setAmount(formatVndInput(event.target.value))} placeholder="0"/><small>Nhập theo VND, ví dụ: 15000 sẽ hiển thị 15,000.</small></label><label>Ngày ghi nhận<input type="date" min={`${month}-01`} max={`${month}-31`} value={date} onChange={(event) => setDate(event.target.value)}/></label><label>Nội dung chi *<textarea required value={note} onChange={(event) => setNote(event.target.value)} placeholder={kind === "ALLOWANCE" ? "Ví dụ: Phụ cấp chuyên cần" : "Ví dụ: Thưởng hoàn thành công việc"}/></label>{message && <div className="form-message">{message}</div>}<div className="modal-actions"><button type="button" onClick={() => setOpen(false)}>Hủy</button><button className="primary-button">Lưu {kind === "ALLOWANCE" ? "phụ cấp" : "thưởng"}</button></div></form></div>}
   </div>;
 }
 

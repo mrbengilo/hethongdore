@@ -1,11 +1,13 @@
 import { initDb } from "../../../db/runtime";
 import {
   MANAGER_MONTHLY_SALARY_VND,
+  managerProfitBonus,
   multiplyRatioVnd,
   periodBoundsUtc,
   requireVnd,
   sumVnd,
 } from "../../lib/finance";
+import { employeeKpiBonusFromSeconds } from "../../lib/payroll";
 
 type Db = Awaited<ReturnType<typeof initDb>>;
 
@@ -17,6 +19,7 @@ type StoreRow = {
 };
 
 type ShiftFinanceRow = {
+  employeeId: string;
   durationSeconds: number;
   appliedHourlyRate: number;
   cashRevenue: number;
@@ -113,6 +116,7 @@ export async function storePeriodFinance(db: Db, storeId: string, period: string
   const [shiftResult, fixedResult, incidentalResult, inventoryResult, adjustmentResult, snapshotRow] = await Promise.all([
     db.prepare(`
       SELECT
+        s.employee_id AS employeeId,
         CASE WHEN s.duration_seconds > 0 THEN s.duration_seconds
           ELSE ROUND((julianday(s.ended_at) - julianday(s.started_at)) * 86400, 0) END AS durationSeconds,
         COALESCE(s.applied_hourly_rate, e.hourly_rate) AS appliedHourlyRate,
@@ -144,6 +148,8 @@ export async function storePeriodFinance(db: Db, storeId: string, period: string
   let incidentalCosts = 0;
   let employeeBaseSalary = 0;
   let tiktokAllowance = 0;
+  let totalDurationSeconds = 0;
+  const secondsByEmployee = new Map<string, number>();
   const supportByTransfer = new Map<string, number>();
   for (const row of shiftResult.results) {
     const seconds = Math.max(0, Math.round(Number(row.durationSeconds ?? 0)));
@@ -152,6 +158,8 @@ export async function storePeriodFinance(db: Db, storeId: string, period: string
     incidentalCosts = sumVnd([incidentalCosts, safeVnd(row.incidentalExpense)]);
     employeeBaseSalary = sumVnd([employeeBaseSalary, multiplyRatioVnd(hourlyRate, seconds, 3_600)]);
     tiktokAllowance = sumVnd([tiktokAllowance, safeVnd(row.tiktokAllowance)]);
+    totalDurationSeconds += seconds;
+    secondsByEmployee.set(row.employeeId, (secondsByEmployee.get(row.employeeId) ?? 0) + seconds);
     if (row.transferId && seconds > 0) supportByTransfer.set(row.transferId, safeVnd(row.supportAllowance));
   }
   incidentalCosts = sumVnd([
@@ -173,11 +181,27 @@ export async function storePeriodFinance(db: Db, storeId: string, period: string
     if (data.kind === "BONUS") manualBonus = sumVnd([manualBonus, safeVnd(data.amount)]);
   }
 
-  const lockedSnapshot = snapshotRow ? parseObject(snapshotRow.dataJson) : {};
-  const employeeKpiBonus = safeVnd(lockedSnapshot.totalKpiBonus);
-  const managerBonus = safeVnd(lockedSnapshot.managerBonus);
   const supportAllowance = sumVnd([...supportByTransfer.values()]);
-
+  const baseExpense = sumVnd([
+    fixedCosts,
+    incidentalCosts,
+    inventory.goods,
+    inventory.shipping,
+    employeeBaseSalary,
+    tiktokAllowance,
+    supportAllowance,
+    manualAllowance,
+    manualBonus,
+    MANAGER_MONTHLY_SALARY_VND,
+  ]);
+  const profitBeforePerformanceRewards = revenue - baseExpense;
+  const lockedSnapshot = snapshotRow ? parseObject(snapshotRow.dataJson) : null;
+  const employeeKpiBonus = lockedSnapshot
+    ? safeVnd(lockedSnapshot.totalKpiBonus)
+    : sumVnd([...secondsByEmployee.values()].map((seconds) => employeeKpiBonusFromSeconds(profitBeforePerformanceRewards, totalDurationSeconds, seconds)));
+  const managerBonus = lockedSnapshot
+    ? safeVnd(lockedSnapshot.managerBonus)
+    : managerProfitBonus(profitBeforePerformanceRewards);
   const expenseBreakdown: StoreExpenseBreakdown = {
     fixedCosts,
     incidentalCosts,
@@ -192,18 +216,6 @@ export async function storePeriodFinance(db: Db, storeId: string, period: string
     employeeKpiBonus,
     managerBonus,
   };
-  const baseExpense = sumVnd([
-    fixedCosts,
-    incidentalCosts,
-    inventory.goods,
-    inventory.shipping,
-    employeeBaseSalary,
-    tiktokAllowance,
-    supportAllowance,
-    manualAllowance,
-    manualBonus,
-    MANAGER_MONTHLY_SALARY_VND,
-  ]);
   const expense = sumVnd([baseExpense, employeeKpiBonus, managerBonus]);
 
   return {
@@ -212,7 +224,7 @@ export async function storePeriodFinance(db: Db, storeId: string, period: string
     revenue,
     expense,
     profit: revenue - expense,
-    profitBeforePerformanceRewards: revenue - baseExpense,
+    profitBeforePerformanceRewards,
     expenseBreakdown,
   };
 }

@@ -117,3 +117,18 @@ export const MANAGER_MONTHLY_SALARY_VND = 3_000_000;
 export function managerProfitBonus(profit: number) {
   return multiplyDecimalVnd(Math.max(0, requireVnd(profit, "Lợi nhuận", true)), "0.02");
 }
+
+/**
+ * Freeze the final performance-reward layer without feeding either reward back
+ * into its own calculation. `baseProfit` is revenue minus every operating cost,
+ * employee salary/allowance/bonus and the fixed manager salary. Both KPI pools
+ * are then deducted exactly once to obtain the store's final profit.
+ */
+export function settleStoreProfit(baseProfit: number, employeeKpiBonus: number) {
+  const profitBeforePerformanceRewards = requireVnd(baseProfit, "Lợi nhuận cơ sở", true);
+  const employeeBonus = requireVnd(employeeKpiBonus, "Thưởng KPI nhân viên");
+  const managerBonus = managerProfitBonus(profitBeforePerformanceRewards);
+  const performanceRewards = sumVnd([employeeBonus, managerBonus]);
+  const finalProfit = requireVnd(profitBeforePerformanceRewards - performanceRewards, "Lợi nhuận sau cùng", true);
+  return { profitBeforePerformanceRewards, employeeKpiBonus: employeeBonus, managerBonus, performanceRewards, finalProfit };
+}

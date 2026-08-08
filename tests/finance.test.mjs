@@ -31,6 +31,24 @@ test("manager profit bonus is exactly two percent of positive profit", async () 
   assert.equal(managerProfitBonus(-10_000), 0);
 });
 
+test("final store profit deducts employee KPI and manager KPI exactly once", async () => {
+  const { settleStoreProfit } = await financeModule();
+  assert.deepEqual(settleStoreProfit(100_000_000, 7_000_000), {
+    profitBeforePerformanceRewards: 100_000_000,
+    employeeKpiBonus: 7_000_000,
+    managerBonus: 2_000_000,
+    performanceRewards: 9_000_000,
+    finalProfit: 91_000_000,
+  });
+  assert.deepEqual(settleStoreProfit(-5_000_000, 0), {
+    profitBeforePerformanceRewards: -5_000_000,
+    employeeKpiBonus: 0,
+    managerBonus: 0,
+    performanceRewards: 0,
+    finalProfit: -5_000_000,
+  });
+});
+
 test("tender reconciliation reports entered minus expected per payment method", async () => {
   const { tenderDifferences } = await financeModule();
   assert.deepEqual(tenderDifferences(

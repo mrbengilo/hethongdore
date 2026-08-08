@@ -62,3 +62,34 @@ test("schedule interface exposes the requested day, week, employee and save flow
   assert.match(source, /Chọn nhân viên/u);
   assert.match(source, /Lưu lịch ca/u);
 });
+
+test("schedule editor keeps shifts, employees, note and save on one continuous screen", async () => {
+  const [source, css] = await Promise.all([
+    readFile(new URL("../app/components/StoreSchedulingModules.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/StoreSchedulingModules.module.css", import.meta.url), "utf8"),
+  ]);
+  const editor = source.slice(source.lastIndexOf("{open &&"));
+  const shiftPosition = editor.indexOf("scheduleShiftPicker");
+  const employeePosition = editor.indexOf("employeePicker");
+  const notePosition = editor.indexOf("Ghi chú");
+  const savePosition = editor.indexOf("Lưu lịch ca");
+  assert.ok(shiftPosition >= 0 && shiftPosition < employeePosition);
+  assert.ok(employeePosition < notePosition && notePosition < savePosition);
+  assert.doesNotMatch(source, /setStep\(/u);
+  assert.match(source, /Chọn ngày, ca, nhân viên và ghi chú trên cùng một màn hình/u);
+  assert.match(css, /\.scheduleShiftPicker\s*\{[^}]*display:\s*flex;[^}]*flex-wrap:\s*nowrap;[^}]*overflow-x:\s*auto;/su);
+});
+
+test("shift cards never wrap and persisted shifts and schedules show a 24-hour update timestamp", async () => {
+  const [source, css] = await Promise.all([
+    readFile(new URL("../app/components/StoreSchedulingModules.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/StoreSchedulingModules.module.css", import.meta.url), "utf8"),
+  ]);
+  assert.match(css, /\.shiftCards\s*\{[^}]*display:\s*flex;[^}]*flex-wrap:\s*nowrap;[^}]*overflow-x:\s*auto;/su);
+  assert.match(css, /\.compactShiftCards/u);
+  assert.match(source, /hourCycle:\s*"h23"/u);
+  assert.match(source, /timeZone:\s*"Asia\/Ho_Chi_Minh"/u);
+  assert.match(source, /shift\.record\.updated_at \?\? shift\.record\.created_at/u);
+  assert.match(source, /entry\.record\.updated_at \?\? entry\.record\.created_at/u);
+  assert.match(css, /\.scheduleTable thead th b,[\s\S]*display:\s*block;/u);
+});

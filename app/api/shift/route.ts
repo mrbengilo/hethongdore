@@ -355,6 +355,7 @@ export async function POST(request: Request) {
     expenseNote?: string;
     cashRevenue?: number;
     transferRevenue?: number;
+    earlyEndConfirmed?: boolean;
   };
   const db = await initDb();
 
@@ -404,8 +405,15 @@ export async function POST(request: Request) {
 
   if (body.action === "end") {
     if (!user.shiftActive || !user.currentShift || !user.employeeId) return json({ message: "Bạn chưa bắt đầu ca làm việc." }, 409);
-    const activeSession = await db.prepare("SELECT id, store_id AS storeId, work_date AS workDate, shift_name AS shiftName, started_at AS startedAt FROM shift_sessions WHERE shift_code = ? AND employee_id = ? AND status = 'ACTIVE' LIMIT 1")
-      .bind(user.currentShift, user.employeeId).first<{ id: string; storeId: string; workDate: string | null; shiftName: string | null; startedAt: string }>();
+    const activeSession = await db.prepare(`SELECT id, store_id AS storeId, work_date AS workDate,
+        shift_name AS shiftName, scheduled_start AS scheduledStart, scheduled_end AS scheduledEnd,
+        scheduled_end_at AS scheduledEndAt, started_at AS startedAt
+      FROM shift_sessions
+      WHERE shift_code = ? AND employee_id = ? AND status = 'ACTIVE' LIMIT 1`)
+      .bind(user.currentShift, user.employeeId).first<{
+        id: string; storeId: string; workDate: string | null; shiftName: string | null;
+        scheduledStart: string | null; scheduledEnd: string | null; scheduledEndAt: string | null; startedAt: string;
+      }>();
     if (!activeSession) return json({ message: "Không tìm thấy phiên ca đang hoạt động. Vui lòng tải lại trang hoặc liên hệ quản lý." }, 409);
     if (!body.tasksCompleted) return json({ message: "Bạn phải hoàn thành tất cả công việc trước khi kết ca." }, 400);
     if (body.expenseAmount === undefined || body.expenseAmount === null || body.cashRevenue === undefined || body.cashRevenue === null || body.transferRevenue === undefined || body.transferRevenue === null) {
@@ -462,17 +470,30 @@ export async function POST(request: Request) {
 
     const allowance = body.tiktok ? 25000 : 0;
     const endedAt = utcTimestamp();
+    const legacyRange = !activeSession.scheduledEndAt && activeSession.workDate && activeSession.scheduledStart && activeSession.scheduledEnd
+      ? shiftUtcRange(activeSession.workDate, activeSession.scheduledStart, activeSession.scheduledEnd)
+      : null;
+    const scheduledEndAt = activeSession.scheduledEndAt ?? legacyRange?.endAt ?? null;
+    const scheduledEndTime = scheduledEndAt ? new Date(scheduledEndAt).getTime() : Number.NaN;
+    const earlyEnd = Number.isFinite(scheduledEndTime) && new Date(endedAt).getTime() < scheduledEndTime;
+    if (earlyEnd && body.earlyEndConfirmed !== true) {
+      return json({
+        message: "Chưa hết giờ kết ca, bạn có muốn kết ca không?",
+        requiresEarlyEndConfirmation: true,
+        scheduledEndAt,
+      }, 409);
+    }
     const workedSeconds = durationSeconds(activeSession.startedAt, endedAt);
     const workedMinutes = durationMinutes(workedSeconds);
     const results = await db.batch([
       db.prepare("UPDATE stores SET revenue = revenue + ?, expense = expense + ? WHERE id = ? AND EXISTS (SELECT 1 FROM shift_sessions WHERE id = ? AND status = 'ACTIVE')")
         .bind(cashRevenue + transferRevenue, expenseAmount, activeSession.storeId, activeSession.id),
-      db.prepare("UPDATE shift_sessions SET ended_at = ?, duration_seconds = ?, tiktok = ?, tiktok_allowance = ?, tasks_completed = 1, expense_amount = ?, expense_note = ?, cash_revenue = ?, transfer_revenue = ?, close_reason = 'MANUAL', close_status = 'CONFIRMED', status = 'COMPLETED' WHERE id = ? AND status = 'ACTIVE'")
-        .bind(endedAt, workedSeconds, body.tiktok ? 1 : 0, allowance, expenseAmount, body.expenseNote?.trim() || null, cashRevenue, transferRevenue, activeSession.id),
+      db.prepare("UPDATE shift_sessions SET ended_at = ?, duration_seconds = ?, tiktok = ?, tiktok_allowance = ?, tasks_completed = 1, expense_amount = ?, expense_note = ?, cash_revenue = ?, transfer_revenue = ?, close_reason = ?, close_status = 'CONFIRMED', status = 'COMPLETED' WHERE id = ? AND status = 'ACTIVE'")
+        .bind(endedAt, workedSeconds, body.tiktok ? 1 : 0, allowance, expenseAmount, body.expenseNote?.trim() || null, cashRevenue, transferRevenue, earlyEnd ? "MANUAL_EARLY" : "MANUAL", activeSession.id),
       db.prepare("UPDATE users SET shift_active = 0, current_shift = NULL, shift_started_at = NULL WHERE id = ? AND current_shift = ?").bind(user.id, user.currentShift),
     ]);
     if (affectedRows(results[1]) === 0) return json({ message: "Ca làm đã được kết thúc bởi một yêu cầu khác. Vui lòng tải lại trang." }, 409);
-    await writeAudit(user.id, "SHIFT_END", "SHIFT", user.currentShift, JSON.stringify({ tiktok: Boolean(body.tiktok), expenseAmount, cashRevenue, transferRevenue, orderCount, workedSeconds, workedMinutes }));
+    await writeAudit(user.id, "SHIFT_END", "SHIFT", user.currentShift, JSON.stringify({ tiktok: Boolean(body.tiktok), expenseAmount, cashRevenue, transferRevenue, orderCount, workedSeconds, workedMinutes, earlyEnd, scheduledEndAt }));
     return json({
       active: false,
       endedAt,
@@ -484,6 +505,8 @@ export async function POST(request: Request) {
       totalRevenue: cashRevenue + transferRevenue,
       workedSeconds,
       workedMinutes,
+      earlyEnd,
+      scheduledEndAt,
     });
   }
 

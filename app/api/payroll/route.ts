@@ -1,7 +1,7 @@
 import { initDb, writeAudit } from "../../../db/runtime";
 import {
   durationMinutes, localPeriod, managerProfitBonus, MANAGER_MONTHLY_SALARY_VND,
-  multiplyRatioVnd, periodBoundsUtc, requireVnd, sumVnd, utcTimestamp,
+  multiplyRatioVnd, periodBoundsUtc, requireVnd, settleStoreProfit, sumVnd, utcTimestamp,
 } from "../../lib/finance";
 import { employeeKpiBonusFromSeconds, employeeKpiRateFromSeconds } from "../../lib/payroll";
 import { getSessionUser, INACTIVE_STORE_MESSAGE, isStoreActive, json } from "../_lib/auth";
@@ -190,6 +190,47 @@ async function payrollClosing(db: Awaited<ReturnType<typeof initDb>>, storeId: s
   return row ? parseData<PayrollClosing>(row.data_json) : null;
 }
 
+async function managerPayrollPeriod(db: Awaited<ReturnType<typeof initDb>>, period: string) {
+  const result = await db.prepare(`
+    SELECT data_json AS dataJson
+    FROM business_records
+    WHERE category = 'PAYROLL_CLOSING' AND status = 'LOCKED'
+      AND json_extract(data_json, '$.period') = ?
+    ORDER BY json_extract(data_json, '$.storeName')
+  `).bind(period).all<{ dataJson: string }>();
+  const rows = (await Promise.all(result.results.map(async (record) => {
+    const closing = parseData<PayrollClosing>(record.dataJson);
+    if (!closing || closing.status !== "LOCKED") return null;
+    const summary = await lockedSummary(db, closing.storeId, period);
+    if (!summary) return null;
+    const managerSalary = safePayrollVnd(closing.managerSalary || MANAGER_MONTHLY_SALARY_VND);
+    const managerBonus = safePayrollVnd(closing.managerBonus);
+    const managerTotal = sumVnd([managerSalary, managerBonus]);
+    return {
+      period,
+      storeId: closing.storeId,
+      storeName: closing.storeName,
+      profitBeforePerformanceRewards: summary.profit,
+      employeeKpiBonus: summary.totalKpiBonus,
+      finalProfit: summary.netProfit,
+      managerSalary,
+      managerBonus,
+      managerTotal,
+      paymentConfirmedAt: closing.paymentConfirmedAt ?? null,
+      closedAt: closing.closedAt ?? null,
+      status: "LOCKED" as const,
+    };
+  }))).filter((row): row is NonNullable<typeof row> => Boolean(row));
+  const totalSalary = sumVnd(rows.map((row) => row.managerSalary));
+  const totalBonus = sumVnd(rows.map((row) => row.managerBonus));
+  return {
+    period,
+    policy: { salaryPerStore: MANAGER_MONTHLY_SALARY_VND, bonusRate: 0.02 },
+    rows,
+    totals: { storeCount: rows.length, totalSalary, totalBonus, totalPay: sumVnd([totalSalary, totalBonus]) },
+  };
+}
+
 async function buildPreview(db: Awaited<ReturnType<typeof initDb>>, storeId: string, period: string): Promise<PayrollSummary | null> {
   const store = await storePeriodFinance(db, storeId, period);
   if (!store) return null;
@@ -258,7 +299,10 @@ async function buildPreview(db: Awaited<ReturnType<typeof initDb>>, storeId: str
     });
   }
   const revenue = requireVnd(Number(store.revenue), "Doanh thu");
-  const expenseBeforePerformanceRewards = requireVnd(Number(store.expense), "Chi phí");
+  const expenseBeforePerformanceRewards = requireVnd(
+    Number(store.expense) - Number(store.expenseBreakdown.employeeKpiBonus) - Number(store.expenseBreakdown.managerBonus),
+    "Chi phí trước thưởng hiệu quả",
+  );
   const profit = store.profitBeforePerformanceRewards;
   const totalDurationSeconds = [...shiftsByEmployee.values()].reduce((sum, shift) => sum + shift.durationSeconds, 0);
 
@@ -297,9 +341,10 @@ async function buildPreview(db: Awaited<ReturnType<typeof initDb>>, storeId: str
 
   const totalHours = totalDurationSeconds / 3_600;
   const managerSalary = MANAGER_MONTHLY_SALARY_VND;
-  const managerBonus = managerProfitBonus(profit);
   const totalKpiBonus = sumVnd(items.map((item) => item.kpiBonus));
-  const netProfit = profit - totalKpiBonus - managerBonus;
+  const settlement = settleStoreProfit(profit, totalKpiBonus);
+  const managerBonus = settlement.managerBonus;
+  const netProfit = settlement.finalProfit;
   const expense = sumVnd([expenseBeforePerformanceRewards, totalKpiBonus, managerBonus]);
   const costBreakdown: StoreExpenseBreakdown = {
     ...store.expenseBreakdown,
@@ -464,6 +509,10 @@ export async function GET(request: Request) {
       shiftDetails,
       paid: sourceClosings.length > 0 && sourceClosings.every((source) => source.closing?.status === "PAYMENT_CONFIRMED" || source.closing?.status === "LOCKED"),
     });
+  }
+
+  if (params.get("scope") === "manager") {
+    return json({ managerPayroll: await managerPayrollPeriod(db, period) });
   }
 
   const storeId = params.get("storeId");

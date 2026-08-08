@@ -14,10 +14,12 @@ type EmployeeOrder = {
 type ShiftState = {
   active: boolean; shiftCode: string | null; startedAt: string | null;
   shiftName?: string | null; scheduledStart?: string | null; scheduledEnd?: string | null;
+  scheduledEndAt?: string | null;
 };
 type ShiftClosePayload = {
   tasksCompleted: boolean; expenseAmount: number; expenseNote: string;
   cashRevenue: number; transferRevenue: number;
+  earlyEndConfirmed?: boolean;
 };
 type TaskRecord = {
   id: string; title: string;
@@ -34,6 +36,11 @@ type OwnSchedule = {
 };
 
 const money = (value: number) => new Intl.NumberFormat("en-US").format(Math.round(value)) + " đồng";
+const formatMoneyInput = (value: string) => value
+  .replace(/\D/g, "")
+  .replace(/^0+(?=\d)/, "")
+  .replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+const parseMoneyInput = (value: string) => Number(value.replaceAll(",", "") || 0);
 const time = (value: string | null) => value
   ? new Intl.DateTimeFormat("vi-VN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Ho_Chi_Minh", hourCycle: "h23" }).format(new Date(value))
   : "--:--";
@@ -56,7 +63,7 @@ export function ReferenceEmployeeHome({ user, shift, orders, onShift, tiktok, se
   user: EmployeeUser;
   shift: ShiftState;
   orders: EmployeeOrder[];
-  onShift: (action: "start" | "end", closing?: ShiftClosePayload) => void;
+  onShift: (action: "start" | "end", closing?: ShiftClosePayload) => void | Promise<void>;
   tiktok: boolean;
   setTiktok: (value: boolean) => void;
 }) {
@@ -72,14 +79,16 @@ export function ReferenceEmployeeHome({ user, shift, orders, onShift, tiktok, se
   const [schedules, setSchedules] = useState<OwnSchedule[]>([]);
   const [now, setNow] = useState<Date | null>(null);
   const [lastEndedAt, setLastEndedAt] = useState<string | null>(null);
+  const [scheduledEndAt, setScheduledEndAt] = useState<string | null>(shift.scheduledEndAt ?? null);
+  const [endingShift, setEndingShift] = useState(false);
   const previousActive = useRef(shift.active);
   const previousShiftCode = useRef(shift.shiftCode);
   const allTasksDone = taskProgress.total > 0 && taskProgress.done === taskProgress.total;
   const revenueEntered = cashRevenue !== "" && transferRevenue !== "";
   const expenseEntered = expenseAmount !== "";
-  const enteredCash = Number(cashRevenue || 0);
-  const enteredTransfer = Number(transferRevenue || 0);
-  const enteredExpense = Number(expenseAmount || 0);
+  const enteredCash = parseMoneyInput(cashRevenue);
+  const enteredTransfer = parseMoneyInput(transferRevenue);
+  const enteredExpense = parseMoneyInput(expenseAmount);
   const amountsValid = [enteredCash, enteredTransfer, enteredExpense].every((value) => Number.isSafeInteger(value) && value >= 0);
   const expenseValid = enteredExpense === 0 || expenseNote.trim().length > 0;
   const tendersMatch = revenueEntered && enteredCash === orderCash && enteredTransfer === orderTransfer;
@@ -111,6 +120,24 @@ export function ReferenceEmployeeHome({ user, shift, orders, onShift, tiktok, se
   }, [todayValue]);
 
   useEffect(() => {
+    let cancelled = false;
+    if (!shift.active || !shift.shiftCode) {
+      setScheduledEndAt(null);
+      return;
+    }
+    setScheduledEndAt(shift.scheduledEndAt ?? null);
+    fetch("/api/shift", { cache: "no-store" })
+      .then((response) => response.ok ? response.json() : null)
+      .then((data) => {
+        if (!cancelled && data?.active && data.shiftCode === shift.shiftCode && typeof data.scheduledEndAt === "string") {
+          setScheduledEndAt(data.scheduledEndAt);
+        }
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [shift.active, shift.scheduledEndAt, shift.shiftCode]);
+
+  useEffect(() => {
     if (previousActive.current && !shift.active) {
       setLastEndedAt(new Date().toISOString());
       setClosingMessage("✓ Đã kết ca và ghi nhận vào lịch sử ca làm.");
@@ -138,7 +165,22 @@ export function ReferenceEmployeeHome({ user, shift, orders, onShift, tiktok, se
     previousShiftCode.current = shift.shiftCode;
   }, [setTiktok, shift.active, shift.shiftCode]);
 
-  function finishShift() {
+  async function latestScheduledEnd() {
+    try {
+      const response = await fetch("/api/shift", { cache: "no-store" });
+      const data = response.ok ? await response.json() : null;
+      if (data?.active && data.shiftCode === shift.shiftCode && typeof data.scheduledEndAt === "string") {
+        const value = String(data.scheduledEndAt);
+        if (!Number.isNaN(new Date(value).getTime())) {
+          setScheduledEndAt(value);
+          return value;
+        }
+      }
+    } catch { /* The cached schedule below remains usable for a transient fetch failure. */ }
+    return scheduledEndAt && !Number.isNaN(new Date(scheduledEndAt).getTime()) ? scheduledEndAt : null;
+  }
+
+  async function finishShift() {
     if (!canEnd) {
       setClosingMessage("Hãy hoàn thành toàn bộ công việc, nhập chi phí (nhập 0 nếu không có), tiền mặt, chuyển khoản và nội dung chi nếu có chi phí.");
       return;
@@ -147,14 +189,27 @@ export function ReferenceEmployeeHome({ user, shift, orders, onShift, tiktok, se
       setClosingMessage("Doanh thu lớn hơn 0. Vui lòng nhập ít nhất một đơn hàng trước khi kết ca.");
       return;
     }
-    setClosingMessage("");
-    onShift("end", {
-      tasksCompleted: true,
-      expenseAmount: enteredExpense,
-      expenseNote: expenseNote.trim(),
-      cashRevenue: enteredCash,
-      transferRevenue: enteredTransfer,
-    });
+    setEndingShift(true);
+    try {
+      const endAt = await latestScheduledEnd();
+      if (!endAt) {
+        setClosingMessage("Chưa thể xác định giờ kết thúc ca. Vui lòng thử lại để bảo đảm dữ liệu chấm công chính xác.");
+        return;
+      }
+      const earlyEnd = Date.now() < new Date(endAt).getTime();
+      if (earlyEnd && !window.confirm("Chưa hết giờ kết ca, bạn có muốn kết ca không?")) return;
+      setClosingMessage("");
+      await onShift("end", {
+        tasksCompleted: true,
+        expenseAmount: enteredExpense,
+        expenseNote: expenseNote.trim(),
+        cashRevenue: enteredCash,
+        transferRevenue: enteredTransfer,
+        earlyEndConfirmed: earlyEnd,
+      });
+    } finally {
+      setEndingShift(false);
+    }
   }
 
   return <div className="employee-home-reference">
@@ -191,19 +246,19 @@ export function ReferenceEmployeeHome({ user, shift, orders, onShift, tiktok, se
       <div className="closing-grid">
         <div className="closing-expense">
           <h3>Chi phí trong ca <em>(bắt buộc nhập)</em></h3>
-          <label>Số tiền<input type="number" min="0" step="1" required placeholder="Nhập 0 nếu không có chi phí" value={expenseAmount} onChange={(event) => setExpenseAmount(event.target.value)}/></label>
+          <label>Số tiền<input type="text" inputMode="numeric" pattern="[0-9,]*" required placeholder="Nhập 0 nếu không có chi phí" value={expenseAmount} onChange={(event) => setExpenseAmount(formatMoneyInput(event.target.value))}/></label>
           <label>Nội dung chi<textarea placeholder="Nhập nội dung chi..." value={expenseNote} onChange={(event) => setExpenseNote(event.target.value)}/></label>
           <div className="wage-note">Số giờ làm dự kiến: <b>5 giờ</b><br/>Lương dự kiến: <b>{money(100000)}</b> ({money(20000)}/giờ)</div>
         </div>
         <div className="closing-revenue">
           <h3>Doanh thu ca <em>(bắt buộc)</em></h3>
           <div className="revenue-inputs">
-            <label>Tiền mặt<input type="number" min="0" step="1" required placeholder="Nhập số tiền" value={cashRevenue} onChange={(event) => setCashRevenue(event.target.value)}/><small>Theo đơn: {money(orderCash)}</small></label>
-            <label>Chuyển khoản<input type="number" min="0" step="1" required placeholder="Nhập số tiền" value={transferRevenue} onChange={(event) => setTransferRevenue(event.target.value)}/><small>Theo đơn: {money(orderTransfer)}</small></label>
+            <label>Tiền mặt<input type="text" inputMode="numeric" pattern="[0-9,]*" required placeholder="Nhập số tiền" value={cashRevenue} onChange={(event) => setCashRevenue(formatMoneyInput(event.target.value))}/><small>Theo đơn: {money(orderCash)}</small></label>
+            <label>Chuyển khoản<input type="text" inputMode="numeric" pattern="[0-9,]*" required placeholder="Nhập số tiền" value={transferRevenue} onChange={(event) => setTransferRevenue(formatMoneyInput(event.target.value))}/><small>Theo đơn: {money(orderTransfer)}</small></label>
             <div><span>Tổng tiền</span><b>{money(revenueTotal)}</b><small>{activeOrders.length} đơn trong ca</small></div>
           </div>
           {revenueEntered && !tendersMatch && <div className="reconciliation-message"><b>Doanh thu chưa khớp với đơn hàng trong ca</b><span>Tiền mặt: cần {money(orderCash)}, đã nhập {money(enteredCash)}, chênh lệch {money(enteredCash - orderCash)}.</span><span>Chuyển khoản: cần {money(orderTransfer)}, đã nhập {money(enteredTransfer)}, chênh lệch {money(enteredTransfer - orderTransfer)}.</span></div>}
-          <button className="end-shift-button" disabled={!canEnd} onClick={finishShift}><CheckCircle2 size={19}/> KẾT CA</button>
+          <button className="end-shift-button" disabled={!canEnd || endingShift} onClick={() => void finishShift()}><CheckCircle2 size={19}/> {endingShift ? "ĐANG KẾT CA..." : "KẾT CA"}</button>
           {closingMessage && <p className={closingMessage.startsWith("✓") ? "success-banner" : "closing-error"}>{closingMessage}</p>}
           <small className="closing-hint">{!shift.active ? "Bạn chưa bắt đầu ca làm việc" : !allTasksDone ? "Vui lòng hoàn thành tất cả công việc trước khi kết ca" : !expenseEntered ? "Vui lòng nhập chi phí trong ca, nhập 0 nếu không có" : !revenueEntered ? "Vui lòng nhập doanh thu tiền mặt và chuyển khoản" : !amountsValid ? "Tiền phải là số nguyên VND không âm" : !expenseValid ? "Vui lòng nhập nội dung chi phí phát sinh" : !orderRequirementMet ? "Doanh thu lớn hơn 0 cần có ít nhất một đơn hàng" : !tendersMatch ? "Tiền mặt hoặc chuyển khoản chưa khớp với đơn hàng" : "Đã đủ điều kiện kết ca"}</small>
         </div>

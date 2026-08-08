@@ -175,9 +175,9 @@ export default function StorePayrollClosing({ store, initialPeriod }: { store: S
     if (!summary) return;
     const rows: Array<Array<string | number>> = [
       ["BÁO CÁO LƯƠNG THƯỞNG", store.name, period],
-      ["Mã NV", "Nhân viên", "Giờ làm", "Lương cứng", "Phụ cấp TikTok", "Phụ cấp hỗ trợ", "Phụ cấp khác", "Thưởng khác", "Thưởng KPI", "Tổng nhận"],
-      ...summary.items.map((item) => [item.employeeCode, item.employeeName, item.hours.toFixed(2), item.baseSalary, item.tiktokAllowance, item.supportAllowance, item.manualAllowance, item.manualBonus, item.kpiBonus, item.totalPay]),
-      ["", "TỔNG NHÂN VIÊN", summary.totalHours.toFixed(2), summary.totalBaseSalary, summary.totalTikTokAllowance, summary.totalSupportAllowance, summary.totalManualAllowance, summary.totalManualBonus, summary.totalKpiBonus, summary.totalPay],
+      ["Mã NV", "Nhân viên", "Lương cứng/giờ", "Giờ thực tế", "Lương thực nhận", "Phụ cấp TikTok", "Phụ cấp hỗ trợ", "Phụ cấp khác", "Thưởng khác", "Thưởng KPI", "Tổng nhận"],
+      ...summary.items.map((item) => [item.employeeCode, item.employeeName, item.hourlyRate, item.hours.toFixed(2), item.baseSalary, item.tiktokAllowance, item.supportAllowance, item.manualAllowance, item.manualBonus, item.kpiBonus, item.totalPay]),
+      ["", "TỔNG NHÂN VIÊN", "", summary.totalHours.toFixed(2), summary.totalBaseSalary, summary.totalTikTokAllowance, summary.totalSupportAllowance, summary.totalManualAllowance, summary.totalManualBonus, summary.totalKpiBonus, summary.totalPay],
       ["", "LƯƠNG QUẢN LÝ", "", summary.managerSalary],
       ["", "THƯỞNG QUẢN LÝ (2% lợi nhuận)", "", summary.managerBonus],
       ["", "TỔNG CHI LƯƠNG", "", grandTotal],
@@ -231,10 +231,10 @@ export default function StorePayrollClosing({ store, initialPeriod }: { store: S
       </section>
 
       <section className="manager-panel table-panel">
-        <div className="panel-title"><div><h2>CHI TIẾT LƯƠNG THƯỞNG NHÂN VIÊN</h2><p>Thưởng KPI áp dụng đúng một ngưỡng 3%, 5% hoặc 7%, không cộng dồn.</p></div><span>{summary.items.length} nhân viên</span></div>
-        <div className="data-table-wrap"><table className="data-table"><thead><tr><th>Mã NV</th><th>Nhân viên</th><th>Giờ làm</th><th>Lương cứng</th><th>Phụ cấp TikTok</th><th>Phụ cấp hỗ trợ</th><th>Phụ cấp khác</th><th>Thưởng khác</th><th>Thưởng KPI</th><th>Tổng nhận</th></tr></thead><tbody>
-          {summary.items.length === 0 ? <tr><td colSpan={10} className="empty-cell">Chưa có dữ liệu chấm công trong kỳ.</td></tr> : summary.items.map((item) => <tr key={item.employeeId}><td><b>{item.employeeCode}</b></td><td><b>{item.employeeName}</b><br/><small>{item.position}</small></td><td>{item.hours.toFixed(2)}</td><td>{money(item.baseSalary)}</td><td>{money(item.tiktokAllowance)}</td><td>{money(item.supportAllowance)}</td><td>{money(item.manualAllowance)}</td><td>{money(item.manualBonus)}</td><td className="money-green">{money(item.kpiBonus)}</td><td className="money-green"><b>{money(item.totalPay)}</b></td></tr>)}
-        </tbody><tfoot><tr><td colSpan={2}>TỔNG CỘNG</td><td>{summary.totalHours.toFixed(2)}</td><td>{money(summary.totalBaseSalary)}</td><td>{money(summary.totalTikTokAllowance)}</td><td>{money(summary.totalSupportAllowance)}</td><td>{money(summary.totalManualAllowance)}</td><td>{money(summary.totalManualBonus)}</td><td>{money(summary.totalKpiBonus)}</td><td>{money(summary.totalPay)}</td></tr></tfoot></table></div>
+        <div className="panel-title"><div><h2>CHI TIẾT LƯƠNG THƯỞNG NHÂN VIÊN</h2><p>Lương thực nhận = lương cứng theo giờ × giờ làm thực tế; KPI áp dụng một ngưỡng, không cộng dồn.</p></div><span>{summary.items.length} nhân viên</span></div>
+        <div className="data-table-wrap"><table className="data-table"><thead><tr><th>Mã NV</th><th>Nhân viên</th><th>Lương cứng</th><th>Giờ thực tế</th><th>Lương thực nhận</th><th>Phụ cấp TikTok</th><th>Phụ cấp hỗ trợ</th><th>Phụ cấp khác</th><th>Thưởng khác</th><th>Thưởng KPI</th><th>Tổng nhận</th></tr></thead><tbody>
+          {summary.items.length === 0 ? <tr><td colSpan={11} className="empty-cell">Chưa có dữ liệu chấm công trong kỳ.</td></tr> : summary.items.map((item) => <tr key={item.employeeId}><td><b>{item.employeeCode}</b></td><td><b>{item.employeeName}</b><br/><small>{item.position}</small></td><td>{money(item.hourlyRate)}/giờ</td><td>{item.hours.toFixed(2)} giờ</td><td><b>{money(item.baseSalary)}</b></td><td>{money(item.tiktokAllowance)}</td><td>{money(item.supportAllowance)}</td><td>{money(item.manualAllowance)}</td><td>{money(item.manualBonus)}</td><td className="money-green">{money(item.kpiBonus)}</td><td className="money-green"><b>{money(item.totalPay)}</b></td></tr>)}
+        </tbody><tfoot><tr><td colSpan={3}>TỔNG CỘNG</td><td>{summary.totalHours.toFixed(2)} giờ</td><td>{money(summary.totalBaseSalary)}</td><td>{money(summary.totalTikTokAllowance)}</td><td>{money(summary.totalSupportAllowance)}</td><td>{money(summary.totalManualAllowance)}</td><td>{money(summary.totalManualBonus)}</td><td>{money(summary.totalKpiBonus)}</td><td>{money(summary.totalPay)}</td></tr></tfoot></table></div>
       </section>
 
       <div className="comparison-grid">
@@ -249,8 +249,8 @@ export default function StorePayrollClosing({ store, initialPeriod }: { store: S
         <section className="manager-panel"><h2>ĐỐI SOÁT KỲ HIỆN TẠI</h2>
           <p><span>Doanh thu</span><b>{money(summary.revenue)}</b><em>{period}</em></p>
           <p><span>Tổng chi phí</span><b>{money(summary.expense)}</b><em>{store.name}</em></p>
-          <p><span>Lợi nhuận làm căn cứ KPI</span><b>{money(summary.profit)}</b><em>{money(summary.profitPerHour)}/giờ</em></p>
-          <p><span>Lợi nhuận sau KPI, thưởng quản lý</span><b>{money(summary.netProfit ?? summary.profit)}</b><em>Số liệu thực sau thưởng</em></p>
+          <p><span>Lợi nhuận cơ sở sau toàn bộ chi phí và lương quản lý</span><b>{money(summary.profit)}</b><em>{money(summary.profitPerHour)}/giờ</em></p>
+          <p><span>Lợi nhuận sau cùng</span><b>{money(summary.netProfit ?? summary.profit)}</b><em>Đã trừ KPI nhân viên và thưởng quản lý</em></p>
           <p><span>Ngưỡng thưởng KPI</span><b>{percent(summary.kpiRate)}</b><em>Không cộng dồn</em></p>
         </section>
       </div>

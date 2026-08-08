@@ -189,7 +189,8 @@ test("provides reference-style store shift and schedule modules", async () => {
   assert.match(component, /LICH_PHAN_CA/u);
   assert.match(component, /Lịch theo tuần/u);
   assert.match(component, /Theo nhân viên/u);
-  assert.match(component, /Chọn ca trước/u);
+  assert.match(component, /Chọn ca làm việc/u);
+  assert.match(component, /Chọn ngày, ca, nhân viên và ghi chú trên cùng một màn hình/u);
   assert.match(component, /Chọn nhân viên/u);
   assert.match(component, /shiftsOverlap/u);
   assert.match(component, /startAt: utcRange\.startAt/u);

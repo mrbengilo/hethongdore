@@ -23,7 +23,18 @@ type RecordBody = {
   completedIndex?: number;
 };
 
-const fixedCostKeys = ["setup", "rent", "electricity", "water", "wifi", "marketing", "garbage", "other"] as const;
+const fixedCostDefinitions = [
+  ["setup", "Set up"],
+  ["rent", "Mặt bằng"],
+  ["electricity", "Điện"],
+  ["water", "Nước"],
+  ["wifi", "Wifi"],
+  ["marketing", "Marketing"],
+  ["garbage", "Rác"],
+  ["other", "Khác"],
+] as const;
+const fixedCostKeys = fixedCostDefinitions.map(([key]) => key);
+type FixedCostKey = (typeof fixedCostDefinitions)[number][0];
 const monthPattern = /^\d{4}-(0[1-9]|1[0-2])$/;
 const datePattern = /^\d{4}-(0[1-9]|1[0-2])-([0-2]\d|3[01])$/;
 
@@ -59,12 +70,45 @@ async function validateStoreRecord(
     const period = String(source.period ?? "");
     if (!monthPattern.test(period)) return { message: "Kỳ chi phí cố định không hợp lệ." };
     if (await isPayrollPeriodLocked(db, storeId, period)) return { message: "Kỳ đã chốt lương và KPI, không thể thay đổi chi phí cố định." };
-    const values = Object.fromEntries(fixedCostKeys.map((key) => [key, Number(source[key] ?? 0)]));
-    if (!Object.values(values).every((value) => isVnd(value) && value >= 0)) return { message: "Chi phí phải là số nguyên VND không âm." };
+    const rawItems = source.items;
+    let values: Record<FixedCostKey, number>;
+    let items: Array<{ key: FixedCostKey | null; name: string; amount: number }>;
+
+    if (rawItems !== undefined) {
+      if (!Array.isArray(rawItems) || rawItems.length < fixedCostKeys.length || rawItems.length > 100) {
+        return { message: "Danh sách chi phí phải có đủ 8 khoản mặc định và tối đa 100 khoản." };
+      }
+      const standardValues = Object.fromEntries(fixedCostKeys.map((key) => [key, 0])) as Record<FixedCostKey, number>;
+      const seenKeys = new Set<FixedCostKey>();
+      items = [];
+      for (let index = 0; index < rawItems.length; index += 1) {
+        const rawItem = rawItems[index];
+        if (!rawItem || typeof rawItem !== "object" || Array.isArray(rawItem)) return { message: `Dòng chi phí ${index + 1} không hợp lệ.` };
+        const item = rawItem as Record<string, unknown>;
+        const rawKey = String(item.key ?? "");
+        const definition = fixedCostDefinitions.find(([key]) => key === rawKey);
+        const key = definition?.[0] ?? null;
+        const name = key ? definition?.[1] ?? "" : String(item.name ?? "").trim();
+        const amount = Number(item.amount);
+        if (!name || !isVnd(amount) || amount < 0) return { message: `Dòng chi phí ${index + 1} phải có tên và số tiền nguyên VND không âm.` };
+        if (key) {
+          if (seenKeys.has(key)) return { message: `Khoản chi phí mặc định “${name}” bị trùng.` };
+          seenKeys.add(key);
+          standardValues[key] = amount;
+        }
+        items.push({ key, name, amount });
+      }
+      if (seenKeys.size !== fixedCostKeys.length) return { message: "Danh sách chi phí phải có đủ 8 khoản mặc định." };
+      values = standardValues;
+    } else {
+      values = Object.fromEntries(fixedCostKeys.map((key) => [key, Number(source[key] ?? 0)])) as Record<FixedCostKey, number>;
+      if (!Object.values(values).every((value) => isVnd(value) && value >= 0)) return { message: "Chi phí phải là số nguyên VND không âm." };
+      items = fixedCostDefinitions.map(([key, name]) => ({ key, name, amount: values[key] }));
+    }
     const duplicate = await db.prepare("SELECT id FROM business_records WHERE category = 'CHI_PHI_CO_DINH' AND store_id = ? AND status != 'DELETED' AND json_extract(data_json, '$.period') = ? AND id != ? LIMIT 1")
       .bind(storeId, period, excludeId ?? "").first<{ id: string }>();
     if (duplicate) return { message: "Kỳ chi phí này đã tồn tại. Vui lòng mở kỳ hiện có để cập nhật." };
-    return { data: { ...values, period, note: String(source.note ?? "").trim(), total: sumVnd(Object.values(values)) } };
+    return { data: { ...values, period, note: String(source.note ?? "").trim(), items, total: sumVnd(items.map((item) => item.amount)) } };
   }
 
   if (category === "LUONG_THUONG") {
@@ -216,7 +260,7 @@ export async function POST(request: Request) {
   const validated = await validateStoreRecord(db, body.category, body.storeId ?? null, body.data ?? {});
   if (!validated.data) return json({ message: validated.message ?? "Dữ liệu nghiệp vụ không hợp lệ." }, 400);
   let data = validated.data;
-  if (body.category === "CHI_PHI_CO_DINH") data = { ...data, changeHistory: [{ action: "CREATE", at: now, by: user.id, total: data.total }] };
+  if (body.category === "CHI_PHI_CO_DINH") data = { ...data, changeHistory: [{ action: "CREATE", at: now, by: user.id, total: data.total, items: data.items }] };
   if (body.category === "NHAP_HANG") data = { ...data, receiptNo: `PN-${String(data.date).replaceAll("-", "")}-${id.slice(0, 6).toUpperCase()}`, savedAt: now, savedBy: user.id };
   await db.prepare("INSERT INTO business_records (id, category, store_id, owner_id, title, data_json, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
     .bind(id, body.category, body.storeId ?? null, user.id, body.title.trim(), JSON.stringify(data), body.status ?? "ACTIVE", now, now).run();
@@ -264,13 +308,14 @@ export async function PATCH(request: Request) {
   const validated = await validateStoreRecord(db, String(existing.category), existingStoreId, incomingData, body.id);
   if (!validated.data) return json({ message: validated.message ?? "Dữ liệu nghiệp vụ không hợp lệ." }, 400);
   let data = validated.data;
+  const updatedAt = new Date().toISOString();
   if (String(existing.category) === "CHI_PHI_CO_DINH") {
     const previous = parseRow(existing).data;
     const history = Array.isArray(previous.changeHistory) ? previous.changeHistory : [];
-    data = { ...data, changeHistory: [...history, { action: "UPDATE", at: new Date().toISOString(), by: user.id, total: data.total }] };
+    data = { ...data, changeHistory: [...history, { action: "UPDATE", at: updatedAt, by: user.id, total: data.total, items: data.items }] };
   }
   await db.prepare("UPDATE business_records SET title = ?, data_json = ?, status = ?, updated_at = ? WHERE id = ?")
-    .bind(title, JSON.stringify(data), body.status ?? String(existing.status), new Date().toISOString(), body.id).run();
+    .bind(title, JSON.stringify(data), body.status ?? String(existing.status), updatedAt, body.id).run();
   await writeAudit(user.id, "UPDATE", String(existing.category), body.id, title);
   return json({ ok: true });
 }

@@ -48,6 +48,39 @@ test("inventory receipts use a persistent multi-line list and server-calculated 
   assert.match(inventoryUi, /Th[êe]m h[àa]ng h[oó]a/u);
   assert.match(inventoryUi, /setItems\(\[createDraftItem\(\)\]\)/u);
   assert.match(inventoryUi, /await reloadHistory\(\)/u);
+  for (const label of ["Tổng mặt hàng", "Chi phí vận chuyển", "Tiền nhập hàng", "Tổng cộng"]) {
+    assert.match(inventoryUi, new RegExp(label, "u"));
+  }
+  assert.match(inventoryUi, /formatMoney\(draftTotals\.shipping\)/u);
+  assert.match(inventoryUi, /formatMoney\(draftTotals\.goods\)/u);
+  assert.match(inventoryUi, /formatMoney\(draftTotals\.amount\)/u);
+  assert.match(inventoryUi, /value=\{formatMoneyInput\(item\.unitPrice\)\}/u);
+  assert.match(inventoryUi, /value=\{formatMoneyInput\(item\.shipping\)\}/u);
+});
+
+test("fixed costs use an eight-line resettable draft and persist custom rows in audited history", async () => {
+  const [recordsApi, fixedCostUi, financeAggregation] = await sources([
+    "../app/api/records/route.ts",
+    "../app/components/FixedCostManagement.tsx",
+    "../app/api/_lib/store-finance.ts",
+  ]);
+
+  for (const label of ["Set up", "Mặt bằng", "Điện", "Nước", "Wifi", "Marketing", "Rác", "Khác"]) {
+    assert.match(fixedCostUi, new RegExp(label, "u"));
+  }
+  assert.match(fixedCostUi, /createDefaultDraft/u);
+  assert.match(fixedCostUi, /Thêm chi phí/u);
+  assert.match(fixedCostUi, /items\.map\(\(item, index\)/u);
+  assert.match(fixedCostUi, /setItems\(createDefaultDraft\(\)\)/u);
+  assert.match(fixedCostUi, /value=\{formatMoneyInput\(item\.amount\)\}/u);
+  assert.match(fixedCostUi, /hourCycle: "h23"/u);
+
+  assert.match(recordsApi, /rawItems\.length < fixedCostKeys\.length \|\| rawItems\.length > 100/u);
+  assert.match(recordsApi, /seenKeys\.size !== fixedCostKeys\.length/u);
+  assert.match(recordsApi, /total: sumVnd\(items\.map\(\(item\) => item\.amount\)\)/u);
+  assert.match(recordsApi, /changeHistory: \[\{ action: "CREATE", at: now, by: user\.id, total: data\.total, items: data\.items \}\]/u);
+  assert.match(recordsApi, /action: "UPDATE", at: updatedAt, by: user\.id, total: data\.total, items: data\.items/u);
+  assert.match(financeAggregation, /const savedTotal = safeVnd\(data\.total\)/u);
 });
 
 test("reports compare periods and dividend closing requires every store ledger to be locked", async () => {
@@ -133,6 +166,45 @@ test("payroll and dividend ledgers can only advance through audited locking acti
   assert.match(recordsApi, /protectedCategories\.has\(body\.category\)/u);
   assert.match(recordsApi, /String\(existing\.status\) === "LOCKED" \|\| protectedCategories\.has/u);
   assert.match(recordsApi, /existing\.category === "KPI_SUMMARY".*existing\.category === "PAYROLL_CLOSING".*existing\.category === "DIVIDEND"/u);
+});
+
+test("attendance and employee payroll distinguish hourly rate from earned salary", async () => {
+  const [attendanceUi, closingUi] = await sources([
+    "../app/components/ReferenceStoreModules.tsx",
+    "../app/components/StorePayrollClosing.tsx",
+  ]);
+
+  for (const label of ["Theo ca", "Theo ngày", "Theo tháng · từng nhân viên", "Lương cứng", "Lương thực nhận"]) {
+    assert.match(attendanceUi, new RegExp(label, "u"));
+  }
+  assert.match(attendanceUi, /hourlyMoney\(row\.rates\[0\]\)/u);
+  assert.match(attendanceUi, /current\.salary \+= Math\.round\(seconds \/ 3_600 \* rate\)/u);
+  assert.doesNotMatch(attendanceUi, /const fallback: ShiftSession/u);
+  assert.match(closingUi, /money\(item\.hourlyRate\)\}\/giờ/u);
+  assert.match(closingUi, /money\(item\.baseSalary\)/u);
+  assert.match(closingUi, /Lương thực nhận = lương cứng theo giờ × giờ làm thực tế/u);
+});
+
+test("manager payroll uses only locked store ledgers and final profit includes every payroll cost", async () => {
+  const [payrollApi, portal, finance, aggregation] = await sources([
+    "../app/api/payroll/route.ts",
+    "../app/components/Portal.tsx",
+    "../app/lib/finance.ts",
+    "../app/api/_lib/store-finance.ts",
+  ]);
+
+  assert.match(payrollApi, /category = 'PAYROLL_CLOSING' AND status = 'LOCKED'/u);
+  assert.match(payrollApi, /params\.get\("scope"\) === "manager"/u);
+  assert.match(payrollApi, /policy: \{ salaryPerStore: MANAGER_MONTHLY_SALARY_VND, bonusRate: 0\.02 \}/u);
+  assert.match(payrollApi, /settleStoreProfit\(profit, totalKpiBonus\)/u);
+  assert.match(portal, /view === "Lương thưởng quản lý"[\s\S]*return <ManagerPayroll\/>/u);
+  assert.match(portal, /Chỉ ghi nhận số liệu thật từ các cửa hàng đã xác nhận chi và khóa kỳ/u);
+  assert.match(finance, /profitBeforePerformanceRewards - performanceRewards/u);
+  assert.match(aggregation, /managerSalary: MANAGER_MONTHLY_SALARY_VND/u);
+  assert.match(aggregation, /lockedSnapshot[\s\S]*managerProfitBonus\(profitBeforePerformanceRewards\)/u);
+  assert.match(aggregation, /employeeKpiBonusFromSeconds\(profitBeforePerformanceRewards, totalDurationSeconds, seconds\)/u);
+  assert.match(aggregation, /const expense = sumVnd\(\[baseExpense, employeeKpiBonus, managerBonus\]\)/u);
+  assert.match(aggregation, /profit: revenue - expense/u);
 });
 
 test("employee payroll exposes main/support shift identity and actual-pay components", async () => {

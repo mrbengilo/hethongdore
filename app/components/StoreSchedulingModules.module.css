@@ -124,9 +124,13 @@
 }
 
 .shiftCards {
-  display: grid;
+  display: flex;
+  flex-wrap: nowrap;
   gap: 14px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  min-width: 0;
+  overflow-x: auto;
+  padding-bottom: 3px;
+  scrollbar-width: thin;
 }
 
 .shiftCard {
@@ -135,7 +139,9 @@
   border: 1px solid var(--line);
   border-radius: 14px;
   display: flex;
+  flex: 1 1 0;
   gap: 14px;
+  min-width: 0;
   min-height: 122px;
   overflow: hidden;
   padding: 18px;
@@ -166,18 +172,54 @@
 }
 
 .shiftCard span {
+  display: block;
   font-size: 16px;
   font-weight: 800;
+  line-height: 1.25;
 }
 
 .shiftCard strong {
+  display: block;
   font-size: clamp(19px, 2vw, 26px);
   letter-spacing: -0.02em;
+  line-height: 1.25;
+  white-space: nowrap;
 }
 
 .shiftCard small {
   color: #667085;
+  display: block;
   font-size: 12px;
+  line-height: 1.35;
+}
+
+.compactShiftCards .shiftCard {
+  gap: 8px;
+  min-height: 106px;
+  padding: 12px 10px;
+}
+
+.compactShiftCards .shiftCard > i {
+  height: 34px;
+  width: 34px;
+}
+
+.compactShiftCards .shiftCard strong {
+  font-size: clamp(16px, 1.45vw, 20px);
+}
+
+.compactShiftCards .shiftCard span {
+  font-size: 14px;
+}
+
+.compactShiftCards .cardActions {
+  flex-direction: column;
+}
+
+.updatedAt {
+  color: #52705c !important;
+  font-size: 10px !important;
+  font-variant-numeric: tabular-nums;
 }
 
 .tone1 {
@@ -374,6 +416,18 @@
   white-space: nowrap;
 }
 
+.scheduleTable thead th b,
+.scheduleTable thead th small {
+  display: block;
+  line-height: 1.35;
+}
+
+.scheduleTable thead th small {
+  color: #667085;
+  font-size: 11px;
+  margin-top: 4px;
+}
+
 .scheduleTable thead th:first-child { border-top-left-radius: 10px; }
 .scheduleTable thead th:last-child { border-top-right-radius: 10px; }
 
@@ -541,6 +595,12 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.scheduleHistory .historyShiftTime {
+  color: #204c2f;
+  font-size: 12px;
+  font-weight: 750;
 }
 
 .scheduleHistory article > div {
@@ -806,6 +866,33 @@
   padding: 11px 12px;
 }
 
+.scheduleShiftPicker {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 26px;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 0 2px 5px;
+  scrollbar-width: thin;
+}
+
+.scheduleShiftPicker label {
+  flex: 1 1 0;
+  min-width: 170px;
+  position: relative;
+}
+
+.scheduleShiftPicker label:not(:last-of-type)::after {
+  color: #8a9b90;
+  content: "→";
+  font-size: 18px;
+  font-weight: 800;
+  position: absolute;
+  right: -22px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
 .shiftPicker label > input,
 .employeePicker label > input {
   accent-color: var(--dore-green);
@@ -922,8 +1009,8 @@
 }
 
 @media (max-width: 820px) {
-  .shiftCards {
-    grid-template-columns: 1fr;
+  .shiftCard {
+    flex: 0 0 min(230px, 78vw);
   }
 
   .panelHeader,

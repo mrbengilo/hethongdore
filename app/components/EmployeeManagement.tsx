@@ -4,6 +4,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { Edit3, IdCard, Plus, Save, Search, Upload, UserRound, X } from "lucide-react";
+import { formatVndInput, parseVndInput } from "../lib/format";
 
 type EmployeeStore = {
   id: string;
@@ -59,7 +60,7 @@ function emptyEmployeeForm(): EmployeeForm {
     addressLine: "",
     age: "",
     position: "Nhân viên bán hàng",
-    hourlyRate: "20000",
+    hourlyRate: "20,000",
     username: "",
     password: "",
     status: "ACTIVE",
@@ -186,7 +187,7 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
       addressLine: employee.addressLine,
       age: employee.age ? String(employee.age) : "",
       position: employee.position,
-      hourlyRate: String(employee.hourlyRate),
+      hourlyRate: formatVndInput(employee.hourlyRate),
       username: employee.username,
       password: "",
       status: employee.status,
@@ -230,7 +231,7 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
     if (!form.province.trim() || !form.ward.trim() || !form.addressLine.trim()) return "Vui lòng nhập đủ tỉnh, phường và đường/ấp.";
     const age = Number(form.age);
     if (!Number.isInteger(age) || age < 15 || age > 100) return "Tuổi nhân viên phải là số nguyên từ 15 đến 100.";
-    const hourlyRate = Number(form.hourlyRate);
+    const hourlyRate = parseVndInput(form.hourlyRate);
     if (!Number.isSafeInteger(hourlyRate) || hourlyRate <= 0) return "Lương theo giờ phải là số nguyên dương.";
     if (!form.position.trim()) return "Vui lòng chọn chức vụ.";
     if (!form.username.trim()) return "Vui lòng nhập tên đăng nhập.";
@@ -281,7 +282,7 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
           addressLine: form.addressLine.trim(),
           age: Number(form.age),
           position: form.position.trim(),
-          hourlyRate: Number(form.hourlyRate),
+          hourlyRate: parseVndInput(form.hourlyRate),
           username: form.username.trim(),
           password: form.password,
           status: form.status,
@@ -369,7 +370,7 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
               <label>Số điện thoại *<input required inputMode="tel" value={form.phone} onChange={(event) => updateForm("phone", event.target.value)} placeholder="Số điện thoại"/></label>
               <label>Tuổi *<input type="number" min="15" max="100" step="1" required value={form.age} onChange={(event) => updateForm("age", event.target.value)}/></label>
               <label>Chức vụ *<select value={form.position} onChange={(event) => updateForm("position", event.target.value)}><option>Nhân viên bán hàng</option><option>Thu ngân</option><option>Kho</option><option>Quản lý ca</option></select></label>
-              <label>Lương theo giờ *<input type="number" min="1" step="1" required value={form.hourlyRate} onChange={(event) => updateForm("hourlyRate", event.target.value)}/><small>{formatMoney(Number(form.hourlyRate || 0))}/giờ</small></label>
+              <label>Lương theo giờ *<input type="text" inputMode="numeric" required value={form.hourlyRate} onChange={(event) => updateForm("hourlyRate", formatVndInput(event.target.value))} placeholder="20,000"/><small>{formatMoney(parseVndInput(form.hourlyRate))}/giờ</small></label>
             </div>
 
             <h3>Địa chỉ</h3>
