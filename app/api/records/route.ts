@@ -54,6 +54,17 @@ async function isPayrollPeriodLocked(
   return Boolean(locked);
 }
 
+async function isEmployeePayrollLocked(
+  db: Awaited<ReturnType<typeof initDb>>,
+  storeId: string,
+  period: string,
+  employeeId: string,
+) {
+  const locked = await db.prepare("SELECT id FROM employee_payroll_closings WHERE store_id = ? AND employee_id = ? AND period = ? AND status IN ('BASE_LOCKED', 'LOCKED') LIMIT 1")
+    .bind(storeId, employeeId, period).first<{ id: string }>();
+  return Boolean(locked);
+}
+
 type ValidationResult = { data?: Record<string, unknown>; message?: string };
 
 async function validateStoreRecord(
@@ -121,13 +132,15 @@ async function validateStoreRecord(
       return { message: "Khoản lương thưởng phải có nhân viên, loại, ngày, nội dung và số tiền nguyên VND dương." };
     }
     if (await isPayrollPeriodLocked(db, storeId, date.slice(0, 7))) return { message: "Kỳ lương đã chốt, không thể thêm hoặc sửa phụ cấp/thưởng." };
+    if (await isEmployeePayrollLocked(db, storeId, date.slice(0, 7), employeeId)) return { message: "Lương của nhân viên trong kỳ này đã khóa sổ riêng, không thể thêm hoặc sửa phụ cấp/thưởng." };
     const employee = await db.prepare(`SELECT e.id, e.name FROM employees e
       WHERE e.id = ? AND e.status != 'ARCHIVED' AND (
         e.store_id = ? OR EXISTS (
           SELECT 1 FROM employee_transfers t WHERE t.employee_id = e.id AND t.target_store_id = ?
             AND t.status IN ('SCHEDULED', 'ACTIVE', 'COMPLETED') AND t.start_date <= ? AND t.end_date >= ?
         ) OR EXISTS (
-          SELECT 1 FROM shift_sessions s WHERE s.employee_id = e.id AND s.store_id = ? AND substr(COALESCE(s.work_date, s.started_at), 1, 7) = ?
+          SELECT 1 FROM shift_sessions s WHERE s.employee_id = e.id AND s.store_id = ?
+            AND substr(COALESCE(NULLIF(s.work_date, ''), date(s.started_at, '+7 hours')), 1, 7) = ?
         )
       ) LIMIT 1`)
       .bind(employeeId, storeId, storeId, date, date, storeId, date.slice(0, 7)).first<{ id: string; name: string }>();
@@ -302,6 +315,12 @@ export async function PATCH(request: Request) {
     if (previousPeriod && await isPayrollPeriodLocked(db, existingStoreId, previousPeriod)) {
       return json({ message: "Dữ liệu thuộc kỳ đã chốt lương và KPI, không thể chỉnh sửa hoặc chuyển sang kỳ khác." }, 423);
     }
+    if (existingCategory === "LUONG_THUONG" && previousPeriod) {
+      const previousEmployeeId = String(previous.employeeId ?? "");
+      if (previousEmployeeId && await isEmployeePayrollLocked(db, existingStoreId, previousPeriod, previousEmployeeId)) {
+        return json({ message: "Lương của nhân viên trong kỳ này đã khóa sổ riêng, không thể chỉnh sửa khoản thưởng/phụ cấp." }, 423);
+      }
+    }
   }
   const title = body.title?.trim() || String(existing.title);
   const incomingData = body.data ?? parseRow(existing).data;
@@ -339,6 +358,14 @@ export async function DELETE(request: Request) {
       period = existing.category === "CHI_PHI_CO_DINH" ? String(data.period ?? "") : String(data.date ?? "").slice(0, 7);
     } catch { period = ""; }
     if (period && await isPayrollPeriodLocked(db, existing.storeId, period)) return json({ message: "Kỳ đã chốt lương và KPI, không thể xóa dữ liệu chi phí." }, 409);
+    if (existing.category === "LUONG_THUONG" && period) {
+      try {
+        const data = JSON.parse(existing.dataJson) as { employeeId?: string };
+        if (data.employeeId && await isEmployeePayrollLocked(db, existing.storeId, period, data.employeeId)) {
+          return json({ message: "Lương của nhân viên trong kỳ này đã khóa sổ riêng, không thể xóa khoản thưởng/phụ cấp." }, 423);
+        }
+      } catch { /* Invalid legacy rows remain protected by the normal validation path. */ }
+    }
   }
   await db.prepare("UPDATE business_records SET status = 'DELETED', updated_at = ? WHERE id = ?").bind(new Date().toISOString(), id).run();
   await writeAudit(user.id, "DELETE", "BUSINESS_RECORD", id);

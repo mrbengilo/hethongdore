@@ -70,6 +70,9 @@ test("fixed costs use an eight-line resettable draft and persist custom rows in 
   }
   assert.match(fixedCostUi, /createDefaultDraft/u);
   assert.match(fixedCostUi, /Thêm chi phí/u);
+  assert.match(fixedCostUi, /form="fixed-cost-entry-form"/u);
+  assert.match(fixedCostUi, /id="fixed-cost-entry-form"/u);
+  assert.match(fixedCostUi, /fixed-cost-toolbar-save/u);
   assert.match(fixedCostUi, /items\.map\(\(item, index\)/u);
   assert.match(fixedCostUi, /setItems\(createDefaultDraft\(\)\)/u);
   assert.match(fixedCostUi, /value=\{formatMoneyInput\(item\.amount\)\}/u);
@@ -219,9 +222,26 @@ test("employee payroll exposes main/support shift identity and actual-pay compon
   assert.match(payrollApi, /multiplyRatioVnd\(safePayrollVnd\(shift\.supportAllowance\)/u);
   assert.match(payrollUi, /Nh[âa]n vi[êe]n h[oỗ] tr[oợ]/u);
   assert.match(payrollUi, /Lương h[oỗ] tr[oợ]\/gi[oờ]/u);
-  assert.match(payrollUi, /Gi[oờ] th[ựu]c t[ếe]/u);
+  assert.match(payrollUi, /Giờ làm thực tế/u);
   assert.match(payrollUi, /Ph[ụu] c[ấa]p h[oỗ] tr[oợ]/u);
-  assert.match(payrollUi, /Th[ựu]c nh[ậa]n ca/u);
+  assert.match(payrollUi, /Lương thực nhận/u);
+  assert.doesNotMatch(payrollUi, /Thực nhận ca/u);
+  assert.match(payrollUi, /mainShiftRows.*!row\.isSupport/u);
+  assert.match(payrollUi, /supportShiftRows.*row\.isSupport/u);
+  assert.match(payrollUi, /support \? <><th>Lương hỗ trợ\/giờ<\/th><th>Phụ cấp hỗ trợ<\/th><\/> : <th>Lương cứng<\/th>/u);
+});
+
+test("website and store cards use logo.jpg as the canonical favicon and brand asset", async () => {
+  const [layout, login, portal] = await sources([
+    "../app/layout.tsx",
+    "../app/page.tsx",
+    "../app/components/Portal.tsx",
+  ]);
+
+  assert.match(layout, /url: "\/logo\.jpg\?v=/u);
+  assert.match(login, /src="\/logo\.jpg"/u);
+  assert.match(portal, /src="\/logo\.jpg"/u);
+  assert.doesNotMatch(`${layout}\n${login}\n${portal}`, /\/dore-logo\.jpg/u);
 });
 
 test("migration upgrades existing employee and shift tables without recreating them", async () => {

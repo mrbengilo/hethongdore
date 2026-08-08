@@ -62,14 +62,7 @@ const defaultShifts: ShiftDefinition[] = [
 ];
 
 function mergeDefaultShifts(persisted: ShiftDefinition[]) {
-  const normalized = (value: string) => value.trim().toLocaleLowerCase("vi-VN");
-  const matched = new Set<string>();
-  const defaults = defaultShifts.map((fallback) => {
-    const existing = persisted.find((shift) => normalized(shift.name) === normalized(fallback.name));
-    if (existing) matched.add(existing.id);
-    return existing ?? fallback;
-  });
-  return [...defaults, ...persisted.filter((shift) => !matched.has(shift.id))];
+  return persisted.length > 0 ? persisted : defaultShifts;
 }
 
 const dayNames = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"];

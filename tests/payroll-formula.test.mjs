@@ -48,3 +48,16 @@ test("employee KPI handles invalid or non-positive values", async () => {
   assert.equal(employeeKpiBonus(1_000_000, 100, 0), 0);
   assert.equal(employeeKpiBonus(Number.NaN, 100, 10), 0);
 });
+
+test("mid-month offboarding freezes deterministic pay but defers KPI until period close", async () => {
+  const { employeePayWithKpi } = await payrollModule();
+  const lockedComponents = {
+    baseSalary: 2_000_000,
+    tiktokAllowance: 100_000,
+    supportAllowance: 200_000,
+    manualAllowance: 50_000,
+    manualBonus: 75_000,
+  };
+  assert.equal(employeePayWithKpi(lockedComponents, 0), 2_425_000);
+  assert.equal(employeePayWithKpi(lockedComponents, 350_000), 2_775_000);
+});

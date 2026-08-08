@@ -23,7 +23,10 @@ export type SessionUser = {
   scheduledEnd: string | null;
 };
 
-type BaseSessionUser = Omit<SessionUser, "storeId" | "storeName" | "activeTransferId" | "isSupporting" | "currentShiftName" | "scheduledStart" | "scheduledEnd">;
+type BaseSessionUser = Omit<SessionUser, "storeId" | "storeName" | "activeTransferId" | "isSupporting" | "currentShiftName" | "scheduledStart" | "scheduledEnd"> & {
+  employeeStatus: string | null;
+  homeStoreStatus: string | null;
+};
 
 function bytesToBase64(bytes: Uint8Array) {
   let binary = "";
@@ -85,8 +88,15 @@ export async function getSessionUser(request: Request): Promise<SessionUser | nu
   if (!token) return null;
   const db = await initDb();
   const tokenHash = await sha256(token);
-  const row = await db.prepare(`SELECT u.id, u.username, u.role, u.name, u.employee_id AS employeeId, u.store_id AS homeStoreId, hs.name AS homeStoreName, e.code AS employeeCode, e.position AS employeePosition, e.phone AS employeePhone, u.shift_active AS shiftActive, u.current_shift AS currentShift, u.shift_started_at AS shiftStartedAt FROM sessions s JOIN users u ON u.id = s.user_id LEFT JOIN employees e ON e.id = u.employee_id LEFT JOIN stores hs ON hs.id = u.store_id WHERE s.token_hash = ? AND s.expires_at > ?`).bind(tokenHash, Date.now()).first<BaseSessionUser>();
+  const row = await db.prepare(`SELECT u.id, u.username, u.role, u.name, u.employee_id AS employeeId, u.store_id AS homeStoreId, hs.name AS homeStoreName, hs.status AS homeStoreStatus, e.code AS employeeCode, e.position AS employeePosition, e.phone AS employeePhone, e.status AS employeeStatus, u.shift_active AS shiftActive, u.current_shift AS currentShift, u.shift_started_at AS shiftStartedAt FROM sessions s JOIN users u ON u.id = s.user_id LEFT JOIN employees e ON e.id = u.employee_id LEFT JOIN stores hs ON hs.id = u.store_id WHERE s.token_hash = ? AND s.expires_at > ?`).bind(tokenHash, Date.now()).first<BaseSessionUser>();
   if (!row) return null;
+
+  // Status changes revoke an employee account immediately, including sessions
+  // that were issued before the manager disabled the employee.
+  if (row.role === "EMPLOYEE" && (row.employeeStatus !== "ACTIVE" || row.homeStoreStatus !== "ACTIVE")) {
+    await db.prepare("DELETE FROM sessions WHERE token_hash = ?").bind(tokenHash).run();
+    return null;
+  }
 
   let storeId = row.homeStoreId;
   let storeName = row.homeStoreName;

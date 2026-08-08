@@ -5,6 +5,7 @@ import {
   multiplyRatioVnd,
   periodBoundsUtc,
   requireVnd,
+  storeExistsInPeriod,
   sumVnd,
 } from "../../lib/finance";
 import { employeeKpiBonusFromSeconds } from "../../lib/payroll";
@@ -16,6 +17,7 @@ type StoreRow = {
   name: string;
   address: string;
   status: string;
+  createdAt: string;
 };
 
 type ShiftFinanceRow = {
@@ -108,11 +110,11 @@ export function previousPeriod(period: string) {
 }
 
 export async function storePeriodFinance(db: Db, storeId: string, period: string): Promise<StorePeriodFinance | null> {
-  const store = await db.prepare("SELECT id, name, address, status FROM stores WHERE id = ? AND status IN ('ACTIVE', 'INACTIVE') LIMIT 1")
+  const store = await db.prepare("SELECT id, name, address, status, created_at AS createdAt FROM stores WHERE id = ? AND status IN ('ACTIVE', 'INACTIVE') LIMIT 1")
     .bind(storeId).first<StoreRow>();
-  if (!store) return null;
+  if (!store || !storeExistsInPeriod(store.createdAt, period)) return null;
 
-  const { startUtc, endUtc } = periodBoundsUtc(period);
+  const { startUtc, endUtc, localStart, localEnd } = periodBoundsUtc(period);
   const [shiftResult, fixedResult, incidentalResult, inventoryResult, adjustmentResult, snapshotRow] = await Promise.all([
     db.prepare(`
       SELECT
@@ -130,8 +132,11 @@ export async function storePeriodFinance(db: Db, storeId: string, period: string
       JOIN employees e ON e.id = s.employee_id
       LEFT JOIN employee_transfers t ON t.id = s.transfer_id
       WHERE s.store_id = ? AND s.status = 'COMPLETED' AND s.ended_at IS NOT NULL
-        AND s.started_at >= ? AND s.started_at < ?
-    `).bind(storeId, startUtc, endUtc).all<ShiftFinanceRow>(),
+        AND (
+          (NULLIF(s.work_date, '') IS NOT NULL AND s.work_date >= ? AND s.work_date < ?)
+          OR (NULLIF(s.work_date, '') IS NULL AND s.started_at >= ? AND s.started_at < ?)
+        )
+    `).bind(storeId, localStart, localEnd, startUtc, endUtc).all<ShiftFinanceRow>(),
     db.prepare("SELECT data_json AS dataJson FROM business_records WHERE category = 'CHI_PHI_CO_DINH' AND store_id = ? AND status != 'DELETED' AND json_extract(data_json, '$.period') = ?")
       .bind(storeId, period).all<RecordRow>(),
     db.prepare("SELECT data_json AS dataJson FROM business_records WHERE category = 'DONG_TIEN' AND store_id = ? AND status != 'DELETED' AND (json_extract(data_json, '$.period') = ? OR substr(json_extract(data_json, '$.date'), 1, 7) = ?)")

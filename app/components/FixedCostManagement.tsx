@@ -271,11 +271,12 @@ export function FixedCostManagement({ store, onSaved }: { store: StoreRef; onSav
         <input aria-label="Kỳ xem chi phí" type="month" value={period} onChange={(event) => setPeriod(event.target.value)}/>
         <button type="button" onClick={exportCsv}><Download size={16}/> Xuất CSV</button>
         <button type="button" className="primary-button" disabled={inactive || saving || items.length >= 100} onClick={addItem}><Plus size={17}/> Thêm chi phí</button>
+        <button type="submit" form="fixed-cost-entry-form" className="primary-button fixed-cost-toolbar-save" disabled={inactive || saving}><Save size={17}/> {saving ? "ĐANG LƯU..." : "LƯU"}</button>
       </div>
     </div>
     {inactive && <div className="inactive-store-banner">Cửa hàng đang ngưng hoạt động. Bạn vẫn xem và xuất được lịch sử, nhưng không thể thêm hoặc sửa chi phí.</div>}
 
-    <form className="fixed-cost-panel fixed-cost-draft" onSubmit={save}>
+    <form id="fixed-cost-entry-form" className="fixed-cost-panel fixed-cost-draft" onSubmit={save}>
       <div className="panel-title">
         <div><h3>{editingId ? "Cập nhật danh sách chi phí" : "Danh sách chi phí cần nhập"}</h3><p>8 khoản mặc định luôn sẵn sàng; có thể thêm khoản khác bằng nút “Thêm chi phí”.</p></div>
         <label>Kỳ chi phí<input aria-label="Kỳ nhập chi phí" type="month" required disabled={inactive || saving} value={formPeriod} onChange={(event) => setFormPeriod(event.target.value)}/></label>

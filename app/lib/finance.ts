@@ -72,6 +72,18 @@ export function localPeriod(now = new Date()) {
   return localDate(now).slice(0, 7);
 }
 
+/**
+ * Assign a shift to exactly one accounting day. New sessions use the persisted
+ * schedule occurrence (`work_date`); legacy rows fall back to their local
+ * start date so an overnight completion cannot move between payroll periods.
+ */
+export function shiftAccountingDate(workDate: string | null | undefined, startedAt: string) {
+  const normalized = workDate?.trim() ?? "";
+  if (/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(normalized)) return normalized;
+  const started = new Date(startedAt);
+  return Number.isFinite(started.getTime()) ? localDate(started) : "";
+}
+
 export function periodBoundsUtc(period: string) {
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period)) throw new Error("Kỳ tháng không hợp lệ.");
   const [year, month] = period.split("-").map(Number);
@@ -85,6 +97,14 @@ export function periodBoundsUtc(period: string) {
     startUtc: new Date(`${localStart}T00:00:00+07:00`).toISOString(),
     endUtc: new Date(`${localEnd}T00:00:00+07:00`).toISOString(),
   };
+}
+
+/** A store participates in a month only if it existed before that local month ended. */
+export function storeExistsInPeriod(createdAt: string, period: string) {
+  const created = new Date(createdAt).getTime();
+  if (!Number.isFinite(created)) return false;
+  const periodEnd = new Date(periodBoundsUtc(period).endUtc).getTime();
+  return created < periodEnd;
 }
 
 export function durationSeconds(startedAt: string, endedAt: string) {

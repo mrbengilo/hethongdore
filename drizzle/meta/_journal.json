@@ -8,6 +8,13 @@
       "when": 1786158873653,
       "tag": "0005_employee_profile_shift_rollover",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1786161600000,
+      "tag": "0006_employee_payroll_closing",
+      "breakpoints": true
     }
   ]
 }

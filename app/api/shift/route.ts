@@ -1,6 +1,7 @@
 import { initDb, writeAudit } from "../../../db/runtime";
 import { durationMinutes, durationSeconds, formatVnd, isVnd, tenderDifferences, utcTimestamp } from "../../lib/finance";
 import {
+  addDays,
   DEFAULT_SHIFT_DEFINITIONS,
   nextShiftOccurrence,
   shiftUtcRange,
@@ -49,6 +50,7 @@ type ShiftRevenue = {
 
 type RolloverResult = {
   rolledOver: boolean;
+  rolloverPending: boolean;
   active: boolean;
   shiftCode: string | null;
   startedAt: string | null;
@@ -58,6 +60,12 @@ type RolloverResult = {
   scheduledStartAt: string | null;
   scheduledEndAt: string | null;
   previousShiftCode?: string;
+  nextShift?: {
+    name: string;
+    start: string;
+    end: string;
+    workDate: string;
+  };
 };
 
 function localDate(now = new Date()) {
@@ -110,11 +118,15 @@ async function resolveSchedule(db: Awaited<ReturnType<typeof initDb>>, storeId: 
     if (range) return { name: matched.shiftName!, start: matched.start!, end: matched.end!, workDate, ...range };
   }
 
-  // Safe fallback for stores that have not configured a schedule yet.
-  const fallback = DEFAULT_SHIFT_DEFINITIONS.find((item) => isInsideShift(item.start, item.end, minute)) ?? DEFAULT_SHIFT_DEFINITIONS[0];
-  const range = shiftUtcRange(workDate, fallback.start, fallback.end);
+  // If no assignment exists, use this store's configured clocks. The global
+  // defaults are only returned by loadShiftDefinitions for an empty store.
+  const definitions = await loadShiftDefinitions(db, storeId);
+  const fallback = definitions.find((item) => isInsideShift(item.start, item.end, minute)) ?? definitions[0];
+  const overnightMorning = timeMinutes(fallback.end) < timeMinutes(fallback.start) && minute < timeMinutes(fallback.end);
+  const fallbackWorkDate = overnightMorning ? addDays(workDate, -1) : workDate;
+  const range = shiftUtcRange(fallbackWorkDate, fallback.start, fallback.end);
   if (!range) throw new Error("Không thể xác định khoảng thời gian ca làm việc.");
-  return { ...fallback, workDate, ...range };
+  return { ...fallback, workDate: fallbackWorkDate, ...range };
 }
 
 function affectedRows(result: unknown) {
@@ -137,23 +149,20 @@ async function loadShiftDefinitions(
       return [];
     }
   });
-  const normalized = (value: string) => value.trim().toLocaleLowerCase("vi-VN");
-  const matched = new Set<number>();
-  const defaults = DEFAULT_SHIFT_DEFINITIONS.map((fallback) => {
-    const index = configured.findIndex((item) => normalized(item.name) === normalized(fallback.name));
-    if (index >= 0) matched.add(index);
-    return index >= 0 ? configured[index] : fallback;
-  });
-  return [...defaults, ...configured.filter((_, index) => !matched.has(index))];
+  // Once a store has configured its own shifts, that list is authoritative.
+  // Defaults are only for legacy stores that do not have any shift records yet.
+  return configured.length > 0 ? configured : DEFAULT_SHIFT_DEFINITIONS;
 }
 
 function rolloverState(
   session: ActiveShiftSession,
   rolledOver: boolean,
   previousShiftCode?: string,
+  pending?: RolloverResult["nextShift"],
 ): RolloverResult {
   return {
     rolledOver,
+    rolloverPending: Boolean(pending),
     active: true,
     shiftCode: session.shiftCode,
     startedAt: session.startedAt,
@@ -163,6 +172,7 @@ function rolloverState(
     scheduledStartAt: session.scheduledStartAt,
     scheduledEndAt: session.scheduledEndAt,
     ...(previousShiftCode ? { previousShiftCode } : {}),
+    ...(pending ? { nextShift: pending } : {}),
   };
 }
 
@@ -193,6 +203,8 @@ async function reconcileActiveShift(
   db: Awaited<ReturnType<typeof initDb>>,
   user: NonNullable<Awaited<ReturnType<typeof getSessionUser>>>,
   now = utcTimestamp(),
+  confirmRollover = false,
+  rolloverTikTok = false,
 ): Promise<RolloverResult | null> {
   if (user.role !== "EMPLOYEE" || !user.shiftActive || !user.currentShift || !user.employeeId) return null;
 
@@ -257,6 +269,17 @@ async function reconcileActiveShift(
     ?? nextShiftOccurrence(scheduledEndAt, DEFAULT_SHIFT_DEFINITIONS);
   if (!next) return rolloverState(hydratedActive, false);
 
+  // Polling only reports that a decision is due. The employee must explicitly
+  // choose "Có" before any attendance, revenue, order or user row is changed.
+  if (!confirmRollover) {
+    return rolloverState(hydratedActive, false, undefined, {
+      name: next.name,
+      start: next.start,
+      end: next.end,
+      workDate: next.workDate,
+    });
+  }
+
   const revenueRows = await db.prepare(`SELECT payment_method AS paymentMethod, COALESCE(SUM(amount), 0) AS amount
       FROM orders
       WHERE store_id = ? AND employee_id = ? AND shift_code = ?
@@ -271,8 +294,9 @@ async function reconcileActiveShift(
     .reduce((sum, row) => sum + Number(row.amount), 0);
   const totalRevenue = cashRevenue + transferRevenue;
   const workedSeconds = durationSeconds(active.startedAt, scheduledEndAt);
+  const tiktokAllowance = rolloverTikTok ? 25000 : 0;
   const nextSessionId = crypto.randomUUID();
-  const nextShiftCode = `CA-AUTO-${active.id}`;
+  const nextShiftCode = `CA-TIEP-${active.id}`;
 
   const results = await db.batch([
     // This must run before the ACTIVE -> COMPLETED transition. D1 batches are
@@ -284,9 +308,13 @@ async function reconcileActiveShift(
         scheduled_start_at = COALESCE(scheduled_start_at, ?),
         scheduled_end_at = COALESCE(scheduled_end_at, ?),
         ended_at = ?, duration_seconds = ?, cash_revenue = ?, transfer_revenue = ?,
-        close_reason = 'AUTO_ROLLOVER', close_status = 'PENDING', status = 'COMPLETED'
+        tiktok = ?, tiktok_allowance = ?, tasks_completed = 1,
+        close_reason = 'CONTINUE_NEXT_SHIFT', close_status = 'PENDING', status = 'COMPLETED'
       WHERE id = ? AND status = 'ACTIVE'`)
-      .bind(scheduledStartAt, scheduledEndAt, scheduledEndAt, workedSeconds, cashRevenue, transferRevenue, active.id),
+      .bind(
+        scheduledStartAt, scheduledEndAt, scheduledEndAt, workedSeconds, cashRevenue, transferRevenue,
+        rolloverTikTok ? 1 : 0, tiktokAllowance, active.id,
+      ),
     db.prepare("UPDATE orders SET shift_code = ? WHERE store_id = ? AND employee_id = ? AND shift_code = ? AND created_at >= ?")
       .bind(nextShiftCode, active.storeId, active.employeeId, active.shiftCode, scheduledEndAt),
     db.prepare(`INSERT INTO shift_sessions (
@@ -311,13 +339,15 @@ async function reconcileActiveShift(
   const successor = await findSuccessor(db, active.id);
   if (!successor) return rolloverState(hydratedActive, false);
   if (closedByThisRequest) {
-    await writeAudit(user.id, "SHIFT_AUTO_ROLLOVER", "SHIFT", active.shiftCode, JSON.stringify({
+    await writeAudit(user.id, "SHIFT_CONFIRMED_ROLLOVER", "SHIFT", active.shiftCode, JSON.stringify({
       previousSessionId: active.id,
       nextSessionId: successor.id,
       nextShiftCode: successor.shiftCode,
       boundaryAt: scheduledEndAt,
       cashRevenue,
       transferRevenue,
+      tiktok: rolloverTikTok,
+      tiktokAllowance,
       workedSeconds,
     }));
   }
@@ -332,6 +362,7 @@ export async function GET(request: Request) {
   if (reconciled) return json(reconciled);
   return json({
     rolledOver: false,
+    rolloverPending: false,
     active: Boolean(user.shiftActive),
     shiftCode: user.currentShift,
     startedAt: user.shiftStartedAt,
@@ -348,7 +379,8 @@ export async function POST(request: Request) {
   if (!user || user.role !== "EMPLOYEE") return json({ message: "Không có quyền" }, 403);
   if (!await isStoreActive(user.storeId)) return json({ message: INACTIVE_STORE_MESSAGE }, 409);
   const body = await request.json().catch(() => ({})) as {
-    action?: "start" | "end";
+    action?: "start" | "end" | "rollover";
+    expectedShiftCode?: string;
     tiktok?: boolean;
     tasksCompleted?: boolean;
     expenseAmount?: number;
@@ -358,6 +390,39 @@ export async function POST(request: Request) {
     earlyEndConfirmed?: boolean;
   };
   const db = await initDb();
+
+  if (body.action === "rollover") {
+    if (!user.shiftActive || !user.currentShift || !user.employeeId) {
+      return json({ message: "Bạn chưa có ca đang hoạt động để chuyển tiếp." }, 409);
+    }
+
+    // A repeated confirmation may arrive after the first request already
+    // moved the user's pointer. Return the current ACTIVE session instead of
+    // creating another successor.
+    if (body.expectedShiftCode && body.expectedShiftCode !== user.currentShift) {
+      const current = await reconcileActiveShift(db, user);
+      if (current) return json({
+        ...current,
+        rolledOver: true,
+        rolloverPending: false,
+        previousShiftCode: body.expectedShiftCode,
+        message: "Đã chuyển sang ca tiếp theo; ca trước được lưu riêng và thời gian làm vẫn liên tục.",
+      });
+      return json({ message: "Ca làm đã thay đổi. Vui lòng tải lại màn hình." }, 409);
+    }
+
+    const reconciled = await reconcileActiveShift(db, user, utcTimestamp(), true, Boolean(body.tiktok));
+    if (!reconciled?.rolledOver) {
+      return json({
+        message: "Ca hiện tại chưa quá giờ kết thúc 60 phút hoặc chưa xác định được ca tiếp theo.",
+      }, 409);
+    }
+    return json({
+      ...reconciled,
+      rolloverPending: false,
+      message: "Đã chuyển sang ca tiếp theo; ca trước được lưu riêng và thời gian làm vẫn liên tục.",
+    });
+  }
 
   if (body.action === "start") {
     if (!user.storeId || !user.employeeId) return json({ message: "Tài khoản chưa được gắn với nhân viên và cửa hàng." }, 409);
@@ -382,11 +447,15 @@ export async function POST(request: Request) {
     const appliedHourlyRate = Number(supportRate ?? employeeRate);
     const sessionId = crypto.randomUUID();
     const results = await db.batch([
-      db.prepare("UPDATE users SET shift_active = 1, current_shift = ?, shift_started_at = ? WHERE id = ? AND shift_active = 0").bind(shiftCode, startedAt, user.id),
+      db.prepare(`UPDATE users SET shift_active = 1, current_shift = ?, shift_started_at = ?
+        WHERE id = ? AND shift_active = 0
+          AND EXISTS (SELECT 1 FROM employees WHERE id = ? AND status = 'ACTIVE')`)
+        .bind(shiftCode, startedAt, user.id, user.employeeId),
       db.prepare(`INSERT INTO shift_sessions (id, shift_code, store_id, employee_id, shift_name, scheduled_start, scheduled_end, scheduled_start_at, scheduled_end_at, work_date, transfer_id, applied_hourly_rate, started_at, previous_session_id, close_reason, close_status, status)
         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, 'OPEN', 'ACTIVE'
-        WHERE EXISTS (SELECT 1 FROM users WHERE id = ? AND shift_active = 1 AND current_shift = ?)`)
-        .bind(sessionId, shiftCode, user.storeId, user.employeeId, schedule.name, schedule.start, schedule.end, schedule.startAt, schedule.endAt, schedule.workDate, user.activeTransferId, appliedHourlyRate, startedAt, user.id, shiftCode),
+        WHERE EXISTS (SELECT 1 FROM users WHERE id = ? AND shift_active = 1 AND current_shift = ?)
+          AND EXISTS (SELECT 1 FROM employees WHERE id = ? AND status = 'ACTIVE')`)
+        .bind(sessionId, shiftCode, user.storeId, user.employeeId, schedule.name, schedule.start, schedule.end, schedule.startAt, schedule.endAt, schedule.workDate, user.activeTransferId, appliedHourlyRate, startedAt, user.id, shiftCode, user.employeeId),
     ]);
     if (affectedRows(results[1]) === 0) return json({ message: "Bạn đã có một ca đang hoạt động. Vui lòng tải lại trang." }, 409);
     await writeAudit(user.id, "SHIFT_START", "SHIFT", shiftCode, JSON.stringify({ storeId: user.storeId, transferId: user.activeTransferId, shiftName: schedule.name }));

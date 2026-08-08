@@ -43,26 +43,56 @@ test("cycles to the next day while keeping the configured schedule occurrence", 
   });
 });
 
-test("the shift API persists exact schedule bounds and performs an idempotent rollover", async () => {
+test("the shift API asks first, then performs one idempotent confirmed rollover", async () => {
   const source = await readFile(new URL("../app/api/shift/route.ts", import.meta.url), "utf8");
 
   assert.match(source, /const reconciled = await reconcileActiveShift\(db, user\)/u);
+  assert.match(source, /confirmRollover = false/u);
+  assert.match(source, /if \(!confirmRollover\) \{/u);
+  assert.match(source, /rolloverPending: Boolean\(pending\)/u);
+  assert.match(source, /action\?: "start" \| "end" \| "rollover"/u);
+  assert.match(source, /reconcileActiveShift\(db, user, utcTimestamp\(\), true, Boolean\(body\.tiktok\)\)/u);
   assert.match(source, /scheduled_start_at, scheduled_end_at/u);
-  assert.match(source, /close_reason = 'AUTO_ROLLOVER'/u);
+  assert.match(source, /close_reason = 'CONTINUE_NEXT_SHIFT'/u);
   assert.match(source, /close_status = 'PENDING'/u);
   assert.match(source, /status = 'COMPLETED'/u);
   assert.match(source, /durationSeconds\(active\.startedAt, scheduledEndAt\)/u);
   assert.match(source, /active\.appliedHourlyRate, scheduledEndAt/u);
   assert.match(source, /UPDATE orders SET shift_code = \?.*created_at >= \?/u);
   assert.match(source, /created_at < \?/u);
-  assert.match(source, /CA-AUTO-\$\{active\.id\}/u);
+  assert.match(source, /CA-TIEP-\$\{active\.id\}/u);
   assert.match(source, /NOT EXISTS \(SELECT 1 FROM shift_sessions WHERE previous_session_id = \?\)/u);
   assert.match(source, /EXISTS \(SELECT 1 FROM shift_sessions WHERE id = \? AND status = 'ACTIVE'\)/u);
-  assert.match(source, /SHIFT_AUTO_ROLLOVER/u);
+  assert.match(source, /SHIFT_CONFIRMED_ROLLOVER/u);
   assert.match(source, /rolledOver/u);
+  assert.match(source, /tiktok = \?, tiktok_allowance = \?, tasks_completed = 1/u);
+  assert.match(source, /Boolean\(body\.tiktok\)/u);
+  assert.match(source, /configured\.length > 0 \? configured : DEFAULT_SHIFT_DEFINITIONS/u);
+  assert.match(source, /const definitions = await loadShiftDefinitions\(db, storeId\)/u);
+  assert.match(source, /fallbackWorkDate = overnightMorning \? addDays\(workDate, -1\) : workDate/u);
 
   // Preserve the existing manual-close aggregation contract.
   assert.match(source, /UPDATE stores SET revenue = revenue \+ \?, expense = expense \+ \? WHERE id = \?/u);
+});
+
+test("configured store shifts replace defaults in both API and scheduling UI", async () => {
+  const ui = await readFile(new URL("../app/components/StoreSchedulingModules.tsx", import.meta.url), "utf8");
+  assert.match(ui, /persisted\.length > 0 \? persisted : defaultShifts/u);
+  assert.doesNotMatch(ui, /return \[\.\.\.defaults, \.\.\.persisted/u);
+});
+
+test("employee rollover prompt offers Không/Có and remembers Không only for the current UI session", async () => {
+  const source = await readFile(new URL("../app/components/Portal.tsx", import.meta.url), "utf8");
+  const decline = source.slice(source.indexOf("function declineRollover"), source.indexOf("async function confirmRollover"));
+
+  assert.match(source, /Bạn làm ca tiếp theo phải không\?/u);
+  assert.match(source, />Không<\/button>/u);
+  assert.match(source, /\{rolloverSubmitting \? "ĐANG CHUYỂN\.\.\." : "Có"\}/u);
+  assert.match(source, /action: "rollover", expectedShiftCode: rolloverPrompt\.shiftCode, tiktok/u);
+  assert.match(source, /dismissedRolloverShift !== nextShiftCode/u);
+  assert.match(decline, /setDismissedRolloverShift\(rolloverPrompt\.shiftCode\)/u);
+  assert.doesNotMatch(decline, /fetch\(/u, "Không must only close the prompt and keep the current shift active");
+  assert.doesNotMatch(source.slice(source.indexOf("function EmployeePortal"), source.indexOf("function EmployeeView")), /localStorage/u);
 });
 
 test("manual early close requires explicit confirmation using the persisted schedule end", async () => {

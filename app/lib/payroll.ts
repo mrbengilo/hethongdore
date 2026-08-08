@@ -1,4 +1,23 @@
-import { multiplyDecimalRatioVnd } from "./finance";
+import { multiplyDecimalRatioVnd, sumVnd } from "./finance";
+
+export type EmployeePayComponents = {
+  baseSalary: number;
+  tiktokAllowance: number;
+  supportAllowance: number;
+  manualAllowance: number;
+  manualBonus: number;
+};
+
+export function employeePayWithKpi(components: EmployeePayComponents, finalizedKpiBonus: number) {
+  return sumVnd([
+    components.baseSalary,
+    components.tiktokAllowance,
+    components.supportAllowance,
+    components.manualAllowance,
+    components.manualBonus,
+    finalizedKpiBonus,
+  ]);
+}
 
 export type EmployeeKpiInput = {
   employeeId: string;

@@ -3,7 +3,7 @@ import {
   durationMinutes, localPeriod, managerProfitBonus, MANAGER_MONTHLY_SALARY_VND,
   multiplyRatioVnd, periodBoundsUtc, requireVnd, settleStoreProfit, sumVnd, utcTimestamp,
 } from "../../lib/finance";
-import { employeeKpiBonusFromSeconds, employeeKpiRateFromSeconds } from "../../lib/payroll";
+import { employeeKpiBonusFromSeconds, employeeKpiRateFromSeconds, employeePayWithKpi } from "../../lib/payroll";
 import { getSessionUser, INACTIVE_STORE_MESSAGE, isStoreActive, json } from "../_lib/auth";
 import { storePeriodFinance, type StoreExpenseBreakdown } from "../_lib/store-finance";
 
@@ -13,6 +13,7 @@ type EmployeeRow = {
   name: string;
   position: string;
   hourlyRate: number;
+  status: "ACTIVE" | "INACTIVE";
 };
 
 type HoursRow = {
@@ -46,6 +47,7 @@ type PayrollItem = {
   employeeCode: string;
   employeeName: string;
   position: string;
+  employmentStatus: "ACTIVE" | "INACTIVE";
   durationSeconds: number;
   durationMinutes: number;
   hours: number;
@@ -133,9 +135,26 @@ type PayrollClosing = {
   closedBy?: string;
 };
 
-type PayrollAction = "FINALIZE_EMPLOYEE" | "FINALIZE_MANAGER" | "CONFIRM_SALARY" | "CONFIRM_REWARDS" | "CONFIRM_PAYMENT" | "CLOSE_PERIOD";
+type EmployeePayrollClosing = {
+  id: string;
+  period: string;
+  storeId: string;
+  storeName: string;
+  employeeId: string;
+  employeeCode: string;
+  employeeName: string;
+  employeeStatusAtLock: "ACTIVE" | "INACTIVE";
+  item: PayrollItem;
+  status: "BASE_LOCKED" | "LOCKED";
+  kpiDeferred: boolean;
+  lockedAt: string;
+  lockedBy: string;
+};
+
+type PayrollAction = "FINALIZE_SINGLE_EMPLOYEE" | "FINALIZE_EMPLOYEE" | "FINALIZE_MANAGER" | "CONFIRM_SALARY" | "CONFIRM_REWARDS" | "CONFIRM_PAYMENT" | "CLOSE_PERIOD";
 
 const payrollActions = new Set<PayrollAction>([
+  "FINALIZE_SINGLE_EMPLOYEE",
   "FINALIZE_EMPLOYEE",
   "FINALIZE_MANAGER",
   "CONFIRM_SALARY",
@@ -154,6 +173,10 @@ function snapshotId(storeId: string, period: string) {
 
 function closingId(storeId: string, period: string) {
   return `payroll-closing:${storeId}:${period}`;
+}
+
+function employeeClosingId(storeId: string, period: string, employeeId: string) {
+  return `employee-payroll-closing:${storeId}:${period}:${employeeId}`;
 }
 
 function previousPeriod(period: string) {
@@ -188,6 +211,43 @@ async function payrollClosing(db: Awaited<ReturnType<typeof initDb>>, storeId: s
   const row = await db.prepare("SELECT id, data_json, status FROM business_records WHERE id = ? AND category = 'PAYROLL_CLOSING' AND status != 'DELETED' LIMIT 1")
     .bind(closingId(storeId, period)).first<RecordRow>();
   return row ? parseData<PayrollClosing>(row.data_json) : null;
+}
+
+async function employeePayrollClosings(db: Awaited<ReturnType<typeof initDb>>, storeId: string, period: string) {
+  const rows = await db.prepare(`SELECT id, snapshot_json AS snapshotJson, employee_status_at_lock AS employeeStatusAtLock,
+      status, locked_at AS lockedAt, locked_by AS lockedBy
+    FROM employee_payroll_closings
+    WHERE store_id = ? AND period = ? AND status IN ('BASE_LOCKED', 'LOCKED')
+    ORDER BY locked_at, employee_id`)
+    .bind(storeId, period).all<{
+      id: string;
+      snapshotJson: string;
+      employeeStatusAtLock: string;
+      status: string;
+      lockedAt: string;
+      lockedBy: string;
+    }>();
+  return rows.results.flatMap((row) => {
+    const snapshot = parseData<EmployeePayrollClosing>(row.snapshotJson);
+    if (!snapshot) return [];
+    return [{
+      ...snapshot,
+      id: row.id,
+      employeeStatusAtLock: row.employeeStatusAtLock === "INACTIVE" ? "INACTIVE" as const : "ACTIVE" as const,
+      status: row.status === "BASE_LOCKED" ? "BASE_LOCKED" as const : "LOCKED" as const,
+      lockedAt: row.lockedAt,
+      lockedBy: row.lockedBy,
+    }];
+  });
+}
+
+async function employeeStatusMap(db: Awaited<ReturnType<typeof initDb>>, employeeIds: string[]) {
+  const entries = await Promise.all([...new Set(employeeIds)].map(async (employeeId) => {
+    const employee = await db.prepare("SELECT status FROM employees WHERE id = ? AND status != 'ARCHIVED' LIMIT 1")
+      .bind(employeeId).first<{ status: string }>();
+    return [employeeId, employee?.status === "INACTIVE" ? "INACTIVE" : "ACTIVE"] as const;
+  }));
+  return new Map<string, "ACTIVE" | "INACTIVE">(entries);
 }
 
 async function managerPayrollPeriod(db: Awaited<ReturnType<typeof initDb>>, period: string) {
@@ -237,23 +297,39 @@ async function buildPreview(db: Awaited<ReturnType<typeof initDb>>, storeId: str
 
   const { startUtc, endUtc, localStart, localEnd } = periodBoundsUtc(period);
   const employeesResult = await db.prepare(`
-    SELECT id, code, name, position, hourly_rate AS hourlyRate
+    SELECT id, code, name, position, hourly_rate AS hourlyRate, status
     FROM employees e
     WHERE e.status != 'ARCHIVED' AND (
-      e.store_id = ?
+      (e.status = 'ACTIVE' AND e.store_id = ?)
+      OR (e.status = 'INACTIVE' AND e.store_id = ?
+        AND strftime('%Y-%m', e.inactive_at, '+7 hours') = ?)
       OR EXISTS (
         SELECT 1 FROM shift_sessions s
         WHERE s.employee_id = e.id AND s.store_id = ? AND s.status = 'COMPLETED'
-          AND s.ended_at IS NOT NULL AND s.started_at >= ? AND s.started_at < ?
+          AND s.ended_at IS NOT NULL AND (
+            (NULLIF(s.work_date, '') IS NOT NULL AND s.work_date >= ? AND s.work_date < ?)
+            OR (NULLIF(s.work_date, '') IS NULL AND s.started_at >= ? AND s.started_at < ?)
+          )
       )
       OR EXISTS (
         SELECT 1 FROM employee_transfers t
         WHERE t.employee_id = e.id AND t.target_store_id = ? AND t.status != 'CANCELLED'
           AND t.start_date < ? AND t.end_date >= ?
       )
+      OR EXISTS (
+        SELECT 1 FROM business_records r
+        WHERE r.category = 'LUONG_THUONG' AND r.store_id = ? AND r.status != 'DELETED'
+          AND json_extract(r.data_json, '$.employeeId') = e.id
+          AND substr(json_extract(r.data_json, '$.date'), 1, 7) = ?
+      )
+      OR EXISTS (
+        SELECT 1 FROM employee_payroll_closings c
+        WHERE c.store_id = ? AND c.employee_id = e.id AND c.period = ?
+          AND c.status IN ('BASE_LOCKED', 'LOCKED')
+      )
     )
     ORDER BY code
-  `).bind(storeId, storeId, startUtc, endUtc, storeId, localEnd, localStart).all<EmployeeRow>();
+  `).bind(storeId, storeId, period, storeId, localStart, localEnd, startUtc, endUtc, storeId, localEnd, localStart, storeId, period, storeId, period).all<EmployeeRow>();
   const hoursResult = await db.prepare(`
     SELECT s.employee_id AS employeeId,
       SUM(CASE
@@ -265,9 +341,12 @@ async function buildPreview(db: Awaited<ReturnType<typeof initDb>>, storeId: str
     FROM shift_sessions s
     JOIN employees e ON e.id = s.employee_id
     WHERE s.store_id = ? AND s.status = 'COMPLETED' AND s.ended_at IS NOT NULL
-      AND s.started_at >= ? AND s.started_at < ?
+      AND (
+        (NULLIF(s.work_date, '') IS NOT NULL AND s.work_date >= ? AND s.work_date < ?)
+        OR (NULLIF(s.work_date, '') IS NULL AND s.started_at >= ? AND s.started_at < ?)
+      )
     GROUP BY s.employee_id, COALESCE(s.applied_hourly_rate, e.hourly_rate)
-  `).bind(storeId, startUtc, endUtc).all<HoursRow>();
+  `).bind(storeId, localStart, localEnd, startUtc, endUtc).all<HoursRow>();
 
   const transferAllowances = await db.prepare(`
     SELECT DISTINCT t.id, t.employee_id AS employeeId, t.support_allowance AS supportAllowance
@@ -275,10 +354,13 @@ async function buildPreview(db: Awaited<ReturnType<typeof initDb>>, storeId: str
     JOIN shift_sessions s ON s.transfer_id = t.id AND s.store_id = t.target_store_id
     WHERE t.target_store_id = ? AND t.status != 'CANCELLED'
       AND t.start_date < ? AND t.end_date >= ?
-      AND s.status = 'COMPLETED' AND s.started_at >= ? AND s.started_at < ?
+      AND s.status = 'COMPLETED' AND (
+        (NULLIF(s.work_date, '') IS NOT NULL AND s.work_date >= ? AND s.work_date < ?)
+        OR (NULLIF(s.work_date, '') IS NULL AND s.started_at >= ? AND s.started_at < ?)
+      )
       AND (CASE WHEN s.duration_seconds > 0 THEN s.duration_seconds
         ELSE ROUND((julianday(s.ended_at) - julianday(s.started_at)) * 86400, 0) END) > 0
-  `).bind(storeId, localEnd, localStart, startUtc, endUtc).all<TransferAllowanceRow>();
+  `).bind(storeId, localEnd, localStart, localStart, localEnd, startUtc, endUtc).all<TransferAllowanceRow>();
 
   const adjustmentRows = await db.prepare("SELECT id, data_json, status FROM business_records WHERE category = 'LUONG_THUONG' AND store_id = ? AND status != 'DELETED' ORDER BY created_at")
     .bind(storeId).all<RecordRow>();
@@ -306,7 +388,7 @@ async function buildPreview(db: Awaited<ReturnType<typeof initDb>>, storeId: str
   const profit = store.profitBeforePerformanceRewards;
   const totalDurationSeconds = [...shiftsByEmployee.values()].reduce((sum, shift) => sum + shift.durationSeconds, 0);
 
-  const items = employeesResult.results.map((employee): PayrollItem => {
+  const calculatedItems = employeesResult.results.map((employee): PayrollItem => {
     const shift = shiftsByEmployee.get(employee.id);
     const employeeDurationSeconds = shift?.durationSeconds ?? 0;
     const minutes = durationMinutes(employeeDurationSeconds);
@@ -325,6 +407,7 @@ async function buildPreview(db: Awaited<ReturnType<typeof initDb>>, storeId: str
       employeeCode: employee.code,
       employeeName: employee.name,
       position: employee.position,
+      employmentStatus: employee.status === "INACTIVE" ? "INACTIVE" : "ACTIVE",
       durationSeconds: employeeDurationSeconds,
       durationMinutes: minutes,
       hours,
@@ -339,7 +422,26 @@ async function buildPreview(db: Awaited<ReturnType<typeof initDb>>, storeId: str
     };
   });
 
-  const totalHours = totalDurationSeconds / 3_600;
+  // An individually locked employee keeps the exact immutable snapshot even
+  // when the rest of the store continues working later in the same month.
+  const individuallyLocked = new Map((await employeePayrollClosings(db, storeId, period)).map((closing) => [closing.employeeId, closing]));
+  const items = calculatedItems.map((item) => {
+    const closing = individuallyLocked.get(item.employeeId);
+    if (!closing) return item;
+    if (!closing.kpiDeferred) return closing.item;
+    const locked = closing.item;
+    const kpiBonus = item.kpiBonus;
+    return {
+      ...locked,
+      // KPI depends on the complete store month. It stays live until the
+      // store period is finalized while every deterministic component below
+      // remains frozen at the offboarding time.
+      kpiBonus,
+      totalPay: employeePayWithKpi(locked, kpiBonus),
+    };
+  });
+  const payrollDurationSeconds = items.reduce((sum, item) => sum + item.durationSeconds, 0);
+  const totalHours = payrollDurationSeconds / 3_600;
   const managerSalary = MANAGER_MONTHLY_SALARY_VND;
   const totalKpiBonus = sumVnd(items.map((item) => item.kpiBonus));
   const settlement = settleStoreProfit(profit, totalKpiBonus);
@@ -362,10 +464,10 @@ async function buildPreview(db: Awaited<ReturnType<typeof initDb>>, storeId: str
     netProfit,
     costBreakdown,
     totalHours,
-    totalDurationSeconds,
-    totalDurationMinutes: durationMinutes(totalDurationSeconds),
-    profitPerHour: totalDurationSeconds > 0 ? multiplyRatioVnd(profit, 3_600, totalDurationSeconds) : 0,
-    kpiRate: employeeKpiRateFromSeconds(profit, totalDurationSeconds),
+    totalDurationSeconds: payrollDurationSeconds,
+    totalDurationMinutes: durationMinutes(payrollDurationSeconds),
+    profitPerHour: payrollDurationSeconds > 0 ? multiplyRatioVnd(profit, 3_600, payrollDurationSeconds) : 0,
+    kpiRate: employeeKpiRateFromSeconds(profit, payrollDurationSeconds),
     totalBaseSalary: sumVnd(items.map((item) => item.baseSalary)),
     totalTikTokAllowance: sumVnd(items.map((item) => item.tiktokAllowance)),
     totalSupportAllowance: sumVnd(items.map((item) => item.supportAllowance)),
@@ -422,7 +524,7 @@ export async function GET(request: Request) {
       storeName: entry.storeName,
       closing: await payrollClosing(db, entry.storeId, period),
     })));
-    const { startUtc, endUtc } = periodBoundsUtc(period);
+    const { startUtc, endUtc, localStart, localEnd } = periodBoundsUtc(period);
     const detailRows = user.employeeId ? await db.prepare(`
       SELECT s.id,
         s.shift_code AS shiftCode,
@@ -447,9 +549,12 @@ export async function GET(request: Request) {
       LEFT JOIN employee_transfers t ON t.id = s.transfer_id
       LEFT JOIN stores source ON source.id = t.source_store_id
       WHERE s.employee_id = ? AND s.status = 'COMPLETED' AND s.ended_at IS NOT NULL
-        AND s.started_at >= ? AND s.started_at < ?
+        AND (
+          (NULLIF(s.work_date, '') IS NOT NULL AND s.work_date >= ? AND s.work_date < ?)
+          OR (NULLIF(s.work_date, '') IS NULL AND s.started_at >= ? AND s.started_at < ?)
+        )
       ORDER BY s.started_at DESC
-    `).bind(user.employeeId, startUtc, endUtc).all<EmployeeShiftDetailRow>() : { results: [] as EmployeeShiftDetailRow[] };
+    `).bind(user.employeeId, localStart, localEnd, startUtc, endUtc).all<EmployeeShiftDetailRow>() : { results: [] as EmployeeShiftDetailRow[] };
     const transferSeconds = new Map<string, number>();
     for (const shift of detailRows.results) {
       if (shift.transferId) transferSeconds.set(shift.transferId, (transferSeconds.get(shift.transferId) ?? 0) + Math.max(0, Math.round(Number(shift.durationSeconds ?? 0))));
@@ -519,8 +624,17 @@ export async function GET(request: Request) {
   if (!storeId) return json({ message: "Vui lòng chọn cửa hàng" }, 400);
   const snapshot = await lockedSummary(db, storeId, period);
 
-  const summary = snapshot ?? await buildPreview(db, storeId, period);
-  if (!summary) return json({ message: "Không tìm thấy cửa hàng" }, 404);
+  const baseSummary = snapshot ?? await buildPreview(db, storeId, period);
+  if (!baseSummary) return json({ message: "Không tìm thấy cửa hàng" }, 404);
+  const statuses = await employeeStatusMap(db, baseSummary.items.map((item) => item.employeeId));
+  const summary: PayrollSummary = {
+    ...baseSummary,
+    items: baseSummary.items.map((item) => ({
+      ...item,
+      employmentStatus: statuses.get(item.employeeId) ?? item.employmentStatus ?? "ACTIVE",
+    })),
+  };
+  const individualClosings = await employeePayrollClosings(db, storeId, period);
   const closing = await payrollClosing(db, storeId, period);
   const previous = await lockedSummary(db, storeId, previousPeriod(period));
   const historyRows = await db.prepare("SELECT data_json FROM business_records WHERE category = 'PAYROLL_CLOSING' AND store_id = ? AND status != 'DELETED' ORDER BY created_at DESC LIMIT 24")
@@ -529,7 +643,16 @@ export async function GET(request: Request) {
     const item = parseData<PayrollClosing>(row.data_json);
     return item ? [item] : [];
   });
-  return json({ period, locked: summary.status === "LOCKED", summary, closing, previousSummary: previous, history });
+  return json({
+    period,
+    locked: summary.status === "LOCKED",
+    summary,
+    employeeClosings: individualClosings,
+    individualLockedCount: individualClosings.length,
+    closing,
+    previousSummary: previous,
+    history,
+  });
 }
 
 export async function POST(request: Request) {
@@ -539,6 +662,7 @@ export async function POST(request: Request) {
     storeId?: string;
     period?: string;
     action?: string;
+    employeeId?: string;
   };
   const storeId = body.storeId?.trim();
   const period = body.period?.trim() ?? "";
@@ -548,6 +672,83 @@ export async function POST(request: Request) {
   const requestedAction = body.action ?? "FINALIZE_EMPLOYEE";
   if (!isPayrollAction(requestedAction)) return json({ message: "Thao tác chốt kỳ lương không hợp lệ." }, 400);
   const action = requestedAction;
+  if (action === "FINALIZE_SINGLE_EMPLOYEE") {
+    const employeeId = body.employeeId?.trim() ?? "";
+    if (!employeeId) return json({ message: "Vui lòng chọn nhân viên cần chốt lương." }, 400);
+    if (period > localPeriod()) return json({ message: "Không thể chốt lương cho kỳ trong tương lai." }, 409);
+
+    const summary = await lockedSummary(db, storeId, period) ?? await buildPreview(db, storeId, period);
+    if (!summary) return json({ message: "Không tìm thấy cửa hàng." }, 404);
+    const sourceItem = summary.items.find((item) => item.employeeId === employeeId);
+    if (!sourceItem) return json({ message: "Nhân viên không có trong bảng lương của cửa hàng ở kỳ này." }, 404);
+    const employee = await db.prepare("SELECT code, name, status FROM employees WHERE id = ? AND status != 'ARCHIVED' LIMIT 1")
+      .bind(employeeId).first<{ code: string; name: string; status: string }>();
+    if (!employee) return json({ message: "Không tìm thấy nhân viên." }, 404);
+    if (period === localPeriod() && employee.status !== "INACTIVE") {
+      return json({ message: "Kỳ hiện tại chỉ được chốt riêng sớm cho nhân viên đã ngưng làm việc. Nhân viên đang làm việc cần chờ hết tháng." }, 409);
+    }
+    const { startUtc, endUtc, localStart, localEnd } = periodBoundsUtc(period);
+    const openShift = await db.prepare(`SELECT id FROM shift_sessions
+      WHERE employee_id = ? AND store_id = ? AND status = 'ACTIVE' AND (
+        (NULLIF(work_date, '') IS NOT NULL AND work_date >= ? AND work_date < ?)
+        OR (NULLIF(work_date, '') IS NULL AND started_at >= ? AND started_at < ?)
+      ) LIMIT 1`)
+      .bind(employeeId, storeId, localStart, localEnd, startUtc, endUtc).first<{ id: string }>();
+    if (openShift) return json({ message: "Nhân viên còn ca làm chưa kết thúc trong kỳ. Hãy kết ca trước khi chốt lương." }, 409);
+
+    const current = (await employeePayrollClosings(db, storeId, period)).find((closing) => closing.employeeId === employeeId);
+    if (current) return json({ employeeClosing: current, message: "Lương nhân viên đã được chốt và khóa sổ trước đó." });
+
+    const lockedAt = utcTimestamp();
+    const employmentStatus = employee.status === "INACTIVE" ? "INACTIVE" as const : "ACTIVE" as const;
+    // Individual closing never owns the KPI amount. Store costs may still be
+    // corrected after employees are reviewed, so KPI is materialized only in
+    // the single immutable KPI_SUMMARY created by FINALIZE_EMPLOYEE.
+    const kpiDeferred = true;
+    const item: PayrollItem = {
+      ...sourceItem,
+      employmentStatus,
+      kpiBonus: 0,
+      totalPay: employeePayWithKpi(sourceItem, 0),
+    };
+    const employeeClosing: EmployeePayrollClosing = {
+      id: employeeClosingId(storeId, period, employeeId),
+      period,
+      storeId,
+      storeName: summary.storeName,
+      employeeId,
+      employeeCode: employee.code,
+      employeeName: employee.name,
+      employeeStatusAtLock: employmentStatus,
+      item,
+      status: "BASE_LOCKED",
+      kpiDeferred,
+      lockedAt,
+      lockedBy: user.id,
+    };
+    const result = await db.prepare(`INSERT OR IGNORE INTO employee_payroll_closings
+      (id, store_id, employee_id, period, snapshot_json, employee_status_at_lock, status, locked_at, locked_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .bind(employeeClosing.id, storeId, employeeId, period, JSON.stringify(employeeClosing), employmentStatus, employeeClosing.status, lockedAt, user.id).run();
+    const saved = (await employeePayrollClosings(db, storeId, period)).find((closing) => closing.employeeId === employeeId);
+    if (!saved) return json({ message: "Không thể khóa sổ lương nhân viên." }, 409);
+    if (affectedRows(result) > 0) {
+      await writeAudit(user.id, "EMPLOYEE_PAYROLL_LOCK", "EMPLOYEE_PAYROLL_CLOSING", saved.id, JSON.stringify({
+        storeId,
+        period,
+        employeeId,
+        employeeStatusAtLock: employmentStatus,
+        totalPay: saved.item.totalPay,
+        kpiDeferred: saved.kpiDeferred,
+      }));
+    }
+    return json({
+      employeeClosing: saved,
+      message: summary.status === "LOCKED"
+        ? "Đã khóa các khoản lương xác định của nhân viên. KPI giữ theo bảng lương tổng đã khóa của cửa hàng."
+        : "Đã khóa lương cơ bản và các khoản xác định của nhân viên. KPI sẽ được tính chính xác khi chốt kỳ cửa hàng.",
+    }, affectedRows(result) > 0 ? 201 : 200);
+  }
   if (action !== "FINALIZE_EMPLOYEE") {
     const employeeSummary = await lockedSummary(db, storeId, period);
     if (!employeeSummary) return json({ message: "Hãy chốt lương thưởng nhân viên trước." }, 409);
@@ -556,6 +757,14 @@ export async function POST(request: Request) {
 
     if (action === "FINALIZE_MANAGER") {
       if (existing) return json({ closing: existing, message: "Lương thưởng quản lý đã được chốt." });
+      const closedEmployees = new Set((await employeePayrollClosings(db, storeId, period)).map((item) => item.employeeId));
+      const missingEmployees = employeeSummary.items.filter((item) => !closedEmployees.has(item.employeeId));
+      if (missingEmployees.length > 0) {
+        return json({
+          message: `Hãy chốt lương riêng cho từng nhân viên trước khi chốt lương quản lý. Còn ${missingEmployees.length} nhân viên chưa khóa sổ.`,
+          missingEmployeeIds: missingEmployees.map((item) => item.employeeId),
+        }, 409);
+      }
       const managerSalary = employeeSummary.managerSalary ?? MANAGER_MONTHLY_SALARY_VND;
       const managerBonus = employeeSummary.managerBonus ?? managerProfitBonus(employeeSummary.profit);
       const managerTotal = sumVnd([managerSalary, managerBonus]);
@@ -657,12 +866,24 @@ export async function POST(request: Request) {
 
   if (await lockedSummary(db, storeId, period)) return json({ message: "Kỳ lương này đã được tổng kết và khóa" }, 409);
   if (period >= localPeriod()) return json({ message: "Chỉ được tổng kết lương, thưởng và KPI sau khi tháng làm việc đã kết thúc." }, 409);
-  const { endUtc } = periodBoundsUtc(period);
-  const openShift = await db.prepare("SELECT id FROM shift_sessions WHERE store_id = ? AND status = 'ACTIVE' AND started_at < ? LIMIT 1")
-    .bind(storeId, endUtc).first<{ id: string }>();
+  const { startUtc, endUtc, localStart, localEnd } = periodBoundsUtc(period);
+  const openShift = await db.prepare(`SELECT id FROM shift_sessions
+    WHERE store_id = ? AND status = 'ACTIVE' AND (
+      (NULLIF(work_date, '') IS NOT NULL AND work_date >= ? AND work_date < ?)
+      OR (NULLIF(work_date, '') IS NULL AND started_at >= ? AND started_at < ?)
+    ) LIMIT 1`)
+    .bind(storeId, localStart, localEnd, startUtc, endUtc).first<{ id: string }>();
   if (openShift) return json({ message: "Cửa hàng còn ca làm trong kỳ chưa kết thúc. Hãy kết ca trước khi chốt lương." }, 409);
   const preview = await buildPreview(db, storeId, period);
   if (!preview) return json({ message: "Không tìm thấy cửa hàng" }, 404);
+  const closedEmployees = new Set((await employeePayrollClosings(db, storeId, period)).map((item) => item.employeeId));
+  const missingEmployees = preview.items.filter((item) => !closedEmployees.has(item.employeeId));
+  if (missingEmployees.length > 0) {
+    return json({
+      message: `Hãy chốt lương riêng cho từng nhân viên trước khi khóa bảng lương cửa hàng. Còn ${missingEmployees.length} nhân viên chưa khóa sổ.`,
+      missingEmployeeIds: missingEmployees.map((item) => item.employeeId),
+    }, 409);
+  }
   const finalizedAt = utcTimestamp();
   const summary: PayrollSummary = { ...preview, status: "LOCKED", finalizedAt, finalizedBy: user.id };
   const id = snapshotId(storeId, period);

@@ -10,6 +10,7 @@ type PayrollItem = {
   employeeCode: string;
   employeeName: string;
   position: string;
+  employmentStatus?: "ACTIVE" | "INACTIVE";
   durationMinutes: number;
   hours: number;
   hourlyRate: number;
@@ -67,16 +68,31 @@ type PayrollClosing = {
   closedAt?: string;
 };
 
+type EmployeePayrollClosing = {
+  id: string;
+  employeeId: string;
+  employeeCode: string;
+  employeeName: string;
+  employeeStatusAtLock: "ACTIVE" | "INACTIVE";
+  status: "BASE_LOCKED" | "LOCKED";
+  kpiDeferred: boolean;
+  lockedAt: string;
+  lockedBy: string;
+  item: PayrollItem;
+};
+
 type PayrollResponse = {
   message?: string;
   locked?: boolean;
   summary?: PayrollSummary;
+  employeeClosings?: EmployeePayrollClosing[];
+  individualLockedCount?: number;
   closing?: PayrollClosing | null;
   previousSummary?: PayrollSummary | null;
   history?: PayrollClosing[];
 };
 
-type PayrollAction = "FINALIZE_EMPLOYEE" | "FINALIZE_MANAGER" | "CONFIRM_SALARY" | "CONFIRM_REWARDS" | "CONFIRM_PAYMENT" | "CLOSE_PERIOD";
+type PayrollAction = "FINALIZE_SINGLE_EMPLOYEE" | "FINALIZE_EMPLOYEE" | "FINALIZE_MANAGER" | "CONFIRM_SALARY" | "CONFIRM_REWARDS" | "CONFIRM_PAYMENT" | "CLOSE_PERIOD";
 
 const moneyFormatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 const money = (value: number | undefined) => `${moneyFormatter.format(Number(value ?? 0))} đồng`;
@@ -135,8 +151,11 @@ export default function StorePayrollClosing({ store, initialPeriod }: { store: S
 
   useEffect(() => { void load(); }, [load]);
 
-  const runAction = async (action: PayrollAction) => {
+  const runAction = async (action: PayrollAction, employee?: PayrollItem) => {
     if (action === "CLOSE_PERIOD" && !window.confirm("Kết sổ sẽ khóa kỳ lương này và không thể chỉnh sửa. Bạn có chắc chắn?")) return;
+    if (action === "FINALIZE_SINGLE_EMPLOYEE" && employee && !window.confirm(
+      `Chốt lương và khóa sổ riêng cho ${employee.employeeName}? Sau khi khóa sẽ không thể sửa thưởng, phụ cấp của nhân viên này trong kỳ ${period}.`,
+    )) return;
     setSaving(true);
     setError("");
     setMessage("");
@@ -144,7 +163,7 @@ export default function StorePayrollClosing({ store, initialPeriod }: { store: S
       const response = await fetch("/api/payroll", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ storeId: store.id, period, action }),
+        body: JSON.stringify({ storeId: store.id, period, action, employeeId: employee?.employeeId }),
       });
       const payload = await response.json() as PayrollResponse;
       if (!response.ok) throw new Error(payload.message || "Không thể thực hiện thao tác.");
@@ -161,15 +180,24 @@ export default function StorePayrollClosing({ store, initialPeriod }: { store: S
   const closing = data.closing;
   const previous = data.previousSummary;
   const grandTotal = closing?.grandTotal ?? ((summary?.totalPay ?? 0) + (summary?.managerTotal ?? 0));
+  const employeeClosingById = useMemo(
+    () => new Map((data.employeeClosings ?? []).map((item) => [item.employeeId, item])),
+    [data.employeeClosings],
+  );
+  const allEmployeesIndividuallyLocked = summary?.items.every((item) => employeeClosingById.has(item.employeeId)) ?? false;
+  const inactiveEmployeesWaiting = summary?.items.filter((item) => item.employmentStatus === "INACTIVE" && !employeeClosingById.has(item.employeeId)) ?? [];
+  const canLockIndividual = period < currentPeriod();
   const nextAction = useMemo<{ action: PayrollAction; label: string } | null>(() => {
-    if (!summary || summary.status !== "LOCKED") return { action: "FINALIZE_EMPLOYEE", label: "Chốt lương nhân viên" };
+    if (!summary) return null;
+    if (!closing && !allEmployeesIndividuallyLocked) return null;
+    if (summary.status !== "LOCKED") return { action: "FINALIZE_EMPLOYEE", label: "Khóa bảng lương cửa hàng" };
     if (!closing) return { action: "FINALIZE_MANAGER", label: "Chốt lương quản lý" };
     if (closing.status === "MANAGER_FINALIZED") return { action: "CONFIRM_SALARY", label: "Xác nhận chi lương" };
     if (closing.status === "SALARY_CONFIRMED") return { action: "CONFIRM_REWARDS", label: "Xác nhận thưởng và phụ cấp" };
     if (closing.status === "REWARDS_CONFIRMED") return { action: "CONFIRM_PAYMENT", label: "Xác nhận đã chi" };
     if (closing.status === "PAYMENT_CONFIRMED") return { action: "CLOSE_PERIOD", label: "Kết sổ và khóa kỳ" };
     return null;
-  }, [closing, summary]);
+  }, [allEmployeesIndividuallyLocked, closing, summary]);
 
   const exportReport = () => {
     if (!summary) return;
@@ -208,7 +236,7 @@ export default function StorePayrollClosing({ store, initialPeriod }: { store: S
 
     {summary && <>
       <div className="ref-metrics four">
-        <article className="ref-metric"><i><WalletCards size={25}/></i><div><span>Tổng lương nhân viên</span><strong>{money(summary.totalPay)}</strong><small>{summary.items.length} nhân viên · {summary.totalHours.toFixed(2)} giờ</small></div></article>
+        <article className="ref-metric"><i><WalletCards size={25}/></i><div><span>Tổng lương nhân viên</span><strong>{money(summary.totalPay)}</strong><small>{employeeClosingById.size}/{summary.items.length} nhân viên đã khóa sổ · {summary.totalHours.toFixed(2)} giờ</small></div></article>
         <article className="ref-metric"><i><WalletCards size={25}/></i><div><span>Lương quản lý</span><strong>{money(summary.managerSalary)}</strong><small>Cố định theo cửa hàng</small></div></article>
         <article className="ref-metric orange"><i><WalletCards size={25}/></i><div><span>Thưởng quản lý</span><strong>{money(summary.managerBonus)}</strong><small>2% lợi nhuận cửa hàng</small></div></article>
         <article className="ref-metric blue"><i><WalletCards size={25}/></i><div><span>Tổng chi lương</span><strong>{money(grandTotal)}</strong><small>{statusLabel(closing?.status)}</small></div></article>
@@ -217,7 +245,7 @@ export default function StorePayrollClosing({ store, initialPeriod }: { store: S
       <section className="manager-panel">
         <div className="panel-title"><div><h2>QUY TRÌNH KẾT SỔ</h2><p>Thực hiện lần lượt để đảm bảo số liệu được đối soát và khóa đúng kỳ.</p></div><span className="status-pill">{statusLabel(closing?.status)}</span></div>
         <div className="comparison-grid">
-          <p><span>1. Lương và KPI nhân viên</span><b>{summary.status === "LOCKED" ? "Đã chốt" : "Chờ chốt"}</b><em>{money(summary.totalPay)}</em></p>
+          <p><span>1. Chốt riêng từng nhân viên</span><b>{allEmployeesIndividuallyLocked ? "Đã chốt đủ" : `${employeeClosingById.size}/${summary.items.length} đã khóa`}</b><em>{money(summary.totalPay)}</em></p>
           <p><span>2. Lương và thưởng quản lý</span><b>{closing ? "Đã chốt" : "Chờ chốt"}</b><em>{money(summary.managerTotal)}</em></p>
           <p><span>3. Xác nhận chi lương</span><b>{["SALARY_CONFIRMED", "REWARDS_CONFIRMED", "PAYMENT_CONFIRMED", "LOCKED"].includes(closing?.status ?? "") ? "Đã xác nhận" : "Chờ xác nhận"}</b><em>{money(closing?.salaryTotal ?? ((summary.totalBaseSalary ?? 0) + summary.managerSalary))}</em></p>
           <p><span>4. Xác nhận thưởng, phụ cấp</span><b>{["REWARDS_CONFIRMED", "PAYMENT_CONFIRMED", "LOCKED"].includes(closing?.status ?? "") ? "Đã xác nhận" : "Chờ xác nhận"}</b><em>{money(closing?.rewardAllowanceTotal ?? (grandTotal - summary.totalBaseSalary - summary.managerSalary))}</em></p>
@@ -225,16 +253,23 @@ export default function StorePayrollClosing({ store, initialPeriod }: { store: S
           <p><span>6. Khóa kỳ</span><b>{closing?.status === "LOCKED" ? "Đã khóa" : "Chưa khóa"}</b><em>{period}</em></p>
         </div>
         {readOnly && <div className="form-message">Cửa hàng đang ngưng hoạt động. Bạn chỉ có thể xem và xuất lịch sử kỳ lương.</div>}
+        {inactiveEmployeesWaiting.length > 0 && <div className="employee-closing-warning"><LockKeyhole size={17}/><div><b>Cần chốt lương cho nhân viên ngưng làm việc</b><span>{inactiveEmployeesWaiting.map((item) => `${item.employeeCode} · ${item.employeeName}`).join(", ")}</span></div></div>}
         {nextAction ? <button className="primary-button wide" disabled={readOnly || saving || loading} onClick={() => void runAction(nextAction.action)}>
           {nextAction.action === "CLOSE_PERIOD" ? <LockKeyhole size={17}/> : <CheckCircle2 size={17}/>} {saving ? "ĐANG XỬ LÝ…" : nextAction.label}
-        </button> : <div className="report-profit-note"><CheckCircle2 size={18}/> Kỳ {period} đã được kết sổ và khóa an toàn.</div>}
+        </button> : closing?.status === "LOCKED" ? <div className="report-profit-note"><CheckCircle2 size={18}/> Kỳ {period} đã được kết sổ và khóa an toàn.</div>
+          : <div className="report-profit-note"><LockKeyhole size={18}/> Hãy chốt và khóa sổ riêng cho từng nhân viên trong bảng bên dưới trước khi tiếp tục quy trình cửa hàng.</div>}
       </section>
 
       <section className="manager-panel table-panel">
-        <div className="panel-title"><div><h2>CHI TIẾT LƯƠNG THƯỞNG NHÂN VIÊN</h2><p>Lương thực nhận = lương cứng theo giờ × giờ làm thực tế; KPI áp dụng một ngưỡng, không cộng dồn.</p></div><span>{summary.items.length} nhân viên</span></div>
-        <div className="data-table-wrap"><table className="data-table"><thead><tr><th>Mã NV</th><th>Nhân viên</th><th>Lương cứng</th><th>Giờ thực tế</th><th>Lương thực nhận</th><th>Phụ cấp TikTok</th><th>Phụ cấp hỗ trợ</th><th>Phụ cấp khác</th><th>Thưởng khác</th><th>Thưởng KPI</th><th>Tổng nhận</th></tr></thead><tbody>
-          {summary.items.length === 0 ? <tr><td colSpan={11} className="empty-cell">Chưa có dữ liệu chấm công trong kỳ.</td></tr> : summary.items.map((item) => <tr key={item.employeeId}><td><b>{item.employeeCode}</b></td><td><b>{item.employeeName}</b><br/><small>{item.position}</small></td><td>{money(item.hourlyRate)}/giờ</td><td>{item.hours.toFixed(2)} giờ</td><td><b>{money(item.baseSalary)}</b></td><td>{money(item.tiktokAllowance)}</td><td>{money(item.supportAllowance)}</td><td>{money(item.manualAllowance)}</td><td>{money(item.manualBonus)}</td><td className="money-green">{money(item.kpiBonus)}</td><td className="money-green"><b>{money(item.totalPay)}</b></td></tr>)}
-        </tbody><tfoot><tr><td colSpan={3}>TỔNG CỘNG</td><td>{summary.totalHours.toFixed(2)} giờ</td><td>{money(summary.totalBaseSalary)}</td><td>{money(summary.totalTikTokAllowance)}</td><td>{money(summary.totalSupportAllowance)}</td><td>{money(summary.totalManualAllowance)}</td><td>{money(summary.totalManualBonus)}</td><td>{money(summary.totalKpiBonus)}</td><td>{money(summary.totalPay)}</td></tr></tfoot></table></div>
+        <div className="panel-title"><div><h2>CHI TIẾT LƯƠNG THƯỞNG NHÂN VIÊN</h2><p>Lương thực nhận = lương cứng theo giờ × giờ làm thực tế. Chốt riêng tạo bản ghi khóa bất biến; nhân viên ngưng làm việc được ưu tiên chốt ngay khi không còn ca mở.</p></div><span>{employeeClosingById.size}/{summary.items.length} đã khóa</span></div>
+        <div className="data-table-wrap"><table className="data-table employee-closing-table"><thead><tr><th>Mã NV</th><th>Nhân viên</th><th>Trạng thái làm việc</th><th>Lương cứng</th><th>Giờ thực tế</th><th>Lương thực nhận</th><th>Phụ cấp TikTok</th><th>Phụ cấp hỗ trợ</th><th>Phụ cấp khác</th><th>Thưởng khác</th><th>Thưởng KPI</th><th>Tổng nhận</th><th>Khóa sổ riêng</th></tr></thead><tbody>
+          {summary.items.length === 0 ? <tr><td colSpan={13} className="empty-cell">Chưa có dữ liệu chấm công trong kỳ.</td></tr> : summary.items.map((item) => {
+            const employeeClosing = employeeClosingById.get(item.employeeId);
+            const isInactive = item.employmentStatus === "INACTIVE";
+            const mayLockNow = canLockIndividual || isInactive;
+            return <tr key={item.employeeId} className={isInactive ? "inactive-employee-payroll" : ""}><td><b>{item.employeeCode}</b></td><td><b>{item.employeeName}</b><br/><small>{item.position}</small></td><td><span className={`status-pill ${isInactive ? "inactive" : ""}`}>{isInactive ? "Ngưng làm việc" : "Đang làm việc"}</span></td><td>{money(item.hourlyRate)}/giờ</td><td>{item.hours.toFixed(2)} giờ</td><td><b>{money(item.baseSalary)}</b></td><td>{money(item.tiktokAllowance)}</td><td>{money(item.supportAllowance)}</td><td>{money(item.manualAllowance)}</td><td>{money(item.manualBonus)}</td><td className="money-green">{money(item.kpiBonus)}</td><td className="money-green"><b>{money(item.totalPay)}</b></td><td>{employeeClosing ? <div className="employee-closing-state"><span className="status-pill"><LockKeyhole size={12}/> {employeeClosing.kpiDeferred && summary.status !== "LOCKED" ? "Đã khóa lương" : "Đã khóa sổ"}</span><small>{employeeClosing.kpiDeferred && summary.status !== "LOCKED" ? "KPI chờ chốt kỳ · " : ""}{dateTime24(employeeClosing.lockedAt)}</small></div> : <button type="button" className="employee-lock-button" disabled={readOnly || saving || loading || !mayLockNow} onClick={() => void runAction("FINALIZE_SINGLE_EMPLOYEE", item)}><LockKeyhole size={14}/> {isInactive ? "Chốt bắt buộc" : mayLockNow ? "Chốt lương" : "Chờ hết tháng"}</button>}</td></tr>;
+          })}
+        </tbody><tfoot><tr><td colSpan={4}>TỔNG CỘNG</td><td>{summary.totalHours.toFixed(2)} giờ</td><td>{money(summary.totalBaseSalary)}</td><td>{money(summary.totalTikTokAllowance)}</td><td>{money(summary.totalSupportAllowance)}</td><td>{money(summary.totalManualAllowance)}</td><td>{money(summary.totalManualBonus)}</td><td>{money(summary.totalKpiBonus)}</td><td>{money(summary.totalPay)}</td><td>{employeeClosingById.size}/{summary.items.length}</td></tr></tfoot></table></div>
       </section>
 
       <div className="comparison-grid">

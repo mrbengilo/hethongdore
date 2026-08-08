@@ -9,7 +9,8 @@ import { ReferenceEmployeeHome } from "./ReferenceEmployeeHome";
 import { ReferenceStoreModule } from "./ReferenceStoreModules";
 import { FixedCostManagement } from "./FixedCostManagement";
 import { StoreScheduleManagement, StoreShiftManagement } from "./StoreSchedulingModules";
-import { ManagerDividendClosing, ManagerFinancialReports, StoreFinancialReport } from "./FinancialReports";
+import { ManagerDividendClosing, StoreFinancialReport } from "./FinancialReports";
+import { ManagerBusinessReport, ManagerCashflow } from "./ManagerFinanceViews";
 import { StoreInventoryManagement } from "./InventoryManagement";
 import { StoreEmployeeManagement } from "./EmployeeManagement";
 import { StoreOperatingExpense } from "./StoreOperatingExpense";
@@ -44,6 +45,13 @@ type EmployeeShiftState = {
     shiftName: string | null;
     scheduledStart: string | null;
     scheduledEnd: string | null;
+    scheduledEndAt: string | null;
+};
+type ShiftRolloverPrompt = {
+    shiftCode: string;
+    currentShiftName: string;
+    nextShiftName: string;
+    nextShiftTime: string;
 };
 type Store = {
     id: string;
@@ -77,6 +85,7 @@ type ShiftClosePayload = {
     expenseNote: string;
     cashRevenue: number;
     transferRevenue: number;
+    earlyEndConfirmed?: boolean;
 };
 const money = (value: number) => new Intl.NumberFormat("en-US").format(Math.round(value)) + " đồng";
 const compactMoney = (value: number) => value >= 1000000000 ? `${(value / 1000000000).toFixed(2)} tỷ` : value >= 1000000 ? `${(value / 1000000).toFixed(1)} tr` : money(value);
@@ -120,7 +129,7 @@ export default function Portal({ expectedRole }: {
         }).finally(() => setLoading(false));
     }, [expectedRole]);
     if (loading || !user)
-        return <div className="app-loading"><div className="pulse-logo"><img className="brand-logo-image" src="/dore-logo.jpg" alt="Logo DORE Quản Lý" width={1254} height={1254}/></div><p>Đang tải dữ liệu vận hành...</p></div>;
+        return <div className="app-loading"><div className="pulse-logo"><img className="brand-logo-image" src="/logo.jpg" alt="Logo DORE Quản Lý" width={1254} height={1254}/></div><p>Đang tải dữ liệu vận hành...</p></div>;
     return expectedRole === "MANAGER" ? <ManagerPortal user={user}/> : <EmployeePortal user={user} onUser={setUser}/>;
 }
 function AppShell({ brand, subtitle, menu, active, onActive, user, children, onBack, accent = "dark" }: {
@@ -138,7 +147,7 @@ function AppShell({ brand, subtitle, menu, active, onActive, user, children, onB
     async function logout() { await fetch("/api/auth/logout", { method: "POST" }); window.location.href = "/"; }
     return <div className={`app-shell ${accent}`}>
     <aside className={`sidebar ${open ? "open" : ""}`}>
-      <div className="sidebar-brand"><div className="mini-mark"><img className="brand-logo-image" src="/dore-logo.jpg" alt="Logo DORE Quản Lý" width={1254} height={1254}/></div><div><strong>{brand}</strong><span>{subtitle}</span></div><button className="close-menu" onClick={() => setOpen(false)} aria-label="Đóng menu"><X size={21}/></button></div>
+      <div className="sidebar-brand"><div className="mini-mark"><img className="brand-logo-image" src="/logo.jpg" alt="Logo DORE Quản Lý" width={1254} height={1254}/></div><div><strong>{brand}</strong><span>{subtitle}</span></div><button className="close-menu" onClick={() => setOpen(false)} aria-label="Đóng menu"><X size={21}/></button></div>
       {onBack && <button className="back-system" onClick={onBack}><ArrowLeft size={17}/> Tổng quan hệ thống</button>}
       <nav>{menu.map((item) => { const Icon = menuIcons[item] ?? LayoutDashboard; return <button key={item} className={active === item ? "active" : ""} onClick={() => { onActive(item); setOpen(false); window.scrollTo({ top: 0, behavior: "smooth" }); }}><i><Icon size={19} strokeWidth={1.8}/></i>{item}</button>; })}</nav>
       <div className="sidebar-user"><div className="avatar"><UserRound size={20}/></div><div><b>{user.name}</b><span>{user.role === "MANAGER" ? "Quản lý hệ thống" : `${user.employeeCode ?? "NV"} · ${user.employeePosition ?? "Nhân viên"}`}</span></div></div>
@@ -173,6 +182,7 @@ function ManagerHeader({ view }: {
     view: string;
 }) {
     const currentPeriod = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh", year: "numeric", month: "2-digit" }).format(new Date());
+    const hasInlinePeriodControl = view === "Báo cáo" || view === "Dòng tiền";
     const subtitles: Record<string, string> = {
         "Tổng quan": "Xin chào, Quản trị viên! Đây là tổng quan hoạt động của tất cả cửa hàng.",
         "Cửa hàng": "Quản lý thông tin cửa hàng, nhân sự và kết quả hoạt động của từng cửa hàng.",
@@ -184,7 +194,7 @@ function ManagerHeader({ view }: {
         "Điều chuyển nhân sự": "Quản lý nhân viên hỗ trợ giữa các cửa hàng theo thời gian và ca làm việc.",
         "Cài đặt": "Quản lý thông tin tài khoản và các thiết lập hệ thống.",
     };
-    return <div className="page-header"><div><h1>{view}</h1><p>{subtitles[view]}</p></div><div className="header-actions"><label className="date-control"><Calendar size={17}/><input aria-label="Tháng báo cáo" type="month" defaultValue={currentPeriod}/></label><button className="bell" aria-label="Thông báo" onClick={() => alert("Bạn có 3 thông báo vận hành mới.")}><Bell size={20}/><span>3</span></button></div></div>;
+    return <div className="page-header"><div><h1>{view}</h1><p>{subtitles[view]}</p></div><div className="header-actions">{!hasInlinePeriodControl ? <label className="date-control"><Calendar size={17}/><input aria-label="Tháng báo cáo" type="month" defaultValue={currentPeriod}/></label> : null}<button className="bell" aria-label="Thông báo" onClick={() => alert("Bạn có 3 thông báo vận hành mới.")}><Bell size={20}/><span>3</span></button></div></div>;
 }
 function StatCard({ label, value, note, tone = "green", icon = "↗" }: {
     label: string;
@@ -211,11 +221,11 @@ function ManagerView({ view, stores, loading, reload, openStore }: {
     if (view === "Giao việc")
         return <FunctionalTaskManager stores={stores}/>;
     if (view === "Dòng tiền")
-        return <ManagerFinancialReports/>;
+        return <ManagerCashflow/>;
     if (view === "Lương thưởng quản lý")
         return <ManagerPayroll/>;
     if (view === "Báo cáo")
-        return <ManagerFinancialReports/>;
+        return <ManagerBusinessReport/>;
     if (view === "Điều chuyển nhân sự")
         return <ReferenceManagerTransfer stores={stores}/>;
     if (view === "Cổ tức")
@@ -245,7 +255,7 @@ function DashboardOverview({ stores, totals, loading, openStore }: {
     return <div className="page-content">
     <div className="stats-grid three"><StatCard label="TỔNG DOANH THU" value={compactMoney(totals.revenue)} note={note("revenue")} icon="₫"/><StatCard label="TỔNG CHI PHÍ" value={compactMoney(totals.expense)} note={note("expense")} tone="orange" icon="▤"/><StatCard label="TỔNG LỢI NHUẬN" value={compactMoney(totals.profit)} note={note("profit")} tone="blue" icon="▥"/></div>
     <div className="section-title"><div><h2>Quản lý cửa hàng</h2><p>Chọn cửa hàng để xem và quản lý chi tiết.</p></div><span>{stores.filter((store) => store.status === "ACTIVE").length} cửa hàng đang hoạt động</span></div>
-    <div className="store-grid">{loading ? Array.from({ length: 5 }, (_, i) => <div className="store-card loading-card" key={i}/>) : stores.map((store, index) => <article className={`store-card ${store.status === "INACTIVE" ? "inactive" : ""}`} key={store.id}><div className={`store-cover cover-${index % 5}`}><div className="shop-sign"><img className="store-logo-image" src="/dore-logo.jpg" alt={`Logo ${store.name}`} width={1254} height={1254}/><span>{store.name.replace("DORE ", "")}</span></div><div className="shop-front"><i /><i /><i /></div></div><div className="store-card-body"><div className={`store-status ${store.status === "INACTIVE" ? "inactive" : ""}`}>● {store.status === "INACTIVE" ? "Ngưng hoạt động" : "Đang hoạt động"}</div><h3>{store.name}</h3><p>⌖ {store.address}</p><div className="store-numbers"><span>Doanh thu tháng <b>{money(store.revenue)}</b></span><span>Lợi nhuận <b>{money(store.profit)}</b></span></div><button className="store-open" onClick={() => openStore(store)}>Xem cửa hàng <span>→</span></button></div></article>)}</div>
+    <div className="store-grid">{loading ? Array.from({ length: 5 }, (_, i) => <div className="store-card loading-card" key={i}/>) : stores.map((store, index) => <article className={`store-card ${store.status === "INACTIVE" ? "inactive" : ""}`} key={store.id}><div className={`store-cover cover-${index % 5}`}><div className="shop-sign"><img className="store-logo-image" src="/logo.jpg" alt={`Logo ${store.name}`} width={1254} height={1254}/><span>{store.name.replace("DORE ", "")}</span></div><div className="shop-front"><i /><i /><i /></div></div><div className="store-card-body"><div className={`store-status ${store.status === "INACTIVE" ? "inactive" : ""}`}>● {store.status === "INACTIVE" ? "Ngưng hoạt động" : "Đang hoạt động"}</div><h3>{store.name}</h3><p>⌖ {store.address}</p><div className="store-numbers"><span>Doanh thu tháng <b>{money(store.revenue)}</b></span><span>Lợi nhuận <b>{money(store.profit)}</b></span></div><button className="store-open" onClick={() => openStore(store)}>Xem cửa hàng <span>→</span></button></div></article>)}</div>
   </div>;
 }
 function StoresView({ stores, totals, reload, openStore }: {
@@ -438,10 +448,14 @@ function EmployeePortal({ user, onUser }: {
     const [shift, setShift] = useState<EmployeeShiftState>({
         active: Boolean(user.shiftActive), shiftCode: user.currentShift, startedAt: user.shiftStartedAt,
         shiftName: user.currentShiftName, scheduledStart: user.scheduledStart, scheduledEnd: user.scheduledEnd,
+        scheduledEndAt: null,
     });
     const [orders, setOrders] = useState<Order[]>([]);
     const [tiktok, setTiktok] = useState(false);
     const [rolloverNotice, setRolloverNotice] = useState("");
+    const [rolloverPrompt, setRolloverPrompt] = useState<ShiftRolloverPrompt | null>(null);
+    const [dismissedRolloverShift, setDismissedRolloverShift] = useState<string | null>(null);
+    const [rolloverSubmitting, setRolloverSubmitting] = useState(false);
     const loadOrders = useCallback(() => fetch("/api/orders").then(response => response.json()).then(data => setOrders(data.orders ?? [])), []);
     const syncShift = useCallback(async () => {
         const response = await fetch("/api/shift", { cache: "no-store" });
@@ -452,8 +466,22 @@ function EmployeePortal({ user, onUser }: {
         const changedShift = Boolean(shift.shiftCode && nextShiftCode && shift.shiftCode !== nextShiftCode);
         if (changedShift) {
             setTiktok(false);
-            setRolloverNotice(`Hệ thống đã tự chuyển từ ${shift.shiftName ?? "ca trước"} sang ${data.shiftName ?? "ca tiếp theo"}. Thời gian làm được ghi nhận liên tục thành hai ca riêng.`);
+            setRolloverNotice(`Đã chuyển từ ${shift.shiftName ?? "ca trước"} sang ${data.shiftName ?? "ca tiếp theo"}. Thời gian làm được ghi nhận liên tục thành hai ca riêng.`);
+            setRolloverPrompt(null);
+            setDismissedRolloverShift(null);
             await loadOrders();
+        }
+        if (data.rolloverPending && nextShiftCode && dismissedRolloverShift !== nextShiftCode) {
+            setRolloverPrompt({
+                shiftCode: nextShiftCode,
+                currentShiftName: data.shiftName ?? "ca hiện tại",
+                nextShiftName: data.nextShift?.name ?? "ca tiếp theo",
+                nextShiftTime: data.nextShift?.start && data.nextShift?.end
+                    ? `${data.nextShift.start} - ${data.nextShift.end}`
+                    : "Theo lịch của cửa hàng",
+            });
+        } else if (!data.rolloverPending) {
+            setRolloverPrompt(null);
         }
         setShift({
             active: Boolean(data.active),
@@ -462,6 +490,7 @@ function EmployeePortal({ user, onUser }: {
             shiftName: data.active ? data.shiftName : null,
             scheduledStart: data.active ? data.scheduledStart : null,
             scheduledEnd: data.active ? data.scheduledEnd : null,
+            scheduledEndAt: data.active ? data.scheduledEndAt : null,
         });
         if (changedShift || Boolean(user.shiftActive) !== Boolean(data.active)) onUser({
             ...user,
@@ -472,7 +501,7 @@ function EmployeePortal({ user, onUser }: {
             scheduledStart: data.active ? data.scheduledStart : null,
             scheduledEnd: data.active ? data.scheduledEnd : null,
         });
-    }, [loadOrders, onUser, shift.shiftCode, shift.shiftName, user]);
+    }, [dismissedRolloverShift, loadOrders, onUser, shift.shiftCode, shift.shiftName, user]);
     useEffect(() => {
         if (view === "Đơn hàng" || view === "Dòng tiền" || view === "Trang chủ")
             loadOrders();
@@ -511,11 +540,63 @@ function EmployeePortal({ user, onUser }: {
             shiftName: data.active ? data.shiftName : null,
             scheduledStart: data.active ? data.scheduledStart : null,
             scheduledEnd: data.active ? data.scheduledEnd : null,
+            scheduledEndAt: data.active ? data.scheduledEndAt : null,
         });
         if (action === "end")
             alert(data.tiktokAllowance ? `${data.message} Phụ cấp TikTok: ${money(data.tiktokAllowance)}.` : (data.message ?? "Đã kết ca và ghi nhận lịch sử ca làm."));
         if (action === "end") setTiktok(false);
+        setRolloverPrompt(null);
+        setDismissedRolloverShift(null);
         loadOrders();
+    }
+    function declineRollover() {
+        if (!rolloverPrompt) return;
+        setDismissedRolloverShift(rolloverPrompt.shiftCode);
+        setRolloverPrompt(null);
+    }
+    async function confirmRollover() {
+        if (!rolloverPrompt || rolloverSubmitting) return;
+        setRolloverSubmitting(true);
+        const previousShiftName = rolloverPrompt.currentShiftName;
+        try {
+            const response = await fetch("/api/shift", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ action: "rollover", expectedShiftCode: rolloverPrompt.shiftCode, tiktok }),
+            });
+            const data = await response.json();
+            if (!response.ok) {
+                alert(data.message ?? "Chưa thể chuyển sang ca tiếp theo.");
+                await syncShift();
+                return;
+            }
+            const nextShiftCode = data.active ? data.shiftCode : null;
+            setShift({
+                active: Boolean(data.active),
+                shiftCode: nextShiftCode,
+                startedAt: data.active ? data.startedAt : null,
+                shiftName: data.active ? data.shiftName : null,
+                scheduledStart: data.active ? data.scheduledStart : null,
+                scheduledEnd: data.active ? data.scheduledEnd : null,
+                scheduledEndAt: data.active ? data.scheduledEndAt : null,
+            });
+            onUser({
+                ...user,
+                shiftActive: data.active ? 1 : 0,
+                currentShift: nextShiftCode,
+                shiftStartedAt: data.active ? data.startedAt : null,
+                currentShiftName: data.active ? data.shiftName : null,
+                scheduledStart: data.active ? data.scheduledStart : null,
+                scheduledEnd: data.active ? data.scheduledEnd : null,
+            });
+            setTiktok(false);
+            setRolloverPrompt(null);
+            setDismissedRolloverShift(null);
+            setRolloverNotice(`Đã chuyển từ ${previousShiftName} sang ${data.shiftName ?? "ca tiếp theo"}. Thời gian làm được ghi nhận liên tục thành hai ca riêng.`);
+            await loadOrders();
+        } finally {
+            setRolloverSubmitting(false);
+        }
     }
     const employeeStoreName = user.storeName ?? user.homeStoreName ?? "DORE";
     return <AppShell brand={employeeStoreName} subtitle={user.isSupporting ? "Đang hỗ trợ tạm thời" : "Hệ thống làm việc nhân viên"} menu={employeeMenu} active={view} onActive={setView} user={user} accent="employee">
@@ -524,6 +605,11 @@ function EmployeePortal({ user, onUser }: {
             <div className="header-user"><button className="bell" aria-label="Thông báo"><Bell size={20}/><span>2</span></button><div className="avatar"><UserRound size={20}/></div><span><b>{user.name}</b><small>{user.employeeCode ?? "NV"}</small></span></div>
         </div>
         <div className="page-content">{rolloverNotice && <div className="success-banner" role="status">{rolloverNotice}<button type="button" onClick={() => setRolloverNotice("")}>×</button></div>}<EmployeeView user={user} view={view} shift={shift} orders={orders} onShift={shiftAction} tiktok={tiktok} setTiktok={setTiktok} reloadOrders={loadOrders}/></div>
+        {rolloverPrompt && <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-labelledby="rollover-confirm-title">
+            <div className="modal-title"><div><h2 id="rollover-confirm-title">Bạn làm ca tiếp theo phải không?</h2><p>Ca hiện tại đã quá giờ kết thúc hơn 60 phút.</p></div></div>
+            <div className="info-box"><b>{rolloverPrompt.currentShiftName}</b> → <b>{rolloverPrompt.nextShiftName}</b> · {rolloverPrompt.nextShiftTime}<br/>Nếu chọn Có, hệ thống sẽ lưu thành hai ca riêng và vẫn tính thời gian làm liên tục.</div>
+            <div className="modal-actions"><button type="button" disabled={rolloverSubmitting} onClick={declineRollover}>Không</button><button type="button" className="primary-button" disabled={rolloverSubmitting} onClick={() => void confirmRollover()}>{rolloverSubmitting ? "ĐANG CHUYỂN..." : "Có"}</button></div>
+        </section></div>}
     </AppShell>;
 }
 function EmployeeView({ user, view, shift, orders, onShift, tiktok, setTiktok, reloadOrders }: {

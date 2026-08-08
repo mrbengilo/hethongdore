@@ -3,7 +3,7 @@
 /* eslint-disable @next/next/no-img-element -- Ảnh CCCD dùng URL xem trước cục bộ hoặc API riêng tư, không phù hợp bộ tối ưu ảnh công khai. */
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { Edit3, IdCard, Plus, Save, Search, Upload, UserRound, X } from "lucide-react";
+import { Edit3, IdCard, Plus, Power, Save, Search, Upload, UserRound, X } from "lucide-react";
 import { formatVndInput, parseVndInput } from "../lib/format";
 
 type EmployeeStore = {
@@ -135,6 +135,7 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingLabel, setSavingLabel] = useState("");
+  const [statusBusyId, setStatusBusyId] = useState("");
   const [listError, setListError] = useState("");
   const [formError, setFormError] = useState("");
   const [success, setSuccess] = useState("");
@@ -285,7 +286,6 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
           hourlyRate: parseVndInput(form.hourlyRate),
           username: form.username.trim(),
           password: form.password,
-          status: form.status,
           cccdImageKey: image.key,
           cccdImageName: image.name,
         }),
@@ -305,6 +305,31 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
     }
   }
 
+  async function setEmployeeStatus(employee: Employee) {
+    const nextStatus: Employee["status"] = employee.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
+    if (nextStatus === "INACTIVE" && !window.confirm(
+      `Chuyển ${employee.name} sang ngưng làm việc? Tài khoản sẽ bị khóa ngay và quản lý cần chốt lương riêng cho nhân viên này.`,
+    )) return;
+    setStatusBusyId(employee.id);
+    setListError("");
+    setSuccess("");
+    try {
+      const response = await fetch("/api/employees", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "SET_STATUS", id: employee.id, storeId: store.id, status: nextStatus }),
+      });
+      const result = await response.json().catch(() => ({})) as { message?: string };
+      if (!response.ok) throw new Error(result.message ?? "Không thể cập nhật trạng thái nhân viên.");
+      setSuccess(result.message ?? "Đã cập nhật trạng thái nhân viên.");
+      await reload();
+    } catch (error) {
+      setListError(error instanceof Error ? error.message : "Không thể cập nhật trạng thái nhân viên.");
+    } finally {
+      setStatusBusyId("");
+    }
+  }
+
   const previewUrl = localPreviewUrl || imageUrl(form.cccdImageKey);
 
   return <div className="reference-module employee-management">
@@ -318,7 +343,7 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
         <select aria-label="Lọc trạng thái" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}>
           <option value="ALL">Tất cả trạng thái</option>
           <option value="ACTIVE">Đang làm việc</option>
-          <option value="INACTIVE">Nghỉ làm</option>
+          <option value="INACTIVE">Ngưng làm việc</option>
         </select>
         <button type="button" className="primary-button" disabled={inactive} onClick={() => begin()}><Plus size={17}/> Thêm nhân viên</button>
       </div>
@@ -348,8 +373,11 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
               <td><b>{formatMoney(employee.hourlyRate)}</b></td>
               <td>{employee.username || "—"}</td>
               <td><EmployeePhoto employee={employee}/></td>
-              <td><span className={`status-pill ${employee.status === "INACTIVE" ? "inactive" : ""}`}>● {employee.status === "ACTIVE" ? "Đang làm việc" : "Nghỉ làm"}</span></td>
-              <td><button type="button" disabled={inactive} onClick={() => begin(employee)} aria-label={`Sửa ${employee.name}`}><Edit3 size={16}/></button></td>
+              <td><span className={`status-pill ${employee.status === "INACTIVE" ? "inactive" : ""}`}>● {employee.status === "ACTIVE" ? "Đang làm việc" : "Ngưng làm việc"}</span>{employee.status === "INACTIVE" && <small className="employee-payroll-reminder">Cần chốt lương riêng</small>}</td>
+              <td><div className="employee-row-actions">
+                <button type="button" disabled={inactive || Boolean(statusBusyId)} onClick={() => void setEmployeeStatus(employee)} className={`employee-status-button ${employee.status === "INACTIVE" ? "activate" : "deactivate"}`} aria-label={`${employee.status === "ACTIVE" ? "Ngưng làm việc" : "Đang làm việc lại"} cho ${employee.name}`}><Power size={15}/>{statusBusyId === employee.id ? "Đang lưu…" : employee.status === "ACTIVE" ? "Ngưng làm việc" : "Đang làm việc"}</button>
+                <button type="button" disabled={inactive || Boolean(statusBusyId)} onClick={() => begin(employee)} aria-label={`Sửa ${employee.name}`}><Edit3 size={16}/></button>
+              </div></td>
             </tr>)}</tbody>
           </table>
         </div>
@@ -390,7 +418,7 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
             <h3>Tài khoản đăng nhập</h3>
             <label>Tên đăng nhập *<input required autoComplete="off" value={form.username} onChange={(event) => updateForm("username", event.target.value)} placeholder="Tên đăng nhập"/></label>
             <label>{editing ? "Mật khẩu mới (để trống nếu giữ nguyên)" : "Mật khẩu *"}<input type="password" minLength={6} required={!editing} autoComplete="new-password" value={form.password} onChange={(event) => updateForm("password", event.target.value)}/></label>
-            {editing && <label>Trạng thái<select value={form.status} onChange={(event) => updateForm("status", event.target.value as EmployeeForm["status"])}><option value="ACTIVE">Đang làm việc</option><option value="INACTIVE">Nghỉ làm</option></select></label>}
+            {editing && <div className="employee-status-edit-note"><b>Trạng thái: {form.status === "ACTIVE" ? "Đang làm việc" : "Ngưng làm việc"}</b><small>Dùng nút trạng thái tại danh sách nhân viên để khóa hoặc mở lại tài khoản.</small></div>}
           </fieldset>
 
           {formError && <div className="form-message">{formError}</div>}

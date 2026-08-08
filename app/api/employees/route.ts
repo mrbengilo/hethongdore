@@ -1,7 +1,9 @@
 import { initDb, writeAudit } from "../../../db/runtime";
+import { localPeriod } from "../../lib/finance";
 import { getSessionUser, hashPassword, INACTIVE_STORE_MESSAGE, isStoreActive, json } from "../_lib/auth";
 
 type EmployeeBody = {
+  action?: "SET_STATUS";
   id?: string;
   storeId?: string;
   code?: string;
@@ -37,6 +39,10 @@ function validProfile(profile: ReturnType<typeof profileValues>) {
   return Boolean(profile.province && profile.ward && profile.addressLine
     && Number.isInteger(profile.age) && profile.age >= 15 && profile.age <= 100
     && cccdKeyPattern.test(profile.cccdImageKey));
+}
+
+function affectedRows(result: unknown) {
+  return Number((result as { meta?: { changes?: number } } | null)?.meta?.changes ?? 0);
 }
 
 export async function GET(request: Request) {
@@ -97,21 +103,119 @@ export async function PATCH(request: Request) {
   const user = await getSessionUser(request);
   if (!user || user.role !== "MANAGER") return json({ message: "Không có quyền" }, 403);
   const body = await request.json().catch(() => ({})) as EmployeeBody;
+  if (body.action === "SET_STATUS") {
+    if (!body.id || !body.storeId || !body.status || !["ACTIVE", "INACTIVE"].includes(body.status)) {
+      return json({ message: "Trạng thái nhân viên không hợp lệ." }, 400);
+    }
+    if (!await isStoreActive(body.storeId)) return json({ message: INACTIVE_STORE_MESSAGE }, 409);
+    const db = await initDb();
+    const existing = await db.prepare("SELECT id, store_id AS storeId, code, name, status, inactive_at AS inactiveAt FROM employees WHERE id = ? AND status != 'ARCHIVED' LIMIT 1")
+      .bind(body.id).first<{ id: string; storeId: string; code: string; name: string; status: string; inactiveAt: string | null }>();
+    if (!existing || existing.storeId !== body.storeId) return json({ message: "Không tìm thấy nhân viên trong cửa hàng." }, 404);
+
+    if (body.status === "INACTIVE" && existing.status !== "INACTIVE") {
+      const activeShift = await db.prepare("SELECT id FROM shift_sessions WHERE employee_id = ? AND status = 'ACTIVE' LIMIT 1")
+        .bind(body.id).first<{ id: string }>();
+      if (activeShift) return json({ message: "Nhân viên đang làm ca, hãy kết ca trước khi chuyển sang ngưng làm việc." }, 409);
+      const activeTransfer = await db.prepare("SELECT id FROM employee_transfers WHERE employee_id = ? AND status IN ('SCHEDULED', 'ACTIVE') LIMIT 1")
+        .bind(body.id).first<{ id: string }>();
+      if (activeTransfer) return json({ message: "Nhân viên còn lịch hỗ trợ cửa hàng khác, hãy kết thúc lịch hỗ trợ trước khi ngưng làm việc." }, 409);
+    }
+    if (body.status === "ACTIVE" && existing.status === "INACTIVE") {
+      const inactiveInstant = existing.inactiveAt ? new Date(existing.inactiveAt) : null;
+      const inactivePeriod = inactiveInstant && Number.isFinite(inactiveInstant.getTime()) ? localPeriod(inactiveInstant) : localPeriod();
+      const requiredOffboardingLock = await db.prepare(`SELECT id FROM employee_payroll_closings
+        WHERE employee_id = ? AND store_id = ? AND period = ? AND status IN ('BASE_LOCKED', 'LOCKED') LIMIT 1`)
+        .bind(body.id, body.storeId, inactivePeriod).first<{ id: string }>();
+      if (!requiredOffboardingLock) {
+        return json({ message: `Hãy chốt lương và khóa sổ riêng cho nhân viên ở kỳ ${inactivePeriod} trước khi chuyển lại sang đang làm việc.` }, 409);
+      }
+      const currentPayrollLock = await db.prepare("SELECT id FROM employee_payroll_closings WHERE employee_id = ? AND period = ? AND status IN ('BASE_LOCKED', 'LOCKED') LIMIT 1")
+        .bind(body.id, localPeriod()).first<{ id: string }>();
+      if (currentPayrollLock) {
+        return json({ message: "Lương của nhân viên đã khóa sổ trong tháng hiện tại. Chỉ có thể chuyển lại sang đang làm việc từ tháng tiếp theo." }, 409);
+      }
+    }
+
+    const transitionAt = new Date().toISOString();
+    let changed = existing.status !== body.status;
+    if (changed && body.status === "INACTIVE") {
+      // The NOT EXISTS guards and the shift-start employee-status guard are
+      // evaluated by D1 as serialized writes. Whichever request wins makes
+      // the other fail, so an ACTIVE shift cannot be orphaned after logout.
+      const transition = await db.prepare(`UPDATE employees SET status = 'INACTIVE', inactive_at = ?
+        WHERE id = ? AND store_id = ? AND status = 'ACTIVE'
+          AND NOT EXISTS (SELECT 1 FROM shift_sessions WHERE employee_id = ? AND status = 'ACTIVE')
+          AND NOT EXISTS (SELECT 1 FROM employee_transfers WHERE employee_id = ? AND status IN ('SCHEDULED', 'ACTIVE'))`)
+        .bind(transitionAt, body.id, body.storeId, body.id, body.id).run();
+      if (affectedRows(transition) === 0) {
+        const current = await db.prepare("SELECT status FROM employees WHERE id = ? AND store_id = ? LIMIT 1")
+          .bind(body.id, body.storeId).first<{ status: string }>();
+        if (current?.status !== "INACTIVE") {
+          const activeShift = await db.prepare("SELECT id FROM shift_sessions WHERE employee_id = ? AND status = 'ACTIVE' LIMIT 1")
+            .bind(body.id).first<{ id: string }>();
+          return json({ message: activeShift
+            ? "Nhân viên vừa bắt đầu ca. Hãy kết ca trước khi chuyển sang ngưng làm việc."
+            : "Trạng thái nhân viên vừa thay đổi hoặc còn lịch hỗ trợ. Vui lòng tải lại và thử lại." }, 409);
+        }
+        changed = false;
+      }
+    } else if (changed) {
+      const transition = await db.prepare("UPDATE employees SET status = 'ACTIVE', inactive_at = NULL WHERE id = ? AND store_id = ? AND status = 'INACTIVE'")
+        .bind(body.id, body.storeId).run();
+      if (affectedRows(transition) === 0) {
+        const current = await db.prepare("SELECT status FROM employees WHERE id = ? AND store_id = ? LIMIT 1")
+          .bind(body.id, body.storeId).first<{ status: string }>();
+        if (current?.status !== "ACTIVE") return json({ message: "Trạng thái nhân viên vừa thay đổi. Vui lòng tải lại và thử lại." }, 409);
+        changed = false;
+      }
+    }
+    if (body.status === "INACTIVE") {
+      await db.prepare("UPDATE employees SET inactive_at = COALESCE(inactive_at, ?) WHERE id = ? AND status = 'INACTIVE'")
+        .bind(transitionAt, body.id).run();
+      // Idempotently revoke every login session and clear legacy shift flags.
+      await db.batch([
+        db.prepare("DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE employee_id = ?)").bind(body.id),
+        db.prepare("UPDATE users SET shift_active = 0, current_shift = NULL, shift_started_at = NULL WHERE employee_id = ?").bind(body.id),
+      ]);
+    }
+    if (changed) {
+      await writeAudit(user.id, "EMPLOYEE_STATUS_CHANGE", "EMPLOYEE", body.id, JSON.stringify({
+        storeId: body.storeId,
+        employeeCode: existing.code,
+        from: existing.status,
+        to: body.status,
+        at: transitionAt,
+      }));
+    }
+    return json({
+      ok: true,
+      status: body.status,
+      payrollClosingRequired: body.status === "INACTIVE",
+      message: body.status === "INACTIVE"
+        ? "Đã chuyển nhân viên sang ngưng làm việc, khóa tài khoản và thu hồi phiên đăng nhập. Hãy chốt lương riêng cho nhân viên tại mục Lương thưởng."
+        : "Đã chuyển nhân viên sang đang làm việc và mở lại quyền đăng nhập.",
+    });
+  }
   const hourlyRate = Number(body.hourlyRate ?? 20000);
   const status = body.status ?? "ACTIVE";
   const profile = profileValues(body);
-  if (!body.id || !body.storeId || !body.code?.trim() || !body.name?.trim() || !body.position?.trim() || !body.phone?.trim() || !["ACTIVE", "INACTIVE"].includes(status) || !Number.isInteger(hourlyRate) || hourlyRate <= 0 || !validProfile(profile) || (body.password !== undefined && body.password.length < 6)) return json({ message: "Dữ liệu nhân viên, địa chỉ, tuổi, ảnh CCCD hoặc mật khẩu không hợp lệ." }, 400);
+  if (!body.id || !body.storeId || !body.code?.trim() || !body.name?.trim() || !body.position?.trim() || !body.phone?.trim() || !["ACTIVE", "INACTIVE"].includes(status) || !Number.isInteger(hourlyRate) || hourlyRate <= 0 || !validProfile(profile) || (body.password !== undefined && body.password !== "" && body.password.length < 6)) return json({ message: "Dữ liệu nhân viên, địa chỉ, tuổi, ảnh CCCD hoặc mật khẩu không hợp lệ." }, 400);
   if (!await isStoreActive(body.storeId)) return json({ message: INACTIVE_STORE_MESSAGE }, 409);
   const db = await initDb();
-  const existing = await db.prepare("SELECT store_id AS storeId FROM employees WHERE id = ? AND status != 'ARCHIVED' LIMIT 1")
-    .bind(body.id).first<{ storeId: string }>();
+  const existing = await db.prepare("SELECT store_id AS storeId, status FROM employees WHERE id = ? AND status != 'ARCHIVED' LIMIT 1")
+    .bind(body.id).first<{ storeId: string; status: string }>();
   if (!existing) return json({ message: "Không tìm thấy nhân viên." }, 404);
-  if (status === "INACTIVE" || existing.storeId !== body.storeId) {
+  if (body.status !== undefined && body.status !== existing.status) {
+    return json({ message: "Vui lòng dùng nút trạng thái riêng để đổi trạng thái làm việc của nhân viên." }, 409);
+  }
+  const persistedStatus = existing.status === "INACTIVE" ? "INACTIVE" : "ACTIVE";
+  if (existing.storeId !== body.storeId) {
     const activeShift = await db.prepare("SELECT id FROM shift_sessions WHERE employee_id = ? AND status = 'ACTIVE' LIMIT 1")
       .bind(body.id).first<{ id: string }>();
     if (activeShift) return json({ message: "Nhân viên đang làm ca, không thể đổi cửa hàng hoặc ngừng hoạt động." }, 409);
   }
-  if (status === "INACTIVE" || existing.storeId !== body.storeId) {
+  if (existing.storeId !== body.storeId) {
     const activeTransfer = await db.prepare("SELECT id FROM employee_transfers WHERE employee_id = ? AND status IN ('SCHEDULED', 'ACTIVE') LIMIT 1")
       .bind(body.id).first<{ id: string }>();
     if (activeTransfer) return json({ message: "Nhân viên còn lịch hỗ trợ cửa hàng khác, không thể đổi cửa hàng chính hoặc ngừng hoạt động." }, 409);
@@ -119,7 +223,7 @@ export async function PATCH(request: Request) {
   try {
     await db.batch([
       db.prepare("UPDATE employees SET store_id = ?, code = ?, name = ?, position = ?, phone = ?, province = ?, ward = ?, address_line = ?, age = ?, cccd_image_key = ?, cccd_image_name = ?, hourly_rate = ?, status = ? WHERE id = ?")
-        .bind(body.storeId, body.code.trim().toUpperCase(), body.name.trim(), body.position.trim(), body.phone.trim(), profile.province, profile.ward, profile.addressLine, profile.age, profile.cccdImageKey, profile.cccdImageName || null, hourlyRate, status, body.id),
+        .bind(body.storeId, body.code.trim().toUpperCase(), body.name.trim(), body.position.trim(), body.phone.trim(), profile.province, profile.ward, profile.addressLine, profile.age, profile.cccdImageKey, profile.cccdImageName || null, hourlyRate, persistedStatus, body.id),
       body.username?.trim()
         ? db.prepare("UPDATE users SET name = ?, store_id = ?, username = ? WHERE employee_id = ?").bind(body.name.trim(), body.storeId, body.username.trim().toLowerCase(), body.id)
         : db.prepare("UPDATE users SET name = ?, store_id = ? WHERE employee_id = ?").bind(body.name.trim(), body.storeId, body.id),
@@ -127,7 +231,7 @@ export async function PATCH(request: Request) {
   } catch {
     return json({ message: "Mã nhân viên hoặc tên đăng nhập đã tồn tại." }, 409);
   }
-  if (status === "INACTIVE") {
+  if (persistedStatus === "INACTIVE") {
     await db.batch([
       db.prepare("DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE employee_id = ?)").bind(body.id),
       db.prepare("UPDATE users SET shift_active = 0, current_shift = NULL, shift_started_at = NULL WHERE employee_id = ?").bind(body.id),

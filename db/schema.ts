@@ -26,6 +26,7 @@ export const employees = sqliteTable("employees", {
   cccdImageName: text("cccd_image_name"),
   hourlyRate: integer("hourly_rate").notNull().default(20000),
   status: text("status").notNull().default("ACTIVE"),
+  inactiveAt: text("inactive_at"),
 });
 
 export const users = sqliteTable("users", {
@@ -138,3 +139,18 @@ export const employeeTransfers = sqliteTable("employee_transfers", {
   updatedAt: text("updated_at").notNull(),
   endedAt: text("ended_at"),
 });
+
+export const employeePayrollClosings = sqliteTable("employee_payroll_closings", {
+  id: text("id").primaryKey(),
+  storeId: text("store_id").notNull(),
+  employeeId: text("employee_id").notNull(),
+  period: text("period").notNull(),
+  snapshotJson: text("snapshot_json").notNull(),
+  employeeStatusAtLock: text("employee_status_at_lock").notNull(),
+  status: text("status").notNull().default("LOCKED"),
+  lockedAt: text("locked_at").notNull(),
+  lockedBy: text("locked_by").notNull(),
+}, (table) => [
+  uniqueIndex("idx_employee_payroll_closing_period")
+    .on(table.storeId, table.employeeId, table.period),
+]);
