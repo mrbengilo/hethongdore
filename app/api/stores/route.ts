@@ -1,14 +1,37 @@
 import { initDb, writeAudit } from "../../../db/runtime";
+import { localPeriod } from "../../lib/finance";
 import { getSessionUser, json } from "../_lib/auth";
+import { previousPeriod, storePeriodFinance } from "../_lib/store-finance";
+
+const defaultShifts = [
+  { name: "Ca 1", start: "07:00", end: "12:00", durationMinutes: 300 },
+  { name: "Ca 2", start: "12:00", end: "17:00", durationMinutes: 300 },
+  { name: "Ca 3", start: "17:00", end: "23:00", durationMinutes: 360 },
+] as const;
 
 export async function GET(request: Request) {
   const user = await getSessionUser(request);
   if (!user) return json({ message: "Chưa đăng nhập" }, 401);
   const db = await initDb();
+  const requestedPeriod = new URL(request.url).searchParams.get("period") ?? localPeriod();
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(requestedPeriod)) return json({ message: "Kỳ báo cáo không hợp lệ." }, 400);
   const result = user.role === "MANAGER"
-    ? await db.prepare("SELECT *, revenue - expense AS profit FROM stores WHERE status != 'ARCHIVED' ORDER BY created_at").all()
-    : await db.prepare("SELECT *, revenue - expense AS profit FROM stores WHERE id = ?").bind(user.storeId).all();
-  return json({ stores: result.results });
+    ? await db.prepare("SELECT id FROM stores WHERE status IN ('ACTIVE', 'INACTIVE') ORDER BY created_at").all<{ id: string }>()
+    : await db.prepare("SELECT id FROM stores WHERE id = ? AND status IN ('ACTIVE', 'INACTIVE')").bind(user.storeId).all<{ id: string }>();
+  const priorPeriod = previousPeriod(requestedPeriod);
+  const stores = (await Promise.all(result.results.map(async ({ id }) => {
+    const [current, previous, employeeCount] = await Promise.all([
+      storePeriodFinance(db, id, requestedPeriod),
+      storePeriodFinance(db, id, priorPeriod),
+      db.prepare("SELECT COUNT(*) AS count FROM employees WHERE store_id = ? AND status != 'ARCHIVED'").bind(id).first<{ count: number }>(),
+    ]);
+    return current ? {
+      ...current,
+      employeeCount: Number(employeeCount?.count ?? 0),
+      previous: previous ? { period: previous.period, revenue: previous.revenue, expense: previous.expense, profit: previous.profit } : null,
+    } : null;
+  }))).filter(Boolean);
+  return json({ period: requestedPeriod, stores });
 }
 
 export async function POST(request: Request) {
@@ -20,8 +43,13 @@ export async function POST(request: Request) {
   if (!name || !address) return json({ message: "Tên và địa chỉ cửa hàng là bắt buộc." }, 400);
   const db = await initDb();
   const id = `st-${crypto.randomUUID().slice(0, 8)}`;
+  const now = new Date().toISOString();
   try {
-    await db.prepare("INSERT INTO stores (id, name, address, revenue, expense, status, created_at) VALUES (?, ?, ?, 0, 0, 'ACTIVE', ?)").bind(id, name, address, new Date().toISOString()).run();
+    await db.batch([
+      db.prepare("INSERT INTO stores (id, name, address, revenue, expense, status, created_at) VALUES (?, ?, ?, 0, 0, 'ACTIVE', ?)").bind(id, name, address, now),
+      ...defaultShifts.map((shift, index) => db.prepare("INSERT INTO business_records (id, category, store_id, owner_id, title, data_json, status, created_at, updated_at) VALUES (?, 'CA_LAM_VIEC', ?, ?, ?, ?, 'ACTIVE', ?, ?)")
+        .bind(`default-shift:${id}:${index + 1}`, id, user.id, shift.name, JSON.stringify({ start: shift.start, end: shift.end, durationMinutes: shift.durationMinutes, overnight: false }), now, now)),
+    ]);
   } catch {
     return json({ message: "Tên cửa hàng đã tồn tại." }, 409);
   }
@@ -32,22 +60,28 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const user = await getSessionUser(request);
   if (!user || user.role !== "MANAGER") return json({ message: "Không có quyền" }, 403);
-  const body = await request.json().catch(() => ({})) as { id?: string; name?: string; address?: string };
-  if (!body.id || !body.name?.trim() || !body.address?.trim()) return json({ message: "Dữ liệu không hợp lệ." }, 400);
+  const body = await request.json().catch(() => ({})) as { id?: string; name?: string; address?: string; status?: string };
+  if (!body.id || !body.name?.trim() || !body.address?.trim() || !["ACTIVE", "INACTIVE"].includes(body.status ?? "ACTIVE")) return json({ message: "Dữ liệu không hợp lệ." }, 400);
   const db = await initDb();
-  await db.prepare("UPDATE stores SET name = ?, address = ? WHERE id = ?").bind(body.name.trim().toUpperCase(), body.address.trim(), body.id).run();
-  await writeAudit(user.id, "UPDATE", "STORE", body.id, body.name);
+  const existing = await db.prepare("SELECT name, status FROM stores WHERE id = ? AND status IN ('ACTIVE', 'INACTIVE') LIMIT 1")
+    .bind(body.id).first<{ name: string; status: string }>();
+  if (!existing) return json({ message: "Không tìm thấy cửa hàng." }, 404);
+  const nextStatus = body.status ?? existing.status;
+  if (existing.status === "ACTIVE" && nextStatus === "INACTIVE") {
+    const activeShifts = await db.prepare("SELECT COUNT(*) AS count FROM shift_sessions WHERE store_id = ? AND status = 'ACTIVE'")
+      .bind(body.id).first<{ count: number }>();
+    if (Number(activeShifts?.count ?? 0) > 0) {
+      return json({ message: "Cửa hàng còn ca làm đang hoạt động. Hãy kết thúc các ca trước khi ngưng hoạt động." }, 409);
+    }
+  }
+  await db.prepare("UPDATE stores SET name = ?, address = ?, status = ? WHERE id = ?")
+    .bind(body.name.trim().toUpperCase(), body.address.trim(), nextStatus, body.id).run();
+  await writeAudit(user.id, existing.status === nextStatus ? "UPDATE" : "STORE_STATUS_CHANGE", "STORE", body.id, JSON.stringify({ from: existing.status, to: nextStatus }));
   return json({ ok: true });
 }
 
 export async function DELETE(request: Request) {
   const user = await getSessionUser(request);
   if (!user || user.role !== "MANAGER") return json({ message: "Không có quyền" }, 403);
-  const id = new URL(request.url).searchParams.get("id");
-  if (!id) return json({ message: "Thiếu mã cửa hàng." }, 400);
-  const db = await initDb();
-  await db.prepare("UPDATE stores SET status = 'ARCHIVED' WHERE id = ?").bind(id).run();
-  await writeAudit(user.id, "ARCHIVE", "STORE", id);
-  return json({ ok: true });
+  return json({ message: "Không hỗ trợ xóa cửa hàng. Hãy chuyển cửa hàng sang trạng thái ngưng hoạt động." }, 405, { Allow: "GET, POST, PATCH" });
 }
-

@@ -1,5 +1,13 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "entries": []
+  "entries": [
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1786158873653,
+      "tag": "0005_employee_profile_shift_rollover",
+      "breakpoints": true
+    }
+  ]
 }

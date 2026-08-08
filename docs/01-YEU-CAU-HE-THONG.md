@@ -12,27 +12,27 @@ Xây dựng một hệ thống thống nhất để quản lý chuỗi cửa hà
 4. DORE VĨNH LONG.
 5. DORE SÓC TRĂNG.
 
-Quản lý được thêm, sửa, ngừng hoạt động hoặc xóa cửa hàng. Khi thêm cửa hàng, hệ thống phải tạo cấu hình mặc định, các danh mục quản trị, không gian nhân viên và cấu trúc báo cáo tương tự cửa hàng hiện hữu.
+Quản lý được thêm, sửa và chuyển cửa hàng giữa hai trạng thái `ACTIVE`/`INACTIVE`; không xóa cửa hàng đã tạo. Khi thêm cửa hàng, hệ thống tạo bản ghi cửa hàng và ba ca mặc định trong cùng một batch; các module quản trị dùng chung được mở theo `store_id` mới. Cửa hàng ngưng hoạt động chỉ cho phép đọc lịch sử dòng tiền/báo cáo; mọi thao tác phát sinh dữ liệu mới bị khóa ở cả giao diện và backend.
 
 ## 3. Vai trò và phân quyền
 
 ### 3.1. Quản lý
 
 - Đăng nhập vào trang tổng quan toàn hệ thống.
-- Xem, thêm, sửa và xóa cửa hàng.
+- Xem, thêm, sửa và thay đổi trạng thái hoạt động của cửa hàng; không xóa vật lý cửa hàng.
 - Chọn một cửa hàng để chuyển sang không gian quản lý cửa hàng đó.
 - Xem dữ liệu của mọi nhân viên, mọi ca và mọi đơn hàng.
 - Quản lý ca làm, lịch phân ca, chấm công, nhập hàng, nhân viên, lương thưởng, dòng tiền và báo cáo.
 - Giao việc theo cửa hàng, ca và ngày áp dụng.
 - Điều chuyển nhân sự hỗ trợ giữa các cửa hàng.
-- Quản lý lương thưởng của quản lý, báo cáo toàn hệ thống và cổ tức.
+- Quản lý lương thưởng của nhân viên/quản lý, xác nhận từng khoản chi, khóa kỳ, báo cáo toàn hệ thống và cổ tức.
 - Thiết lập tiền phụ cấp TikTok, thưởng TikTok và thưởng khác theo từng cửa hàng.
 
 ### 3.2. Nhân viên
 
 - Chỉ truy cập dữ liệu của cửa hàng trực thuộc.
 - Trong thời gian điều chuyển hợp lệ, được truy cập cửa hàng nhận hỗ trợ theo đúng ngày và ca được duyệt.
-- Xem trang chủ, đơn hàng, bảng lương, dòng tiền cá nhân/ca và lịch sử ca làm.
+- Xem trang chủ, lịch được phân, đơn hàng, bảng lương, dòng tiền cá nhân/ca và lịch sử ca làm.
 - Điểm danh bắt đầu ca, hoàn thành công việc và kết ca.
 - Tạo đơn hàng trong ca hiện tại; không được tự chọn cửa hàng, nhân viên hoặc ca khác.
 - Không được xem, sửa hoặc hủy dữ liệu của nhân viên khác hay ca khác.
@@ -51,12 +51,12 @@ Quản lý được thêm, sửa, ngừng hoạt động hoặc xóa cửa hàng
 ## 5. Danh mục quản lý toàn hệ thống
 
 1. **Tổng quan:** doanh thu, chi phí, lợi nhuận, danh sách cửa hàng và điều hướng vào từng cửa hàng.
-2. **Cửa hàng:** thêm/sửa/xóa, trạng thái, nhân sự, doanh thu, chi phí và lợi nhuận.
+2. **Cửa hàng:** thêm/sửa, trạng thái hoạt động/ngưng hoạt động, nhân sự, doanh thu, chi phí và lợi nhuận.
 3. **Giao việc:** chọn cửa hàng, ca, ngày; tạo danh sách nhiệm vụ và gửi cho nhân viên.
 4. **Dòng tiền:** lọc theo cửa hàng/thời gian; thống kê doanh thu, chi phí và lợi nhuận.
 5. **Lương thưởng quản lý:** lương cố định và thưởng theo cửa hàng; không có phụ cấp quản lý.
-6. **Báo cáo:** báo cáo toàn chuỗi hoặc theo cửa hàng; xuất Excel/PDF.
-7. **Điều chuyển nhân sự:** tạo, duyệt, hủy, gia hạn và kết thúc hỗ trợ.
+6. **Báo cáo:** báo cáo toàn chuỗi hoặc theo cửa hàng, so sánh kỳ trước, đánh giá hiệu quả và xuất CSV.
+7. **Điều chuyển nhân sự:** tạo, hủy và kết thúc hỗ trợ; trạng thái tự đổi theo thời gian hiệu lực.
 8. **Cổ tức:** lợi nhuận sau cùng, tỷ lệ cổ đông, khóa kỳ và lịch sử chia.
 9. **Cài đặt:** hồ sơ, mật khẩu, thông báo, ngôn ngữ và đăng xuất.
 
@@ -67,12 +67,13 @@ Quản lý được thêm, sửa, ngừng hoạt động hoặc xóa cửa hàng
 3. Lịch phân ca.
 4. Nhân viên.
 5. Nhập hàng.
-6. Chấm công.
-7. Lương thưởng.
-8. Đơn hàng.
-9. Dòng tiền.
-10. Báo cáo.
-11. Cài đặt.
+6. Chi phí cố định.
+7. Chấm công.
+8. Lương thưởng.
+9. Đơn hàng.
+10. Dòng tiền.
+11. Báo cáo.
+12. Cài đặt.
 
 Mọi truy vấn, thống kê và xuất báo cáo trong không gian cửa hàng phải lọc bắt buộc theo `store_id`.
 
@@ -80,9 +81,31 @@ Mọi truy vấn, thống kê và xuất báo cáo trong không gian cửa hàng
 
 1. **Trang chủ:** điểm danh, thông tin cá nhân, ca hôm nay, công việc cần làm, kết ca và xác nhận clip TikTok.
 2. **Đơn hàng:** đơn thuộc ca hiện tại, thống kê thanh toán, tìm kiếm, thêm, xem, sửa, hủy và xuất dữ liệu.
-3. **Bảng lương:** giờ làm, lương cứng, thưởng, phụ cấp và tổng thu nhập.
+3. **Bảng lương:** tách theo cửa hàng và ca; hiển thị vai trò chính/hỗ trợ, cửa hàng nguồn, giờ thực tế, lương/giờ, lương cứng, phụ cấp, tổng thực nhận và trạng thái chi.
 4. **Dòng tiền:** doanh thu, chi phí và lợi nhuận tạm tính của ca hiện tại.
 5. **Lịch sử ca làm:** lọc theo ngày/ca, giờ vào/ra, số giờ và lương dự tính.
+
+Khi bắt đầu ca, hệ thống phải ghi thời gian vào thực tế và snapshot `shift_name`, `work_date`, khung giờ đã xếp, cửa hàng thực tế cùng mức lương giờ áp dụng. `shift_code` tiếp tục là mã phiên duy nhất dùng để liên kết đơn hàng; không dùng mã phiên này thay cho tên Ca 1, Ca 2 hoặc Ca 3 trên giao diện.
+
+### 7.1. Cấu hình ca, tự chuyển ca và lịch phân ca
+
+- Mỗi cửa hàng có cấu hình ca riêng. Khung mặc định là Ca 1 `07:00–12:00`, Ca 2 `12:00–17:00`, Ca 3 `17:00–23:00`; quản lý được sửa tên, giờ bắt đầu và giờ kết thúc.
+- Quản lý tạo lịch bằng thứ tự **chọn ngày → chọn ca → chọn nhân viên → LƯU**, xem theo ngày hoặc tuần. Nhân viên chỉ nhận lịch của chính mình.
+- Khi thời điểm hiện tại đạt `scheduled_end_at + 60 phút` mà nhân viên chưa kết ca, hệ thống tự đóng phiên cũ tại đúng `scheduled_end_at`, tạo phiên ca kế tiếp bắt đầu tại cùng ranh giới và giữ đồng hồ lương liên tục.
+- Hai ca vẫn là hai bản ghi lịch sử độc lập. Đơn phát sinh từ ranh giới trở đi được chuyển sang mã phiên mới; `previous_session_id` và chỉ mục duy nhất ngăn sinh trùng ca kế tiếp khi nhiều yêu cầu đồng thời.
+- Giao diện nhân viên đồng bộ trạng thái ca định kỳ và tự chuyển tên/khung ca khi backend đã rollover.
+
+### 7.2. Hồ sơ nhân viên
+
+- Khi thêm nhân viên phải nhập mã nhân viên, họ tên, SĐT, tỉnh/thành phố, phường/xã, đường/ấp, tuổi và ảnh CCCD rồi bấm **LƯU**.
+- Tuổi hợp lệ từ 15 đến 100. Ảnh CCCD chấp nhận JPG, PNG hoặc WebP, tối đa 5 MB và được lưu trên vùng R2 riêng.
+- Hồ sơ còn lưu cửa hàng chính, chức vụ, lương giờ và tài khoản đăng nhập để phục vụ phân quyền và tính lương.
+
+### 7.3. Nhập hàng
+
+- Màn hình luôn hiển thị danh sách dòng hàng và nút **Thêm hàng hóa**. Mỗi dòng gồm tên hàng hóa, số lượng, đơn vị, cân nặng kg, đơn giá nhập/kg, phí vận chuyển và thành tiền.
+- Một phiếu có từ 1 đến 100 dòng. Backend kiểm tra dữ liệu và tự tính tiền hàng, phí vận chuyển, thành tiền từng dòng và tổng phiếu; không tin tổng tiền do trình duyệt gửi.
+- Chỉ sau khi bấm **LƯU** và server xác nhận thành công, phiếu mới có số phiếu, ngày giờ/người lưu trong lịch sử; danh sách nhập trở về một dòng trống để lập phiếu tiếp theo.
 
 ## 8. Quy tắc đơn hàng
 
@@ -94,12 +117,16 @@ Mọi truy vấn, thống kê và xuất báo cáo trong không gian cửa hàng
 - Thống kê đầu trang chỉ tính đơn hoàn tất trong ca hiện tại.
 - Hủy đơn chuyển trạng thái sang `VOID`, không xóa vật lý, nhằm bảo toàn đối soát.
 - Quản lý được xem đơn của mọi nhân viên và mọi ca; nhân viên chỉ thao tác đơn của chính mình trong ca đang hoạt động.
+- Trước khi kết ca, nhân viên phải hoàn thành toàn bộ công việc bắt buộc, nhập chi phí kể cả khi giá trị bằng 0, nhập doanh thu tiền mặt và chuyển khoản; chi phí lớn hơn 0 phải có nội dung chi.
+- Nếu tổng doanh thu nhập khi kết ca lớn hơn 0 nhưng ca hiện tại không có đơn `COMPLETED`, hệ thống phải từ chối kết ca và yêu cầu nhân viên nhập đơn hàng. Điều kiện này được kiểm tra lại ở backend.
+- Trước khi kết ca, backend cộng độc lập các đơn `COMPLETED` theo từng hình thức thanh toán trong đúng `store_id + employee_id + shift_code`. Tiền mặt nhập phải bằng tổng đơn tiền mặt và chuyển khoản nhập phải bằng tổng đơn chuyển khoản. Nếu lệch, hệ thống từ chối kết ca và trả rõ số đúng, số đã nhập và phần chênh lệch của từng hình thức.
+- Kết ca thành công phải ghi `ended_at`, doanh thu, chi phí, trạng thái hoàn thành và lịch sử ca trước khi xóa trạng thái ca đang hoạt động của tài khoản.
 
 ## 9. Lương, thưởng và lợi nhuận
 
 ### 9.1. Quản lý
 
-- Lương cố định: 3.000.000 đồng cho mỗi cửa hàng mỗi tháng.
+- Lương cố định: 3,000,000 đồng cho mỗi cửa hàng mỗi tháng.
 - Thưởng quản lý theo cửa hàng: `2% × lợi nhuận dương của cửa hàng`.
 - Tổng thưởng ngoài trang quản lý hệ thống bằng tổng thưởng của các cửa hàng.
 - Danh mục lương thưởng quản lý không có phụ cấp.
@@ -108,12 +135,16 @@ Mọi truy vấn, thống kê và xuất báo cáo trong không gian cửa hàng
 
 Gọi `P` là lợi nhuận cửa hàng trong tháng, `H` là tổng giờ làm của tất cả nhân viên và `h` là giờ làm của nhân viên:
 
-- Nếu `P/H < 7.000`: thưởng lợi nhuận bằng 0.
-- Nếu `7.000 ≤ P/H < 15.000`: thưởng = `(h/H) × 3% × P`.
-- Nếu `15.000 ≤ P/H < 30.000`: thưởng = `(h/H) × 5% × P`.
-- Nếu `P/H ≥ 30.000`: thưởng = `(h/H) × 7% × P`.
+- Nếu `P/H < 7,000`: thưởng lợi nhuận bằng 0.
+- Nếu `7,000 ≤ P/H < 15,000`: thưởng = `(h/H) × 3% × P`.
+- Nếu `15,000 ≤ P/H < 30,000`: thưởng = `(h/H) × 5% × P`.
+- Nếu `P/H ≥ 30,000`: thưởng = `(h/H) × 7% × P`.
 
-Tổng nhận nhân viên gồm lương theo giờ, thưởng lợi nhuận, phụ cấp TikTok, thưởng TikTok, thưởng khác và phụ cấp khác, sau khi trừ các khoản khấu trừ hợp lệ.
+Tổng nhận nhân viên gồm lương theo giờ, thưởng lợi nhuận, phụ cấp TikTok, phụ cấp hỗ trợ, thưởng khác và phụ cấp khác. Với ca hỗ trợ, bảng lương phải nêu cửa hàng nhận chi, cửa hàng chính, số giờ thực tế, lương hỗ trợ/giờ và phần phụ cấp hỗ trợ được phân bổ cho ca.
+
+Thưởng KPI chỉ trở thành số liệu chính thức sau khi **Quản lý tổng kết tháng** cho từng cửa hàng. Hệ thống tính một preview từ dữ liệu ca đã hoàn thành, chọn đúng một ngưỡng cao nhất đạt được (không cộng dồn), sau đó lưu snapshot kỳ gồm lợi nhuận, tổng giờ, tỷ lệ KPI và chi tiết từng nhân viên. Snapshot đã khóa không tự thay đổi khi dữ liệu nguồn hoặc lương giờ được chỉnh sửa về sau; nhân viên chỉ xem kết quả của chính mình trong kỳ đã tổng kết.
+
+Kỳ lương tại cửa hàng đi qua sáu bước: chốt lương nhân viên (`KPI_SUMMARY/LOCKED`) → chốt lương quản lý (`MANAGER_FINALIZED`) → xác nhận chi lương (`SALARY_CONFIRMED`) → xác nhận thưởng/phụ cấp (`REWARDS_CONFIRMED`) → xác nhận đã chi (`PAYMENT_CONFIRMED`) → kết sổ (`LOCKED`). Mỗi bước lưu người và ngày giờ thực hiện trong audit. Sau khi khóa, dữ liệu không được sửa/xóa; lịch sử, thống kê và so sánh kỳ trước vẫn đọc/xuất được.
 
 ### 9.3. Phụ cấp TikTok
 
@@ -124,34 +155,42 @@ Tổng nhận nhân viên gồm lương theo giờ, thưởng lợi nhuận, ph�
 
 ### 9.4. Lợi nhuận cửa hàng
 
-`Lợi nhuận = Doanh thu - Tổng chi phí`.
+`Lợi nhuận = Doanh thu từ ca đã hoàn thành - Tổng chi phí`.
 
-Tổng chi phí bao gồm giá vốn/nhập hàng, setup, mặt bằng, điện, nước, wifi, rác, marketing, thuế, khấu hao, lương nhân viên, lương quản lý, phụ cấp nhân viên, thưởng TikTok, thưởng khác và chi phí khác.
+Tổng chi phí cửa hàng gồm chi phí cố định, chi phí phát sinh trong ca, tiền nhập hàng, phí vận chuyển, lương nhân viên, lương quản lý, phụ cấp TikTok, phụ cấp hỗ trợ, phụ cấp khác và thưởng thủ công. Lợi nhuận trước thưởng hiệu quả là cơ sở tính KPI; lợi nhuận cuối trừ thêm thưởng KPI nhân viên và thưởng quản lý để tránh công thức vòng tròn.
+
+Chi phí cố định có các nhóm set up, mặt bằng, điện, nước, wifi, marketing, rác và khác. Nút **Tạo chi phí cố định** phải hiển thị tại cửa hàng hoạt động; mỗi lần lưu ghi `created_at`, `updated_at`, người cập nhật và lịch sử thay đổi đầy đủ ngày giờ. Tổng quan cửa hàng phải cộng tất cả nhóm chi phí này cùng các chi phí thực tế khác.
+
+Mục **Dòng tiền** của cửa hàng cho phép tạo từng chi phí phát sinh với ngày chi, loại/tên khoản chi, số tiền VND dương và ghi chú. Mỗi lần lưu tạo một dòng lịch sử riêng, hỗ trợ xuất CSV và được cộng vào nhóm `incidentalCosts`; kỳ đã khóa KPI không cho thêm, sửa hoặc xóa khoản chi.
 
 ## 10. Điều chuyển nhân sự
 
-- Chọn nhân viên, cửa hàng nhận hỗ trợ, ngày bắt đầu/kết thúc, một hoặc nhiều ca, lương giờ, phụ cấp, lý do và người duyệt.
+- Chọn nhân viên, cửa hàng nhận hỗ trợ, ngày bắt đầu/kết thúc, một hoặc nhiều ca, lương giờ, phụ cấp và lý do.
+- Mỗi đợt được lưu trong `employee_transfers` với cửa hàng điều đi, cửa hàng nhận, thời gian hiệu lực, ca áp dụng, lương hỗ trợ, phụ cấp, lý do, người tạo và trạng thái.
 - Trong thời gian hỗ trợ, nhân viên được đăng nhập và làm việc tại cửa hàng nhận hỗ trợ theo phạm vi được duyệt.
+- Khi xử lý mỗi request, backend xác định cửa hàng hiệu lực từ ca đang chạy hoặc đợt điều chuyển còn hiệu lực; trình duyệt không được tự gửi và quyết định cửa hàng truy cập.
 - Lương, thưởng, phụ cấp và chi phí nhân sự phát sinh được ghi cho cửa hàng nhận hỗ trợ.
 - Lịch sử lương, KPI và công tác tại cửa hàng chính không bị sửa.
 - Hết thời gian, hệ thống tự thu hồi quyền cửa hàng hỗ trợ và khôi phục quyền cửa hàng chính.
+- Ca đã bắt đầu giữ snapshot cửa hàng nhận và mức lương hỗ trợ cho đến khi kết ca, kể cả khi đợt hỗ trợ hết hạn trong lúc ca đang mở.
 - Trạng thái: chờ duyệt, đang hỗ trợ, hoàn thành, đã hủy.
 
 ## 11. Cổ tức
 
 - Lợi nhuận sau cùng bằng doanh thu trừ tất cả chi phí của toàn chuỗi.
-- Tỷ lệ mặc định: Trương Việt Vi 60%, Phạm Thị Diễm Thúy 40%.
-- Cho phép xác nhận chia và khóa kỳ để ngăn chỉnh sửa sau khi chốt.
-- Có biểu đồ xu hướng, lịch sử theo tháng/quý/năm, so sánh kỳ trước, xuất Excel và in báo cáo.
+- Tỷ lệ hiện tại gồm hai phần chia: 60% và 40%.
+- Chỉ cho phép xác nhận chia khi tất cả cửa hàng `ACTIVE` đã khóa kỳ lương tương ứng; xác nhận xong lưu lịch sử và khóa kỳ để ngăn sửa/xóa.
+- Có lịch sử theo kỳ, so sánh kỳ trước, xuất CSV và đánh giá hiệu quả/chiều hướng từ số liệu thực.
 - Khung phân tích cuối trang nêu biến động doanh thu, chi phí, biên lợi nhuận và cổ tức từng cổ đông.
 
 ## 12. Yêu cầu phi chức năng
 
 - Responsive từ điện thoại 360 px đến màn hình máy tính lớn.
 - Giao diện tiếng Việt, tone xanh DORE, font dễ đọc, icon thống nhất.
-- Số tiền hiển thị theo định dạng Việt Nam và lưu bằng số nguyên đồng.
-- Thời gian nghiệp vụ sử dụng múi giờ `Asia/Ho_Chi_Minh`; dữ liệu lưu ISO/UTC khi phù hợp.
+- Số tiền hiển thị bằng dấu phẩy phân cách hàng nghìn và hậu tố `đồng`, ví dụ `15,000 đồng`, `12,890 đồng`; giá trị lưu là số nguyên đồng chưa định dạng.
+- Số tiền lưu bằng `INTEGER/BIGINT` 64-bit của SQLite/D1, không dùng `float`; tỷ lệ và phép chia sử dụng số nguyên/decimal chính xác, cùng một service tài chính và cùng quy tắc làm tròn có unit test.
+- Timestamp lưu UTC và hiển thị/tính kỳ theo `Asia/Ho_Chi_Minh` bằng đồng hồ 24 giờ (`hourCycle: h23`). Thời lượng ca được tính từ giây thực tế; số giờ chỉ là giá trị hiển thị làm tròn hai chữ số.
+- Lịch ca luôn lưu `startAt` và `endAt` đầy đủ. Ca qua đêm có `endAt` thuộc ngày kế tiếp, không suy luận chỉ từ giờ trong ngày.
 - Bảng lớn hỗ trợ cuộn ngang trên màn hình nhỏ.
 - Các API phải validate dữ liệu, phân quyền và chống truy cập chéo cửa hàng.
 - Có migration, kiểm thử tự động, nhật ký kiểm toán và quy trình sao lưu/khôi phục.
-

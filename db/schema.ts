@@ -1,4 +1,5 @@
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { sql } from "drizzle-orm";
+import { integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const stores = sqliteTable("stores", {
   id: text("id").primaryKey(),
@@ -17,6 +18,12 @@ export const employees = sqliteTable("employees", {
   name: text("name").notNull(),
   position: text("position").notNull(),
   phone: text("phone").notNull(),
+  province: text("province").notNull().default(""),
+  ward: text("ward").notNull().default(""),
+  addressLine: text("address_line").notNull().default(""),
+  age: integer("age"),
+  cccdImageKey: text("cccd_image_key"),
+  cccdImageName: text("cccd_image_name"),
   hourlyRate: integer("hourly_rate").notNull().default(20000),
   status: text("status").notNull().default("ACTIVE"),
 });
@@ -86,9 +93,48 @@ export const shiftSessions = sqliteTable("shift_sessions", {
   shiftCode: text("shift_code").notNull().unique(),
   storeId: text("store_id").notNull(),
   employeeId: text("employee_id").notNull(),
+  shiftName: text("shift_name"),
+  scheduledStart: text("scheduled_start"),
+  scheduledEnd: text("scheduled_end"),
+  scheduledStartAt: text("scheduled_start_at"),
+  scheduledEndAt: text("scheduled_end_at"),
+  workDate: text("work_date"),
+  previousSessionId: text("previous_session_id"),
+  transferId: text("transfer_id"),
+  appliedHourlyRate: integer("applied_hourly_rate"),
   startedAt: text("started_at").notNull(),
   endedAt: text("ended_at"),
+  durationSeconds: integer("duration_seconds").notNull().default(0),
   tiktok: integer("tiktok").notNull().default(0),
   tiktokAllowance: integer("tiktok_allowance").notNull().default(0),
+  tasksCompleted: integer("tasks_completed").notNull().default(0),
+  expenseAmount: integer("expense_amount").notNull().default(0),
+  expenseNote: text("expense_note"),
+  cashRevenue: integer("cash_revenue").notNull().default(0),
+  transferRevenue: integer("transfer_revenue").notNull().default(0),
+  closeReason: text("close_reason"),
+  closeStatus: text("close_status").notNull().default("PENDING"),
   status: text("status").notNull().default("ACTIVE"),
+}, (table) => [
+  uniqueIndex("idx_shift_sessions_previous_session")
+    .on(table.previousSessionId)
+    .where(sql`${table.previousSessionId} IS NOT NULL`),
+]);
+
+export const employeeTransfers = sqliteTable("employee_transfers", {
+  id: text("id").primaryKey(),
+  employeeId: text("employee_id").notNull(),
+  sourceStoreId: text("source_store_id").notNull(),
+  targetStoreId: text("target_store_id").notNull(),
+  startDate: text("start_date").notNull(),
+  endDate: text("end_date").notNull(),
+  shiftsJson: text("shifts_json").notNull().default("[]"),
+  supportHourlyRate: integer("support_hourly_rate").notNull(),
+  supportAllowance: integer("support_allowance").notNull().default(0),
+  reason: text("reason").notNull(),
+  status: text("status").notNull().default("SCHEDULED"),
+  createdBy: text("created_by").notNull(),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+  endedAt: text("ended_at"),
 });

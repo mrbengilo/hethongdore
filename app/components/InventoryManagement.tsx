@@ -1,0 +1,468 @@
+"use client";
+
+import { FormEvent, Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { ChevronDown, ChevronRight, Download, PackageOpen, Plus, Save, Trash2 } from "lucide-react";
+
+type InventoryStore = {
+  id: string;
+  name: string;
+  status?: string;
+};
+
+type DraftInventoryItem = {
+  id: string;
+  name: string;
+  quantity: string;
+  unit: string;
+  weight: string;
+  unitPrice: string;
+  shipping: string;
+};
+
+type InventoryItem = {
+  name: string;
+  quantity: number;
+  unit: string;
+  weight: number;
+  unitPrice: number;
+  shipping: number;
+  amount: number;
+};
+
+type InventoryReceipt = {
+  id: string;
+  receiptNo: string;
+  title: string;
+  date: string;
+  period: string;
+  note: string;
+  items: InventoryItem[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+type DraftField = Exclude<keyof DraftInventoryItem, "id">;
+
+const VIETNAM_TIME_ZONE = "Asia/Ho_Chi_Minh";
+let draftSequence = 0;
+
+function createDraftItem(): DraftInventoryItem {
+  draftSequence += 1;
+  return {
+    id: `inventory-draft-${draftSequence}`,
+    name: "",
+    quantity: "1",
+    unit: "Bao",
+    weight: "",
+    unitPrice: "",
+    shipping: "0",
+  };
+}
+
+function todayInVietnam() {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: VIETNAM_TIME_ZONE }).format(new Date());
+}
+
+function formatMoney(value: number) {
+  const safeValue = Number.isFinite(value) ? Math.round(value) : 0;
+  return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(safeValue)} đồng`;
+}
+
+function formatNumber(value: number, maximumFractionDigits = 2) {
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits }).format(Number.isFinite(value) ? value : 0);
+}
+
+function formatTimestamp(value: string) {
+  if (!value || Number.isNaN(Date.parse(value))) return "—";
+  return new Intl.DateTimeFormat("vi-VN", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+    timeZone: VIETNAM_TIME_ZONE,
+  }).format(new Date(value));
+}
+
+function localDateFromTimestamp(value: string) {
+  if (!value || Number.isNaN(Date.parse(value))) return "";
+  return new Intl.DateTimeFormat("en-CA", { timeZone: VIETNAM_TIME_ZONE }).format(new Date(value));
+}
+
+function asObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function finiteNumber(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function calculateLineGoods(weight: number, unitPrice: number) {
+  const amount = Math.round(weight * unitPrice);
+  return Number.isSafeInteger(amount) && amount >= 0 ? amount : 0;
+}
+
+function calculateDraftAmount(item: DraftInventoryItem) {
+  const goods = calculateLineGoods(finiteNumber(item.weight), finiteNumber(item.unitPrice));
+  const shipping = Math.max(0, Math.round(finiteNumber(item.shipping)));
+  const amount = goods + shipping;
+  return Number.isSafeInteger(amount) ? amount : 0;
+}
+
+function normalizeItem(value: unknown, fallbackName = ""): InventoryItem {
+  const raw = asObject(value);
+  const weight = Math.max(0, finiteNumber(raw.weight));
+  const unitPrice = Math.max(0, Math.round(finiteNumber(raw.unitPrice)));
+  const shipping = Math.max(0, Math.round(finiteNumber(raw.shipping)));
+  const calculatedAmount = calculateLineGoods(weight, unitPrice) + shipping;
+  const parsedStoredAmount = Number(raw.amount);
+  const hasStoredAmount = raw.amount != null && Number.isFinite(parsedStoredAmount);
+  const storedAmount = Math.round(parsedStoredAmount);
+  return {
+    name: String(raw.name ?? fallbackName).trim(),
+    quantity: Math.max(0, Math.round(finiteNumber(raw.quantity))),
+    unit: String(raw.unit ?? "Bao").trim() || "Bao",
+    weight,
+    unitPrice,
+    shipping,
+    amount: hasStoredAmount && Number.isSafeInteger(storedAmount) && storedAmount >= 0 ? storedAmount : calculatedAmount,
+  };
+}
+
+function normalizeReceipt(value: unknown): InventoryReceipt | null {
+  const row = asObject(value);
+  const id = String(row.id ?? "").trim();
+  if (!id) return null;
+
+  const data = asObject(row.data);
+  let items = Array.isArray(data.items) ? data.items.map((item) => normalizeItem(item)) : [];
+
+  // Keep previously saved, single-item NHAP_HANG records readable as one receipt.
+  if (items.length === 0 && (data.weight != null || data.quantity != null || data.unitPrice != null)) {
+    items = [normalizeItem(data, String(row.title ?? ""))];
+  }
+
+  const createdAt = String(row.created_at ?? row.updated_at ?? "");
+  const updatedAt = String(row.updated_at ?? createdAt);
+  const savedAt = String(data.savedAt ?? createdAt);
+  const date = String(data.date ?? localDateFromTimestamp(createdAt));
+  return {
+    id,
+    receiptNo: String(data.receiptNo ?? `PN-${id.slice(0, 8).toUpperCase()}`),
+    title: String(row.title ?? "Phiếu nhập hàng"),
+    date,
+    period: String(data.period ?? date.slice(0, 7)),
+    note: String(data.note ?? ""),
+    items,
+    createdAt: savedAt,
+    updatedAt,
+  };
+}
+
+function itemGoodsAmount(item: InventoryItem) {
+  return Math.max(0, item.amount - item.shipping);
+}
+
+function receiptTotals(items: InventoryItem[]) {
+  return items.reduce((totals, item) => ({
+    itemLines: totals.itemLines + 1,
+    quantity: totals.quantity + item.quantity,
+    weight: totals.weight + item.weight,
+    goods: totals.goods + itemGoodsAmount(item),
+    shipping: totals.shipping + item.shipping,
+    amount: totals.amount + item.amount,
+  }), { itemLines: 0, quantity: 0, weight: 0, goods: 0, shipping: 0, amount: 0 });
+}
+
+function exportInventoryCsv(store: InventoryStore, receipts: InventoryReceipt[]) {
+  const cell = (value: string | number) => {
+    const raw = String(value);
+    const protectedValue = /^[=+\-@]/.test(raw) ? `'${raw}` : raw;
+    return `"${protectedValue.replaceAll('"', '""')}"`;
+  };
+  const rows: Array<Array<string | number>> = [[
+    "Thời điểm lưu", "Ngày nhập", "Mã phiếu", "STT", "Tên hàng hóa", "Số lượng",
+    "Đơn vị", "Cân nặng (kg)", "Đơn giá nhập/kg", "Giá hàng", "Phí vận chuyển",
+    "Thành tiền dòng", "Tổng phiếu", "Ghi chú",
+  ]];
+
+  for (const receipt of receipts) {
+    const totals = receiptTotals(receipt.items);
+    receipt.items.forEach((item, index) => rows.push([
+      formatTimestamp(receipt.createdAt), receipt.date, receipt.receiptNo,
+      index + 1, item.name, item.quantity, item.unit, item.weight, item.unitPrice,
+      itemGoodsAmount(item), item.shipping, item.amount, totals.amount, receipt.note,
+    ]));
+  }
+
+  const content = "\uFEFF" + rows.map((row) => row.map(cell).join(",")).join("\r\n");
+  const url = URL.createObjectURL(new Blob([content], { type: "text/csv;charset=utf-8" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `lich-su-nhap-hang-${store.id}-${todayInVietnam()}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+export function StoreInventoryManagement({ store }: { store: InventoryStore }) {
+  const [items, setItems] = useState<DraftInventoryItem[]>(() => [createDraftItem()]);
+  const [date, setDate] = useState(todayInVietnam());
+  const [note, setNote] = useState("");
+  const [receipts, setReceipts] = useState<InventoryReceipt[]>([]);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(true);
+  const [formError, setFormError] = useState("");
+  const [historyError, setHistoryError] = useState("");
+  const [success, setSuccess] = useState("");
+  const inactive = store.status === "INACTIVE";
+
+  const reloadHistory = useCallback(async () => {
+    setLoadingHistory(true);
+    setHistoryError("");
+    try {
+      const query = new URLSearchParams({ category: "NHAP_HANG", storeId: store.id });
+      const response = await fetch(`/api/records?${query.toString()}`);
+      const result = await response.json().catch(() => ({})) as { records?: unknown[]; message?: string };
+      if (!response.ok) throw new Error(result.message ?? "Không thể tải lịch sử nhập hàng.");
+      const normalized = (result.records ?? [])
+        .map(normalizeReceipt)
+        .filter((record): record is InventoryReceipt => record !== null)
+        .sort((first, second) => (Date.parse(second.createdAt) || 0) - (Date.parse(first.createdAt) || 0));
+      setReceipts(normalized);
+    } catch (error) {
+      setHistoryError(error instanceof Error ? error.message : "Không thể tải lịch sử nhập hàng.");
+    } finally {
+      setLoadingHistory(false);
+    }
+  }, [store.id]);
+
+  useEffect(() => { void reloadHistory(); }, [reloadHistory]);
+
+  const draftTotals = useMemo(() => items.reduce((totals, item) => {
+    const weight = Math.max(0, finiteNumber(item.weight));
+    const unitPrice = Math.max(0, finiteNumber(item.unitPrice));
+    const shipping = Math.max(0, Math.round(finiteNumber(item.shipping)));
+    const goods = calculateLineGoods(weight, unitPrice);
+    return {
+      quantity: totals.quantity + Math.max(0, Math.round(finiteNumber(item.quantity))),
+      weight: totals.weight + weight,
+      goods: totals.goods + goods,
+      shipping: totals.shipping + shipping,
+      amount: totals.amount + goods + shipping,
+    };
+  }, { quantity: 0, weight: 0, goods: 0, shipping: 0, amount: 0 }), [items]);
+
+  function updateItem(id: string, field: DraftField, value: string) {
+    setItems((current) => current.map((item) => item.id === id ? { ...item, [field]: value } : item));
+    setFormError("");
+    setSuccess("");
+  }
+
+  function addItem() {
+    if (items.length >= 100) return setFormError("Mỗi phiếu nhập được có tối đa 100 mặt hàng.");
+    setItems((current) => [...current, createDraftItem()]);
+    setFormError("");
+    setSuccess("");
+  }
+
+  function removeItem(id: string) {
+    setItems((current) => current.length > 1 ? current.filter((item) => item.id !== id) : current);
+  }
+
+  function validateDraft() {
+    if (!date) return "Vui lòng chọn ngày nhập hàng.";
+    for (let index = 0; index < items.length; index += 1) {
+      const item = items[index];
+      const quantity = Number(item.quantity);
+      const weight = Number(item.weight);
+      const unitPrice = Number(item.unitPrice);
+      const shipping = Number(item.shipping || 0);
+      if (!item.name.trim()) return `Dòng ${index + 1}: vui lòng nhập tên hàng hóa.`;
+      if (!Number.isInteger(quantity) || quantity <= 0) return `Dòng ${index + 1}: số lượng phải là số nguyên dương.`;
+      if (!item.unit.trim()) return `Dòng ${index + 1}: vui lòng chọn đơn vị.`;
+      if (!Number.isFinite(weight) || weight <= 0) return `Dòng ${index + 1}: cân nặng phải lớn hơn 0.`;
+      if (!Number.isSafeInteger(unitPrice) || unitPrice <= 0) return `Dòng ${index + 1}: đơn giá phải là số nguyên dương.`;
+      if (!Number.isSafeInteger(shipping) || shipping < 0) return `Dòng ${index + 1}: phí vận chuyển phải là số nguyên không âm.`;
+      const goodsAmount = Math.round(weight * unitPrice);
+      if (!Number.isSafeInteger(goodsAmount) || !Number.isSafeInteger(goodsAmount + shipping)) return `Dòng ${index + 1}: thành tiền vượt giới hạn cho phép.`;
+    }
+    return "";
+  }
+
+  async function saveReceipt(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setFormError("");
+    setSuccess("");
+    if (inactive) return setFormError("Cửa hàng đang ngưng hoạt động, không thể tạo phiếu nhập.");
+    const validationMessage = validateDraft();
+    if (validationMessage) return setFormError(validationMessage);
+
+    const payloadItems: InventoryItem[] = items.map((item) => ({
+      name: item.name.trim(),
+      quantity: Number(item.quantity),
+      unit: item.unit.trim() || "Bao",
+      weight: Number(item.weight),
+      unitPrice: Number(item.unitPrice),
+      shipping: Number(item.shipping || 0),
+      amount: calculateDraftAmount(item),
+    }));
+
+    setSaving(true);
+    try {
+      const response = await fetch("/api/records", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          category: "NHAP_HANG",
+          storeId: store.id,
+          title: `Phiếu nhập ${date} · ${payloadItems.length} mặt hàng`,
+          data: { date, period: date.slice(0, 7), note: note.trim(), items: payloadItems },
+        }),
+      });
+      const result = await response.json().catch(() => ({})) as { message?: string };
+      if (!response.ok) throw new Error(result.message ?? "Không thể lưu phiếu nhập hàng.");
+
+      // Reset only after the server confirms that the complete receipt was saved.
+      setItems([createDraftItem()]);
+      setDate(todayInVietnam());
+      setNote("");
+      setSuccess(result.message ?? "Đã lưu phiếu nhập hàng và ghi nhận vào lịch sử.");
+      await reloadHistory();
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : "Không thể lưu phiếu nhập hàng.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return <div className="reference-module inventory-management">
+    <div className="ref-toolbar">
+      <div>
+        <h2>Nhập hàng</h2>
+        <p>Lập phiếu nhập nhiều mặt hàng cho {store.name}</p>
+      </div>
+      <div className="ref-toolbar-actions">
+        <button type="button" disabled={inactive || saving || items.length >= 100} onClick={addItem}>
+          <Plus size={17}/> Thêm hàng hóa
+        </button>
+      </div>
+    </div>
+
+    {inactive && <div className="form-message">Cửa hàng đang ngưng hoạt động. Lịch sử vẫn xem và xuất được nhưng không thể tạo phiếu mới.</div>}
+
+    <form className="table-card" onSubmit={saveReceipt}>
+      <div className="table-head">
+        <div>
+          <h2>Phiếu nhập hàng mới</h2>
+          <p>Danh sách nháp luôn được giữ lại cho đến khi lưu thành công.</p>
+        </div>
+        <label>
+          Ngày nhập
+          <input type="date" required disabled={inactive || saving} value={date} onChange={(event) => setDate(event.target.value)}/>
+        </label>
+      </div>
+
+      <fieldset disabled={inactive || saving} style={{ border: 0, margin: 0, padding: 0 }}>
+        <div className="data-table-wrap">
+          <table className="data-table inventory-draft-table" style={{ minWidth: 1180 }}>
+            <thead><tr>
+              <th>STT</th><th>Tên hàng hóa</th><th>Số lượng</th><th>Đơn vị</th>
+              <th>Cân nặng (kg)</th><th>Đơn giá nhập/kg</th><th>Phí vận chuyển</th>
+              <th>Thành tiền</th><th>Thao tác</th>
+            </tr></thead>
+            <tbody>{items.map((item, index) => <tr key={item.id}>
+              <td>{index + 1}</td>
+              <td><input aria-label={`Tên hàng hóa dòng ${index + 1}`} required value={item.name} onChange={(event) => updateItem(item.id, "name", event.target.value)} placeholder="Tên hàng hóa"/></td>
+              <td><input aria-label={`Số lượng dòng ${index + 1}`} type="number" min="1" step="1" required value={item.quantity} onChange={(event) => updateItem(item.id, "quantity", event.target.value)}/></td>
+              <td><select aria-label={`Đơn vị dòng ${index + 1}`} value={item.unit} onChange={(event) => updateItem(item.id, "unit", event.target.value)}><option>Bao</option><option>Kiện</option><option>Thùng</option><option>Cái</option></select></td>
+              <td><input aria-label={`Cân nặng dòng ${index + 1}`} type="number" min="0.01" step="0.01" required value={item.weight} onChange={(event) => updateItem(item.id, "weight", event.target.value)}/></td>
+              <td><input aria-label={`Đơn giá dòng ${index + 1}`} type="number" min="1" step="1" required value={item.unitPrice} onChange={(event) => updateItem(item.id, "unitPrice", event.target.value)}/></td>
+              <td><input aria-label={`Phí vận chuyển dòng ${index + 1}`} type="number" min="0" step="1" required value={item.shipping} onChange={(event) => updateItem(item.id, "shipping", event.target.value)}/></td>
+              <td><b>{formatMoney(calculateDraftAmount(item))}</b></td>
+              <td><button type="button" disabled={items.length === 1} onClick={() => removeItem(item.id)} aria-label={`Xóa dòng ${index + 1}`}><Trash2 size={16}/></button></td>
+            </tr>)}</tbody>
+            <tfoot><tr>
+              <td colSpan={2}><b>Tổng phiếu · {items.length} mặt hàng</b></td>
+              <td>{formatNumber(draftTotals.quantity)}</td><td>—</td>
+              <td>{formatNumber(draftTotals.weight)} kg</td>
+              <td>{formatMoney(draftTotals.goods)}</td>
+              <td>{formatMoney(draftTotals.shipping)}</td>
+              <td><b>{formatMoney(draftTotals.amount)}</b></td><td/>
+            </tr></tfoot>
+          </table>
+        </div>
+        <div style={{ display: "grid", gap: 8, padding: "18px 20px 0" }}>
+          <label>Ghi chú<textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Ghi chú chung cho phiếu nhập"/></label>
+        </div>
+      </fieldset>
+
+      {formError && <div className="form-message" style={{ margin: "16px 20px 0" }}>{formError}</div>}
+      {success && <div className="success-banner" style={{ margin: "16px 20px 0" }}>{success}</div>}
+      <div style={{ display: "flex", justifyContent: "flex-end", padding: 20 }}>
+        <button className="primary-button" disabled={inactive || saving}>
+          <Save size={17}/> {saving ? "ĐANG LƯU..." : "LƯU PHIẾU"}
+        </button>
+      </div>
+    </form>
+
+    <section className="table-card">
+      <div className="table-head">
+        <div>
+          <h2>Lịch sử nhập hàng theo phiếu</h2>
+          <p>{receipts.length} phiếu đã ghi nhận</p>
+        </div>
+        <button type="button" disabled={receipts.length === 0} onClick={() => exportInventoryCsv(store, receipts)}>
+          <Download size={16}/> Xuất CSV
+        </button>
+      </div>
+      {historyError && <div className="form-message" style={{ margin: 20 }}>{historyError}</div>}
+      <div className="data-table-wrap">
+        <table className="data-table inventory-history-table" style={{ minWidth: 1260 }}>
+          <thead><tr>
+            <th>Thời điểm lưu</th><th>Ngày nhập</th><th>Mã phiếu</th><th>Tổng hàng</th>
+            <th>Khối lượng</th><th>Giá hàng</th><th>Vận chuyển</th><th>Tổng cộng</th>
+            <th>Ghi chú</th><th>Chi tiết</th>
+          </tr></thead>
+          <tbody>
+            {loadingHistory ? <tr><td colSpan={10} className="empty-cell">Đang tải lịch sử nhập hàng...</td></tr> : receipts.length === 0 ? <tr><td colSpan={10} className="empty-cell"><PackageOpen size={22}/> Chưa có phiếu nhập hàng.</td></tr> : receipts.map((receipt) => {
+              const totals = receiptTotals(receipt.items);
+              const expanded = expandedId === receipt.id;
+              return <Fragment key={receipt.id}>
+                <tr>
+                  <td>{formatTimestamp(receipt.createdAt)}</td>
+                  <td>{receipt.date || "—"}</td>
+                  <td><b>{receipt.receiptNo}</b></td>
+                  <td><b>{totals.itemLines} mặt hàng</b><small style={{ display: "block" }}>{formatNumber(totals.quantity)} đơn vị</small></td>
+                  <td>{formatNumber(totals.weight)} kg</td>
+                  <td>{formatMoney(totals.goods)}</td>
+                  <td>{formatMoney(totals.shipping)}</td>
+                  <td className="money-green"><b>{formatMoney(totals.amount)}</b></td>
+                  <td>{receipt.note || "—"}</td>
+                  <td><button type="button" aria-expanded={expanded} onClick={() => setExpandedId(expanded ? null : receipt.id)}>{expanded ? <ChevronDown size={16}/> : <ChevronRight size={16}/>} {expanded ? "Thu gọn" : "Xem"}</button></td>
+                </tr>
+                {expanded && <tr>
+                  <td colSpan={10} style={{ padding: 0, background: "#f8faf8" }}>
+                    <div className="data-table-wrap">
+                      <table className="data-table" style={{ minWidth: 980 }}>
+                        <thead><tr><th>STT</th><th>Tên hàng hóa</th><th>Số lượng</th><th>Đơn vị</th><th>Cân nặng</th><th>Đơn giá nhập/kg</th><th>Giá hàng</th><th>Phí vận chuyển</th><th>Thành tiền</th></tr></thead>
+                        <tbody>{receipt.items.map((item, index) => <tr key={`${receipt.id}-${index}`}>
+                          <td>{index + 1}</td><td><b>{item.name || "—"}</b></td><td>{formatNumber(item.quantity)}</td><td>{item.unit}</td>
+                          <td>{formatNumber(item.weight)} kg</td><td>{formatMoney(item.unitPrice)}</td><td>{formatMoney(itemGoodsAmount(item))}</td>
+                          <td>{formatMoney(item.shipping)}</td><td className="money-green"><b>{formatMoney(item.amount)}</b></td>
+                        </tr>)}</tbody>
+                      </table>
+                    </div>
+                  </td>
+                </tr>}
+              </Fragment>;
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>;
+}

@@ -1,5 +1,5 @@
 import { initDb, writeAudit } from "../../../db/runtime";
-import { getSessionUser, json } from "../_lib/auth";
+import { getSessionUser, INACTIVE_STORE_MESSAGE, isStoreActive, json } from "../_lib/auth";
 
 export async function GET(request: Request) {
   const user = await getSessionUser(request);
@@ -23,6 +23,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const user = await getSessionUser(request);
   if (!user || user.role !== "EMPLOYEE") return json({ message: "Chỉ nhân viên mới tạo đơn trong ca." }, 403);
+  if (!await isStoreActive(user.storeId)) return json({ message: INACTIVE_STORE_MESSAGE }, 409);
   if (!user.shiftActive || !user.currentShift || !user.employeeId || !user.storeId) return json({ message: "Bạn chưa bắt đầu ca làm việc" }, 409);
   const body = await request.json().catch(() => ({})) as { customerName?: string; phone?: string; age?: number | string; amount?: number | string; paymentMethod?: string };
   const amount = Number(body.amount);
@@ -43,6 +44,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const user = await getSessionUser(request);
   if (!user || user.role !== "EMPLOYEE") return json({ message: "Chỉ nhân viên mới cập nhật đơn trong ca." }, 403);
+  if (!await isStoreActive(user.storeId)) return json({ message: INACTIVE_STORE_MESSAGE }, 409);
   if (!user.shiftActive || !user.currentShift || !user.employeeId || !user.storeId) return json({ message: "Bạn chưa bắt đầu ca làm việc" }, 409);
   const body = await request.json().catch(() => ({})) as { id?: string; customerName?: string; phone?: string; age?: number | string; amount?: number | string; paymentMethod?: string };
   const amount = Number(body.amount);
@@ -64,6 +66,7 @@ export async function PATCH(request: Request) {
 export async function DELETE(request: Request) {
   const user = await getSessionUser(request);
   if (!user || user.role !== "EMPLOYEE" || !user.shiftActive || !user.currentShift || !user.employeeId || !user.storeId) return json({ message: "Không thể hủy đơn ngoài ca hiện tại." }, 403);
+  if (!await isStoreActive(user.storeId)) return json({ message: INACTIVE_STORE_MESSAGE }, 409);
   const id = new URL(request.url).searchParams.get("id");
   const db = await initDb();
   const order = await db.prepare("SELECT * FROM orders WHERE id = ? AND store_id = ? AND employee_id = ? AND shift_code = ? AND status = 'COMPLETED'").bind(id, user.storeId, user.employeeId, user.currentShift).first();
