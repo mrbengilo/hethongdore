@@ -360,11 +360,6 @@ export function StoreInventoryManagement({ store }: { store: InventoryStore }) {
         <h2>Nhập hàng</h2>
         <p>Lập phiếu nhập nhiều mặt hàng cho {store.name}</p>
       </div>
-      <div className="ref-toolbar-actions">
-        <button type="button" disabled={inactive || saving || items.length >= 100} onClick={addItem}>
-          <Plus size={17}/> Thêm hàng hóa
-        </button>
-      </div>
     </div>
 
     {inactive && <div className="form-message">Cửa hàng đang ngưng hoạt động. Lịch sử vẫn xem và xuất được nhưng không thể tạo phiếu mới.</div>}
@@ -416,6 +411,11 @@ export function StoreInventoryManagement({ store }: { store: InventoryStore }) {
               <td><b>{formatMoney(draftTotals.amount)}</b></td><td/>
             </tr></tfoot>
           </table>
+        </div>
+        <div className="inventory-add-item-actions">
+          <button type="button" disabled={inactive || saving || items.length >= 100} onClick={addItem}>
+            <Plus size={17}/> Thêm hàng hóa
+          </button>
         </div>
         <div style={{ display: "grid", gap: 8, padding: "18px 20px 0" }}>
           <label>Ghi chú<textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Ghi chú chung cho phiếu nhập"/></label>

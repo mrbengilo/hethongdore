@@ -394,10 +394,30 @@ function addDayExpense(day: StoreRangeFinanceDay, field: keyof StoreExpenseBreak
 }
 
 /**
+ * Recognize a monthly amount once, on the payroll period's closing date. The
+ * store must have had at least one active day in the period, while the selected
+ * date-range map decides whether that closing date belongs to the requested
+ * slice. A partial daily report therefore cannot accrue a fraction of the fixed
+ * manager salary before month close.
+ */
+function addMonthlyExpenseAtClose(
+  amount: number,
+  field: keyof StoreExpenseBreakdown,
+  closeDate: string,
+  eligibleDates: string[],
+  selectedDays: Map<string, StoreRangeFinanceDay>,
+) {
+  if (amount <= 0 || eligibleDates.length === 0) return;
+  const day = selectedDays.get(closeDate);
+  if (day) addDayExpense(day, field, amount);
+}
+
+/**
  * Date-range accounting view. Direct activity is attributed to its persisted
- * Vietnam work/record date; monthly costs are accrued across the days on which
- * the store existed and was active. This keeps range totals equal to timeline
- * totals and prevents salary from appearing before a store existed.
+ * Vietnam work/record date. Recurring operating costs are accrued across the
+ * days on which the store existed and was active, while the fixed manager
+ * salary is recognized once at that store-period's close. This keeps range
+ * totals equal to timeline totals without inventing a daily manager salary.
  */
 export async function storeDateRangeFinance(
   db: Db,
@@ -497,11 +517,17 @@ export async function storeDateRangeFinance(
       calculationStatus: finance.calculationStatus,
       settlementStatus: finance.settlementStatus,
     });
-    const eligibleDates = localDateRangeKeys(localMonthRange(period))
+    const monthRange = localMonthRange(period);
+    const eligibleDates = localDateRangeKeys(monthRange)
       .filter((date) => storeIsActiveOnDate(createdDate, transitions, date));
     allocateMonthlyExpense(finance.expenseBreakdown.fixedCosts, "fixedCosts", eligibleDates, days);
     allocateMonthlyExpense(finance.expenseBreakdown.supportAllowance, "supportAllowance", eligibleDates, days);
-    allocateMonthlyExpense(finance.expenseBreakdown.managerSalary, "managerSalary", eligibleDates, days);
+    // Payroll preview still subtracts the fixed salary when choosing the KPI
+    // tier, but accounting reports only recognize that salary after the store
+    // confirms the actual payroll payment.
+    if (finance.settlementStatus === "PAYMENT_CONFIRMED" || finance.settlementStatus === "LOCKED") {
+      addMonthlyExpenseAtClose(finance.expenseBreakdown.managerSalary, "managerSalary", monthRange.to, eligibleDates, days);
+    }
     if (finance.calculationStatus === "LOCKED") {
       allocateMonthlyExpense(finance.expenseBreakdown.employeeKpiBonus, "employeeKpiBonus", eligibleDates, days);
       allocateMonthlyExpense(finance.expenseBreakdown.managerBonus, "managerBonus", eligibleDates, days);

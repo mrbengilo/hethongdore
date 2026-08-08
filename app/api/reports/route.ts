@@ -384,7 +384,7 @@ export async function GET(request: Request) {
       timeZone: "Asia/Ho_Chi_Minh",
       endDateInclusive: true,
       directActivity: "Ca làm và chi phí có ngày được ghi nhận đúng ngày nghiệp vụ.",
-      monthlyAccrual: "Chi phí cố định và lương quản lý được phân bổ theo ngày cửa hàng hoạt động; tổng các ngày khớp tổng kỳ.",
+      monthlyAccrual: "Chi phí cố định được phân bổ theo ngày cửa hàng hoạt động; lương quản lý chỉ ghi nhận một lần vào ngày cuối kỳ sau khi xác nhận đã chi.",
       performanceRewards: "KPI nhân viên và quản lý chỉ được ghi nhận từ ảnh chụp kỳ đã khóa; kỳ chưa khóa có trạng thái PROVISIONAL.",
     },
     profitSharingMembers: PROFIT_SHARING_MEMBERS,

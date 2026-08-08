@@ -18,9 +18,9 @@ export async function generateMetadata(): Promise<Metadata> {
     title,
     description,
     icons: {
-      icon: [{ url: "/logo.jpg?v=20260808", type: "image/jpeg" }],
-      shortcut: [{ url: "/logo.jpg?v=20260808", type: "image/jpeg" }],
-      apple: [{ url: "/logo.jpg?v=20260808", type: "image/jpeg" }],
+      icon: [{ url: "/logo.jpg?v=20260808-2", type: "image/jpeg", sizes: "any" }],
+      shortcut: [{ url: "/logo.jpg?v=20260808-2", type: "image/jpeg" }],
+      apple: [{ url: "/logo.jpg?v=20260808-2", type: "image/jpeg" }],
     },
     openGraph: { title, description, type: "website", locale: "vi_VN", images: [{ url: imageUrl, width: 1672, height: 941, alt: "DORE · Quản lý ca làm, tài chính và hàng hóa" }] },
     twitter: { card: "summary_large_image", title, description, images: [imageUrl] },

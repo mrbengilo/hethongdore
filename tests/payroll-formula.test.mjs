@@ -108,6 +108,50 @@ test("store KPI includes 140 manager hours and shares one tier pool exactly", as
   assert.equal(result.employeeBonusTotal + result.managerBonus, result.kpiPool);
 });
 
+test("the supplied 130/120/100-hour example uses its real 490-hour denominator", async () => {
+  const { distributeStoreKpiByPolicy } = await payrollModule();
+  const result = distributeStoreKpiByPolicy(15_000_000, [
+    { employeeId: "employee-1", employmentStatus: "ACTIVE", completedShiftCount: 26, durationSeconds: 130 * 3_600 },
+    { employeeId: "employee-2", employmentStatus: "ACTIVE", completedShiftCount: 24, durationSeconds: 120 * 3_600 },
+    { employeeId: "employee-3", employmentStatus: "ACTIVE", completedShiftCount: 20, durationSeconds: 100 * 3_600 },
+  ]);
+
+  // 140 + 130 + 120 + 100 is 490 (not 510), so 15m / 490 reaches the 7% tier.
+  assert.equal(result.eligibleEmployeeHours, 350);
+  assert.equal(result.totalHours, 490);
+  assert.equal(result.profitPerHour, 30_612);
+  assert.equal(result.kpiRate, 0.07);
+  assert.equal(result.kpiPool, 1_050_000);
+  assert.deepEqual(result.employees.map(({ employeeId, bonus }) => ({ employeeId, bonus })), [
+    { employeeId: "employee-1", bonus: 278_571 },
+    { employeeId: "employee-2", bonus: 257_143 },
+    { employeeId: "employee-3", bonus: 214_286 },
+  ]);
+  assert.equal(result.managerBonus, 300_000);
+  assert.equal(result.employeeBonusTotal + result.managerBonus, 1_050_000);
+});
+
+test("a consistent 510-hour example selects 5 percent and allocates every VND", async () => {
+  const { distributeStoreKpiByPolicy } = await payrollModule();
+  const result = distributeStoreKpiByPolicy(15_000_000, [
+    { employeeId: "employee-1", employmentStatus: "ACTIVE", completedShiftCount: 26, durationSeconds: 130 * 3_600 },
+    { employeeId: "employee-2", employmentStatus: "ACTIVE", completedShiftCount: 24, durationSeconds: 120 * 3_600 },
+    { employeeId: "employee-3", employmentStatus: "ACTIVE", completedShiftCount: 24, durationSeconds: 120 * 3_600 },
+  ]);
+
+  assert.equal(result.totalHours, 510);
+  assert.equal(result.profitPerHour, 29_411);
+  assert.equal(result.kpiRate, 0.05);
+  assert.equal(result.kpiPool, 750_000);
+  assert.deepEqual(result.employees.map(({ employeeId, bonus }) => ({ employeeId, bonus })), [
+    { employeeId: "employee-1", bonus: 191_176 },
+    { employeeId: "employee-2", bonus: 176_471 },
+    { employeeId: "employee-3", bonus: 176_471 },
+  ]);
+  assert.equal(result.managerBonus, 205_882);
+  assert.equal(result.employeeBonusTotal + result.managerBonus, 750_000);
+});
+
 test("manager-only store reaches the 3 percent threshold and VND allocation never leaks rounding", async () => {
   const { distributeStoreKpiByPolicy } = await payrollModule();
   const below = distributeStoreKpiByPolicy(979_999, []);

@@ -56,6 +56,13 @@ test("inventory receipts use a persistent multi-line list and server-calculated 
   assert.match(inventoryUi, /formatMoney\(draftTotals\.amount\)/u);
   assert.match(inventoryUi, /value=\{formatMoneyInput\(item\.unitPrice\)\}/u);
   assert.match(inventoryUi, /value=\{formatMoneyInput\(item\.shipping\)\}/u);
+
+  const draftTableIndex = inventoryUi.indexOf('className="data-table inventory-draft-table"');
+  const addItemActionIndex = inventoryUi.indexOf('className="inventory-add-item-actions"');
+  const noteIndex = inventoryUi.indexOf('placeholder="Ghi chú chung cho phiếu nhập"');
+  assert.ok(draftTableIndex >= 0 && draftTableIndex < addItemActionIndex, "add-item action must follow the inventory list");
+  assert.ok(addItemActionIndex < noteIndex, "add-item action must stay directly above the receipt note");
+  assert.match(inventoryUi, /<button type="button" disabled=\{inactive \|\| saving \|\| items\.length >= 100\} onClick=\{addItem\}>/u);
 });
 
 test("fixed costs use an eight-line resettable draft and persist custom rows in audited history", async () => {
@@ -250,8 +257,11 @@ test("manager payroll uses only locked store ledgers and final profit includes e
   assert.match(aggregation, /if \(!row\.transferId\) \{[\s\S]*secondsByEmployee\.set/u);
   assert.match(aggregation, /employeeStatusForFinancePeriod\(row\.employeeStatus, row\.inactivePeriod, period\)/u);
   assert.match(aggregation, /employee_status_at_lock AS lockedEmploymentStatus[\s\S]*employee_payroll_closings employee_lock[\s\S]*employee_lock\.status IN \('BASE_LOCKED', 'LOCKED'\)/u);
+  assert.match(aggregation, /const baseExpense = sumVnd\(\[[\s\S]*MANAGER_MONTHLY_SALARY_VND[\s\S]*\]\);[\s\S]*const profitBeforePerformanceRewards = revenue - baseExpense/u);
   assert.match(aggregation, /const expense = sumVnd\(\[baseExpense, employeeKpiBonus, managerBonus\]\)/u);
   assert.match(aggregation, /profit: revenue - expense/u);
+  assert.match(aggregation, /finance\.settlementStatus === "PAYMENT_CONFIRMED" \|\| finance\.settlementStatus === "LOCKED"[\s\S]*addMonthlyExpenseAtClose\(finance\.expenseBreakdown\.managerSalary, "managerSalary", monthRange\.to, eligibleDates, days\)/u);
+  assert.doesNotMatch(aggregation, /allocateMonthlyExpense\(finance\.expenseBreakdown\.managerSalary/u);
 });
 
 test("overview and reports share accrual ranges while cashflow labels actual payments distinctly", async () => {
@@ -265,6 +275,7 @@ test("overview and reports share accrual ranges while cashflow labels actual pay
   assert.match(storesApi, /to: fullCurrentRange\.to > today \? today : fullCurrentRange\.to/u);
   assert.match(storesApi, /previousComparableDateRange\(currentRange, "month"\)/u);
   assert.match(reportsApi, /storeDateRangeFinance\(db, id, range\)/u);
+  assert.match(reportsApi, /monthlyAccrual:[\s\S]*lương quản lý chỉ ghi nhận một lần[\s\S]*xác nhận đã chi/u);
   assert.match(cashflowApi, /financeStatus: "ACTUAL_CASH"/u);
   assert.match(cashflowApi, /outflow: "Tiền đã chi thực tế"/u);
   assert.match(cashflowApi, /accountingReconciliation/u);
@@ -305,6 +316,7 @@ test("website and store cards use logo.jpg as the canonical favicon and brand as
   ]);
 
   assert.match(layout, /url: "\/logo\.jpg\?v=/u);
+  assert.match(layout, /type: "image\/jpeg", sizes: "any"/u);
   assert.match(login, /src="\/logo\.jpg"/u);
   assert.match(portal, /src="\/logo\.jpg"/u);
   assert.doesNotMatch(`${layout}\n${login}\n${portal}`, /\/dore-logo\.jpg/u);
