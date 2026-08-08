@@ -8,7 +8,6 @@ import {
   CheckCircle2,
   Download,
   Percent,
-  RefreshCw,
   ShieldCheck,
   Store,
   TrendingUp,
@@ -27,14 +26,6 @@ export type ReferenceStore = {
   expense: number;
   profit: number;
   status: string;
-};
-
-type RecordRow = {
-  id: string;
-  title: string;
-  status: string;
-  data: Record<string, unknown>;
-  created_at: string;
 };
 
 type Employee = {
@@ -71,7 +62,6 @@ type EmployeeTransfer = {
 
 const money = (value: number) => `${new Intl.NumberFormat("en-US").format(Math.round(value))} đồng`;
 const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh" }).format(new Date());
-const monthNow = () => today().slice(0, 7);
 
 function csv(filename: string, rows: Array<Array<string | number>>) {
   const safe = (value: string | number) => `"${String(value).replaceAll('"', '""')}"`;
@@ -82,17 +72,6 @@ function csv(filename: string, rows: Array<Array<string | number>>) {
   link.download = filename;
   link.click();
   URL.revokeObjectURL(url);
-}
-
-function useRecords(category: string) {
-  const [records, setRecords] = useState<RecordRow[]>([]);
-  const reload = useCallback(async () => {
-    const response = await fetch(`/api/records?category=${encodeURIComponent(category)}`);
-    const result = await response.json();
-    setRecords(result.records ?? []);
-  }, [category]);
-  useEffect(() => { reload(); }, [reload]);
-  return { records, reload };
 }
 
 function Metric({ icon: Icon, label, value, note, tone = "green" }: {
@@ -138,26 +117,7 @@ export function ReferenceManagerReports({ stores, totals }: { stores: ReferenceS
 }
 
 export function ReferenceManagerPayroll({ stores }: { stores: ReferenceStore[] }) {
-  const { records, reload } = useRecords("MANAGER_PAYROLL");
-  const [storeId, setStoreId] = useState(stores[0]?.id ?? "");
-  const [month, setMonth] = useState(monthNow());
-  const [message, setMessage] = useState("");
-  const store = stores.find((item) => item.id === storeId) ?? stores[0];
-  const salary = 3_000_000;
-  const bonus = Math.round(Math.max(0, store?.profit ?? 0) * .02);
-  const total = salary + bonus;
-  async function save() {
-    if (!store) return;
-    const existing = records.find((record) => record.data.storeId === store.id && record.data.month === month);
-    const payload = { id: existing?.id, category: "MANAGER_PAYROLL", storeId: store.id, title: `Lương quản lý ${store.name} ${month}`, data: { storeId: store.id, storeName: store.name, month, salary, bonus, total, formula: "2% lợi nhuận" } };
-    const response = await fetch("/api/records", { method: existing ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-    setMessage(response.ok ? "✓ Đã lưu bảng lương quản lý." : "Không thể lưu dữ liệu.");
-    if (response.ok) reload();
-  }
-  const history = records.length ? records : stores.slice(0, 5).map((item, index) => ({ id: item.id, title: item.name, status: "SAVED", created_at: new Date().toISOString(), data: { storeName: item.name, month: `2026-${String(8 - index).padStart(2, "0")}`, salary: 3_000_000, bonus: Math.round(Math.max(0, item.profit) * .02), total: 3_000_000 + Math.round(Math.max(0, item.profit) * .02) } }));
-  return <div className="page-content manager-reference"><section className="manager-panel payroll-form"><div className="payroll-fields"><label>Cửa hàng<select value={storeId} onChange={(event) => setStoreId(event.target.value)}>{stores.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>Tháng / Năm<input type="month" value={month} onChange={(event) => setMonth(event.target.value)}/></label><label>Lương cố định (VNĐ)<input value={new Intl.NumberFormat("vi-VN").format(salary)} disabled/></label><label>Thưởng = 2% lợi nhuận<input value={new Intl.NumberFormat("vi-VN").format(bonus)} disabled/></label></div><aside className="payroll-guide"><h3>ⓘ Hướng dẫn</h3><p>Lương quản lý cố định <b>3.000.000 đ/tháng/cửa hàng</b>.</p><p>Thưởng được tự động tính bằng <b>2% lợi nhuận tổng</b> của cửa hàng.</p><p>Danh mục này không áp dụng phụ cấp.</p></aside><div className="payroll-total"><span>Tổng nhận</span><strong>{money(total)}</strong><small>Lương cố định + Thưởng</small></div><div className="payroll-actions"><button onClick={() => setMessage("")}><RefreshCw size={17}/> Hủy</button><button className="primary-button" onClick={save}><CheckCircle2 size={17}/> Lưu</button></div>{message && <div className="success-banner">{message}</div>}</section>
-    <section className="manager-panel table-panel"><div className="panel-title"><h2>Lịch sử lương thưởng</h2><button onClick={() => csv("luong-thuong-quan-ly.csv", [["Tháng", "Cửa hàng", "Lương", "Thưởng", "Tổng nhận"], ...history.map((record) => [String(record.data.month ?? ""), String(record.data.storeName ?? ""), Number(record.data.salary ?? 0), Number(record.data.bonus ?? 0), Number(record.data.total ?? 0)])])}><Download size={17}/> Xuất Excel</button></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>STT</th><th>Tháng / Năm</th><th>Cửa hàng</th><th>Lương</th><th>Thưởng 2%</th><th>Tổng nhận</th><th>Trạng thái</th></tr></thead><tbody>{history.map((record, index) => <tr key={record.id}><td>{index + 1}</td><td>{String(record.data.month ?? "")}</td><td>{String(record.data.storeName ?? "")}</td><td>{money(Number(record.data.salary ?? 0))}</td><td>{money(Number(record.data.bonus ?? 0))}</td><td className="money-green">{money(Number(record.data.total ?? 0))}</td><td><span className="status-pill">Đã lưu</span></td></tr>)}</tbody></table></div></section>
-  </div>;
+  return <div className="page-content manager-reference"><section className="manager-panel payroll-form"><h2>Lương thưởng quản lý được lấy từ kỳ đã khóa</h2><div className="notice-banner" role="note">Màn hình tham chiếu này không tạo hoặc sửa bảng lương. Số chính thức chỉ xuất hiện sau khi cửa hàng xác nhận chi và khóa kỳ trong danh mục <b>Lương thưởng quản lý</b>.</div><aside className="payroll-guide"><h3>Chính sách hiện hành</h3><p>Lương quản lý cố định <b>3.000.000 đ/cửa hàng/kỳ</b>.</p><p>Mỗi cửa hàng ghi nhận <b>140 giờ quản lý</b> trong tổng giờ tính KPI.</p><p>Quỹ KPI chọn một ngưỡng <b>3%, 5% hoặc 7%</b> theo lợi nhuận trên tổng giờ, rồi chia cho nhân viên đủ điều kiện và quản lý theo tỷ trọng giờ.</p><p>Ca hỗ trợ không được cộng vào tổng giờ KPI của cửa hàng nhận hỗ trợ.</p></aside></section><section className="manager-panel table-panel"><div className="panel-title"><h2>Cửa hàng áp dụng chính sách</h2><span>{stores.length} cửa hàng</span></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>STT</th><th>Cửa hàng</th><th>Lương cố định</th><th>Giờ quản lý</th><th>Nguồn số liệu</th></tr></thead><tbody>{stores.length === 0 ? <tr><td colSpan={5} className="empty-cell">Chưa có cửa hàng.</td></tr> : stores.map((store, index) => <tr key={store.id}><td>{index + 1}</td><td><b>{store.name}</b></td><td>{money(3_000_000)}</td><td>140 giờ</td><td><span className="status-pill">Kỳ đã khóa</span></td></tr>)}</tbody></table></div></section></div>;
 }
 
 export function ReferenceManagerTransfer({ stores }: { stores: ReferenceStore[] }) {

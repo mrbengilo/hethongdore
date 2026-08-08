@@ -137,7 +137,8 @@ test("offboarding KPI uses completed shift eligibility and keeps individual KPI 
   ]);
 
   assert.match(payroll, /AS completedShiftCount/u);
-  assert.match(payroll, /distributeEmployeeKpiByPolicy\(profit/u);
+  assert.match(payroll, /distributeStoreKpiByPolicy\(profit/u);
+  assert.match(payroll, /kpiCompletedShiftCount/u);
   assert.match(payroll, /kpiEligibleDurationSeconds/u);
   assert.match(payroll, /const kpiDeferred = true/u);
   assert.match(payrollPolicy, /INACTIVE_EMPLOYEE_KPI_MIN_COMPLETED_SHIFTS = 15/u);
@@ -175,6 +176,6 @@ test("employee form and payroll controls remain visible", async () => {
   assert.match(payrollUi, /completedShiftCount/u);
   assert.match(payrollUi, /Đủ điều kiện KPI/u);
   assert.match(payrollUi, /Không đủ điều kiện KPI/u);
-  assert.match(payrollUi, /ca thực tế/u);
+  assert.match(payrollUi, /ca chính thực tế/u);
   assert.match(css, /employee-kpi-status/u);
 });

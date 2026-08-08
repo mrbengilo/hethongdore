@@ -81,6 +81,52 @@ test("active employees always participate by actual worked time", async () => {
   ]);
 });
 
+test("store KPI includes 140 manager hours and shares one tier pool exactly", async () => {
+  const {
+    MANAGER_FIXED_WORK_HOURS_PER_STORE,
+    distributeStoreKpiByPolicy,
+  } = await payrollModule();
+  const result = distributeStoreKpiByPolicy(7_200_000, [
+    { employeeId: "active", employmentStatus: "ACTIVE", completedShiftCount: 8, durationSeconds: 60 * 3_600 },
+    { employeeId: "left-early", employmentStatus: "INACTIVE", completedShiftCount: 14, durationSeconds: 20 * 3_600 },
+    { employeeId: "left-qualified", employmentStatus: "INACTIVE", completedShiftCount: 15, durationSeconds: 40 * 3_600 },
+  ]);
+
+  assert.equal(MANAGER_FIXED_WORK_HOURS_PER_STORE, 140);
+  assert.equal(result.eligibleEmployeeHours, 100);
+  assert.equal(result.totalHours, 240);
+  assert.equal(result.profitPerHour, 30_000);
+  assert.equal(result.kpiRate, 0.07);
+  assert.equal(result.kpiPool, 504_000);
+  assert.deepEqual(result.employees.map(({ employeeId, eligible, bonus }) => ({ employeeId, eligible, bonus })), [
+    { employeeId: "active", eligible: true, bonus: 126_000 },
+    { employeeId: "left-early", eligible: false, bonus: 0 },
+    { employeeId: "left-qualified", eligible: true, bonus: 84_000 },
+  ]);
+  assert.equal(result.employeeBonusTotal, 210_000);
+  assert.deepEqual(result.manager, { durationSeconds: 140 * 3_600, hours: 140, bonus: 294_000 });
+  assert.equal(result.employeeBonusTotal + result.managerBonus, result.kpiPool);
+});
+
+test("manager-only store reaches the 3 percent threshold and VND allocation never leaks rounding", async () => {
+  const { distributeStoreKpiByPolicy } = await payrollModule();
+  const below = distributeStoreKpiByPolicy(979_999, []);
+  assert.equal(below.kpiRate, 0);
+  assert.equal(below.managerBonus, 0);
+
+  const threshold = distributeStoreKpiByPolicy(980_000, []);
+  assert.equal(threshold.profitPerHour, 7_000);
+  assert.equal(threshold.kpiRate, 0.03);
+  assert.equal(threshold.kpiPool, 29_400);
+  assert.equal(threshold.managerBonus, 29_400);
+
+  const rounding = distributeStoreKpiByPolicy(10_000_001, [
+    { employeeId: "one-second", employmentStatus: "ACTIVE", completedShiftCount: 1, durationSeconds: 1 },
+    { employeeId: "two-seconds", employmentStatus: "ACTIVE", completedShiftCount: 1, durationSeconds: 2 },
+  ]);
+  assert.equal(rounding.employeeBonusTotal + rounding.managerBonus, rounding.kpiPool);
+});
+
 test("multi-store employee payroll is locked and paid only when every source is complete", async () => {
   const { employeePayrollOverallState } = await payrollModule();
 

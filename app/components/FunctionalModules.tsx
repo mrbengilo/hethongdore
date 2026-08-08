@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { Download, Pencil, Plus, Trash2 } from "lucide-react";
+import { BellRing, Download, Eye, EyeOff, KeyRound, Languages, LockKeyhole, Pencil, Plus, Save, ShieldCheck, Trash2, UserRoundCog } from "lucide-react";
 
 export type FunctionalStore = { id: string; name: string; address: string; revenue: number; expense: number; profit: number; status: string };
 export type FunctionalUser = { id: string; name: string; storeId: string | null; employeeId: string | null };
@@ -79,18 +79,7 @@ export function FunctionalEmployeeTasks({ user }: { user: FunctionalUser }) {
 }
 
 export function FunctionalManagerPayroll({ stores }: { stores: FunctionalStore[] }) {
-  const [storeId, setStoreId] = useState(stores[0]?.id ?? "");
-  const [month, setMonth] = useState(monthNow());
-  const [message, setMessage] = useState("");
-  const { records, reload } = useRecords("MANAGER_PAYROLL");
-  const store = stores.find((item) => item.id === storeId);
-  const salary = 3000000;
-  const bonus = Math.max(0, Math.round((store?.profit ?? 0) * .02));
-  async function save() {
-    const response = await fetch("/api/records", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ category: "MANAGER_PAYROLL", storeId, title: `${store?.name ?? "Cửa hàng"} · ${month}`, data: { month, salary, bonus, total: salary + bonus, formula: "2% lợi nhuận" } }) });
-    const result = await response.json(); setMessage(response.ok ? "✓ Đã chốt lương thưởng quản lý." : result.message); if (response.ok) reload();
-  }
-  return <div className="page-content"><div className="form-card"><div className="form-grid two"><label>Cửa hàng<select value={storeId} onChange={(e) => setStoreId(e.target.value)}>{stores.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label><label>Tháng / Năm<input type="month" value={month} onChange={(e) => setMonth(e.target.value)}/></label><label>Lương cố định<input value={money(salary)} disabled/></label><label>Thưởng = 2% lợi nhuận<input value={money(bonus)} disabled/></label></div><div className="share-total"><span>Tổng nhận</span><b>{money(salary + bonus)}</b></div><button className="primary-button align-right" onClick={save}>Lưu bảng lương</button>{message && <div className={message.startsWith("✓") ? "success-banner" : "form-message"}>{message}</div>}</div><div className="table-card"><div className="table-head"><h2>Lịch sử lương thưởng quản lý</h2><button onClick={() => downloadCsv("luong-quan-ly.csv", [["Kỳ", "Cửa hàng", "Lương", "Thưởng", "Tổng"], ...records.map((r) => [String(r.data.month ?? ""), r.title, Number(r.data.salary ?? 0), Number(r.data.bonus ?? 0), Number(r.data.total ?? 0)])])}><Download size={16}/> Xuất Excel</button></div><table className="data-table"><thead><tr><th>Kỳ</th><th>Cửa hàng</th><th>Lương</th><th>Thưởng</th><th>Tổng nhận</th><th>Thao tác</th></tr></thead><tbody>{records.map((record) => <tr key={record.id}><td>{String(record.data.month ?? "")}</td><td>{record.title}</td><td>{money(Number(record.data.salary ?? 0))}</td><td>{money(Number(record.data.bonus ?? 0))}</td><td className="money-green">{money(Number(record.data.total ?? 0))}</td><td><button className="danger-link" onClick={() => removeRecord(record.id, reload)}>Xóa</button></td></tr>)}</tbody></table></div></div>;
+  return <div className="page-content"><section className="form-card"><h2>Lương thưởng quản lý được lấy từ kỳ đã khóa</h2><div className="notice-banner" role="note">Màn hình cũ này chỉ cung cấp hướng dẫn và không được tạo bảng lương thủ công. Hãy dùng danh mục <b>Lương thưởng quản lý</b> để xem số liệu đã xác nhận chi và khóa sổ.</div><div className="payroll-guide"><p>Lương cố định: <b>{money(3_000_000)}/cửa hàng/kỳ</b>.</p><p>Giờ quản lý cố định: <b>140 giờ/cửa hàng</b>.</p><p>Thưởng KPI dùng chung quỹ với nhân viên theo tỷ trọng giờ và một trong ba ngưỡng <b>3%, 5% hoặc 7%</b>; không nhập hoặc sửa thủ công.</p></div></section><section className="table-card"><div className="table-head"><h2>Cửa hàng áp dụng chính sách</h2><span>{stores.length} cửa hàng</span></div><table className="data-table"><thead><tr><th>Cửa hàng</th><th>Lương cố định</th><th>Giờ quản lý</th><th>Nguồn số liệu</th></tr></thead><tbody>{stores.length === 0 ? <tr><td colSpan={4} className="empty-cell">Chưa có cửa hàng.</td></tr> : stores.map((store) => <tr key={store.id}><td><b>{store.name}</b></td><td>{money(3_000_000)}</td><td>140 giờ</td><td>Kỳ lương đã xác nhận chi và khóa</td></tr>)}</tbody></table></section></div>;
 }
 
 export function FunctionalEmployees({ store }: { store: FunctionalStore }) {
@@ -128,10 +117,85 @@ export function FunctionalDividend({ totals }: { totals: { revenue: number; expe
 }
 
 export function FunctionalSettings({ name, email, storeId }: { name: string; email: string; storeId?: string | null }) {
-  const { records, reload } = useRecords("PROFILE", storeId); const current = records[0]; const [form, setForm] = useState({ name, email, phone: "0901 234 567", address: "Ninh Kiều, TP. Cần Thơ", intro: "Quản lý hệ thống chuỗi cửa hàng DORE." }); const [message, setMessage] = useState("");
-  useEffect(() => { if (current) setForm({ name: String(current.data.name ?? name), email: String(current.data.email ?? email), phone: String(current.data.phone ?? ""), address: String(current.data.address ?? ""), intro: String(current.data.intro ?? "") }); }, [current, email, name]);
-  async function save() { const response = await fetch("/api/records", { method: current ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: current?.id, category: "PROFILE", storeId: storeId ?? null, title: `Hồ sơ ${form.name}`, data: form }) }); const result = await response.json(); setMessage(response.ok ? "✓ Đã lưu thông tin. Dữ liệu vẫn còn sau khi tải lại trang." : result.message); if (response.ok) reload(); }
-  return <div className="page-content settings-layout"><aside className="settings-nav"><h2>Cài đặt</h2><button className="active">▣ Thông tin cá nhân</button><button disabled>▢ Đổi mật khẩu</button><button disabled>♧ Thông báo</button><button disabled>◎ Ngôn ngữ</button></aside><section className="form-card"><h2>Thông tin cá nhân</h2><p className="muted">Cập nhật thông tin tài khoản của bạn.</p><div className="profile-form"><div className="profile-photo">{form.name.slice(0, 1)}</div><div className="form-grid two"><label>Họ và tên<input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}/></label><label>Email<input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })}/></label><label>Số điện thoại<input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })}/></label><label>Chức vụ<input value="Quản lý hệ thống" disabled/></label></div></div><label>Địa chỉ<input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })}/></label><label>Giới thiệu<textarea value={form.intro} onChange={(e) => setForm({ ...form, intro: e.target.value })}/></label><button className="primary-button align-right" onClick={save}>Lưu thay đổi</button>{message && <div className={message.startsWith("✓") ? "success-banner" : "form-message"}>{message}</div>}</section></div>;
+  const { records, reload } = useRecords("PROFILE", storeId);
+  const current = records[0];
+  const [activeTab, setActiveTab] = useState<"profile" | "password">("profile");
+  const [form, setForm] = useState({ name, email, phone: "0901 234 567", address: "Ninh Kiều, TP. Cần Thơ", intro: "Quản lý hệ thống chuỗi cửa hàng DORE." });
+  const [message, setMessage] = useState("");
+  const [passwordForm, setPasswordForm] = useState({ currentPassword: "", newPassword: "", confirmPassword: "" });
+  const [passwordVisible, setPasswordVisible] = useState({ current: false, next: false, confirm: false });
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const [passwordMessage, setPasswordMessage] = useState("");
+  const [passwordSuccess, setPasswordSuccess] = useState(false);
+
+  useEffect(() => {
+    if (current) setForm({ name: String(current.data.name ?? name), email: String(current.data.email ?? email), phone: String(current.data.phone ?? ""), address: String(current.data.address ?? ""), intro: String(current.data.intro ?? "") });
+  }, [current, email, name]);
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const response = await fetch("/api/records", { method: current ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: current?.id, category: "PROFILE", storeId: storeId ?? null, title: `Hồ sơ ${form.name}`, data: form }) });
+    const result = await response.json();
+    setMessage(response.ok ? "✓ Đã lưu thông tin. Dữ liệu vẫn còn sau khi tải lại trang." : result.message);
+    if (response.ok) void reload();
+  }
+
+  async function changePassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPasswordSuccess(false);
+    if (passwordForm.newPassword.length < 8) return setPasswordMessage("Mật khẩu mới phải có ít nhất 8 ký tự.");
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) return setPasswordMessage("Xác nhận mật khẩu mới chưa khớp.");
+    if (passwordForm.currentPassword === passwordForm.newPassword) return setPasswordMessage("Mật khẩu mới phải khác mật khẩu hiện tại.");
+    setPasswordSaving(true);
+    setPasswordMessage("");
+    try {
+      const response = await fetch("/api/auth/password", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(passwordForm),
+      });
+      const result = await response.json().catch(() => ({})) as { message?: string };
+      setPasswordSuccess(response.ok);
+      setPasswordMessage(result.message ?? (response.ok ? "Đã đổi mật khẩu an toàn." : "Không thể đổi mật khẩu."));
+      if (response.ok) setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
+    } finally {
+      setPasswordSaving(false);
+    }
+  }
+
+  function togglePassword(field: keyof typeof passwordVisible) {
+    setPasswordVisible((value) => ({ ...value, [field]: !value[field] }));
+  }
+
+  return <div className="page-content settings-layout">
+    <aside className="settings-nav">
+      <h2>Cài đặt</h2>
+      <button type="button" className={activeTab === "profile" ? "active" : ""} onClick={() => setActiveTab("profile")}><UserRoundCog size={19}/><span>Thông tin cá nhân</span></button>
+      <button type="button" className={activeTab === "password" ? "active" : ""} onClick={() => setActiveTab("password")}><KeyRound size={19}/><span>Đổi mật khẩu</span></button>
+      <button type="button" disabled title="Tính năng đang được hoàn thiện"><BellRing size={19}/><span>Thông báo</span></button>
+      <button type="button" disabled title="Hệ thống hiện dùng tiếng Việt"><Languages size={19}/><span>Ngôn ngữ</span></button>
+    </aside>
+    {activeTab === "profile" ? <section className="form-card settings-content">
+      <div className="settings-section-heading"><i><UserRoundCog size={23}/></i><div><h2>Thông tin cá nhân</h2><p className="muted">Cập nhật thông tin tài khoản quản lý.</p></div></div>
+      <form onSubmit={save}>
+        <div className="profile-form"><div className="profile-photo" aria-hidden="true">{form.name.slice(0, 1)}</div><div className="form-grid two"><label>Họ và tên<input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}/></label><label>Email<input required type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })}/></label><label>Số điện thoại<input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })}/></label><label>Chức vụ<input value="Quản lý hệ thống" disabled/></label></div></div>
+        <label>Địa chỉ<input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })}/></label>
+        <label>Giới thiệu<textarea value={form.intro} onChange={(e) => setForm({ ...form, intro: e.target.value })}/></label>
+        <div className="settings-actions"><button type="submit" className="primary-button"><Save size={17}/> Lưu thay đổi</button></div>
+      </form>
+      {message && <div role="status" className={message.startsWith("✓") ? "success-banner" : "form-message"}>{message}</div>}
+    </section> : <section className="form-card settings-content password-settings">
+      <div className="settings-section-heading"><i><KeyRound size={23}/></i><div><h2>Đổi mật khẩu</h2><p className="muted">Cập nhật mật khẩu của tài khoản quản lý đang đăng nhập.</p></div></div>
+      <div className="settings-security-note"><ShieldCheck size={21}/><span><b>Bảo vệ tài khoản</b><small>Sau khi đổi, các phiên đăng nhập khác sẽ tự động bị thu hồi; phiên hiện tại vẫn được giữ.</small></span></div>
+      <form className="password-settings-form" onSubmit={changePassword}>
+        <label>Mật khẩu hiện tại<div className="settings-password-input"><LockKeyhole size={18}/><input required type={passwordVisible.current ? "text" : "password"} autoComplete="current-password" value={passwordForm.currentPassword} onChange={(event) => setPasswordForm({ ...passwordForm, currentPassword: event.target.value })}/><button type="button" aria-label={passwordVisible.current ? "Ẩn mật khẩu hiện tại" : "Hiện mật khẩu hiện tại"} onClick={() => togglePassword("current")}>{passwordVisible.current ? <EyeOff size={18}/> : <Eye size={18}/>}</button></div></label>
+        <label>Mật khẩu mới<div className="settings-password-input"><KeyRound size={18}/><input required minLength={8} maxLength={128} type={passwordVisible.next ? "text" : "password"} autoComplete="new-password" value={passwordForm.newPassword} onChange={(event) => setPasswordForm({ ...passwordForm, newPassword: event.target.value })} aria-describedby="new-password-hint"/><button type="button" aria-label={passwordVisible.next ? "Ẩn mật khẩu mới" : "Hiện mật khẩu mới"} onClick={() => togglePassword("next")}>{passwordVisible.next ? <EyeOff size={18}/> : <Eye size={18}/>}</button></div><small id="new-password-hint">Ít nhất 8 ký tự và khác mật khẩu hiện tại.</small></label>
+        <label>Xác nhận mật khẩu mới<div className="settings-password-input"><ShieldCheck size={18}/><input required minLength={8} maxLength={128} type={passwordVisible.confirm ? "text" : "password"} autoComplete="new-password" value={passwordForm.confirmPassword} onChange={(event) => setPasswordForm({ ...passwordForm, confirmPassword: event.target.value })}/><button type="button" aria-label={passwordVisible.confirm ? "Ẩn xác nhận mật khẩu" : "Hiện xác nhận mật khẩu"} onClick={() => togglePassword("confirm")}>{passwordVisible.confirm ? <EyeOff size={18}/> : <Eye size={18}/>}</button></div></label>
+        <div className="settings-actions"><button type="submit" className="primary-button" disabled={passwordSaving}><KeyRound size={17}/> {passwordSaving ? "Đang đổi..." : "Đổi mật khẩu"}</button></div>
+      </form>
+      {passwordMessage && <div role={passwordSuccess ? "status" : "alert"} className={passwordSuccess ? "success-banner" : "form-message"}>{passwordMessage}</div>}
+    </section>}
+  </div>;
 }
 
 export function FunctionalEmployeeHistory({ payroll = false }: { payroll?: boolean }) {

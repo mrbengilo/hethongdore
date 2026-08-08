@@ -1,4 +1,4 @@
-import { multiplyDecimalRatioVnd, sumVnd } from "./finance";
+import { multiplyDecimalRatioVnd, multiplyDecimalVnd, multiplyRatioVnd, sumVnd } from "./finance";
 
 export type EmployeePayComponents = {
   baseSalary: number;
@@ -29,6 +29,8 @@ export type EmployeeKpiResult = EmployeeKpiInput & {
 };
 
 export const INACTIVE_EMPLOYEE_KPI_MIN_COMPLETED_SHIFTS = 15;
+export const MANAGER_FIXED_WORK_HOURS_PER_STORE = 140;
+export const MANAGER_FIXED_WORK_SECONDS_PER_STORE = MANAGER_FIXED_WORK_HOURS_PER_STORE * 3_600;
 
 export type EmployeeKpiPolicyInput = {
   employeeId: string;
@@ -40,6 +42,24 @@ export type EmployeeKpiPolicyInput = {
 export type EmployeeKpiPolicyResult = EmployeeKpiPolicyInput & {
   eligible: boolean;
   bonus: number;
+};
+
+export type StoreKpiDistribution = {
+  employees: EmployeeKpiPolicyResult[];
+  manager: {
+    durationSeconds: number;
+    hours: number;
+    bonus: number;
+  };
+  eligibleEmployeeDurationSeconds: number;
+  eligibleEmployeeHours: number;
+  totalDurationSeconds: number;
+  totalHours: number;
+  profitPerHour: number;
+  kpiRate: number;
+  kpiPool: number;
+  employeeBonusTotal: number;
+  managerBonus: number;
 };
 
 export type EmployeePayrollSourceState = {
@@ -129,6 +149,83 @@ export function distributeEmployeeKpiByPolicy(
         : 0,
     };
   });
+}
+
+/**
+ * Allocate one store KPI pool between eligible main-store employees and the
+ * manager. Support shifts must be removed by the caller before this function;
+ * the manager always contributes 140 fixed hours to both the threshold and
+ * allocation denominator. Cumulative rounding preserves every VND in the pool.
+ */
+export function distributeStoreKpiByPolicy(
+  profit: number,
+  employees: EmployeeKpiPolicyInput[],
+): StoreKpiDistribution {
+  const normalized = employees.map((employee) => ({
+    ...employee,
+    completedShiftCount: Number.isSafeInteger(employee.completedShiftCount)
+      ? Math.max(0, employee.completedShiftCount)
+      : 0,
+    durationSeconds: Number.isSafeInteger(employee.durationSeconds)
+      ? Math.max(0, employee.durationSeconds)
+      : 0,
+  }));
+  const eligible = normalized.map((employee) => ({
+    ...employee,
+    eligible: isEmployeeEligibleForKpi(employee.employmentStatus, employee.completedShiftCount),
+  }));
+  const eligibleEmployeeDurationSeconds = eligible.reduce((total, employee) => (
+    employee.eligible ? total + employee.durationSeconds : total
+  ), 0);
+  if (!Number.isSafeInteger(eligibleEmployeeDurationSeconds)) {
+    throw new Error("Tổng thời gian KPI vượt giới hạn an toàn.");
+  }
+  const totalDurationSeconds = eligibleEmployeeDurationSeconds + MANAGER_FIXED_WORK_SECONDS_PER_STORE;
+  if (!Number.isSafeInteger(totalDurationSeconds)) {
+    throw new Error("Tổng thời gian cửa hàng vượt giới hạn an toàn.");
+  }
+  const kpiRate = employeeKpiRateFromSeconds(profit, totalDurationSeconds);
+  const kpiPool = kpiRate > 0
+    ? multiplyDecimalVnd(profit, kpiRate.toFixed(2))
+    : 0;
+  const weights = [
+    ...eligible.map((employee) => employee.eligible ? employee.durationSeconds : 0),
+    MANAGER_FIXED_WORK_SECONDS_PER_STORE,
+  ];
+  let cumulativeSeconds = 0;
+  let allocated = 0;
+  const bonuses = weights.map((seconds) => {
+    cumulativeSeconds += seconds;
+    const cumulativeAllocation = kpiPool > 0
+      ? multiplyRatioVnd(kpiPool, cumulativeSeconds, totalDurationSeconds)
+      : 0;
+    const bonus = cumulativeAllocation - allocated;
+    allocated = cumulativeAllocation;
+    return bonus;
+  });
+  const employeeResults = eligible.map((employee, index) => ({
+    ...employee,
+    bonus: bonuses[index],
+  }));
+  const managerBonus = bonuses.at(-1) ?? 0;
+  const employeeBonusTotal = sumVnd(employeeResults.map((employee) => employee.bonus));
+  return {
+    employees: employeeResults,
+    manager: {
+      durationSeconds: MANAGER_FIXED_WORK_SECONDS_PER_STORE,
+      hours: MANAGER_FIXED_WORK_HOURS_PER_STORE,
+      bonus: managerBonus,
+    },
+    eligibleEmployeeDurationSeconds,
+    eligibleEmployeeHours: eligibleEmployeeDurationSeconds / 3_600,
+    totalDurationSeconds,
+    totalHours: totalDurationSeconds / 3_600,
+    profitPerHour: profit > 0 ? multiplyRatioVnd(profit, 3_600, totalDurationSeconds, "DOWN") : 0,
+    kpiRate,
+    kpiPool,
+    employeeBonusTotal,
+    managerBonus,
+  };
 }
 
 export function distributeEmployeeKpi(profit: number, employees: EmployeeKpiInput[]): EmployeeKpiResult[] {

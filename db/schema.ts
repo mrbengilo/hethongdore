@@ -52,6 +52,12 @@ export const sessions = sqliteTable("sessions", {
   createdAt: text("created_at").notNull(),
 });
 
+export const systemState = sqliteTable("system_state", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
 export const orders = sqliteTable("orders", {
   id: text("id").primaryKey(),
   code: text("code").notNull().unique(),

@@ -15,6 +15,13 @@
       "when": 1786161600000,
       "tag": "0006_employee_payroll_closing",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1786204800000,
+      "tag": "0007_reset_operational_data",
+      "breakpoints": true
     }
   ]
 }

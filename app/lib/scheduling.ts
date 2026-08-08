@@ -151,8 +151,8 @@ export function shiftsOverlap(
 }
 
 /**
- * The employee gets a 60-minute grace period after the scheduled end. Once
- * that instant is reached, attendance is split at the scheduled end itself so
+ * The employee gets a full 60-minute grace period after the scheduled end. Once
+ * that period has been exceeded, attendance is split at the scheduled end itself so
  * the old and new sessions remain continuous without overlapping.
  */
 export function shouldRollOverShift(
@@ -166,7 +166,7 @@ export function shouldRollOverShift(
     && Number.isFinite(current)
     && Number.isFinite(graceMinutes)
     && graceMinutes >= 0
-    && current >= end + graceMinutes * 60_000;
+    && current > end + graceMinutes * 60_000;
 }
 
 /**

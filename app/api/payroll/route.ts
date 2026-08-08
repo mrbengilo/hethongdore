@@ -1,9 +1,14 @@
 import { initDb, writeAudit } from "../../../db/runtime";
 import {
-  durationMinutes, localPeriod, managerProfitBonus, MANAGER_MONTHLY_SALARY_VND,
+  durationMinutes, localPeriod, MANAGER_MONTHLY_SALARY_VND,
   multiplyRatioVnd, periodBoundsUtc, requireVnd, settleStoreProfit, sumVnd, utcTimestamp,
 } from "../../lib/finance";
-import { distributeEmployeeKpiByPolicy, employeeKpiRateFromSeconds, employeePayWithKpi, employeePayrollOverallState } from "../../lib/payroll";
+import {
+  MANAGER_FIXED_WORK_HOURS_PER_STORE,
+  distributeStoreKpiByPolicy,
+  employeePayWithKpi,
+  employeePayrollOverallState,
+} from "../../lib/payroll";
 import { getSessionUser, INACTIVE_STORE_MESSAGE, isStoreActive, json } from "../_lib/auth";
 import { storePeriodFinance, type StoreExpenseBreakdown } from "../_lib/store-finance";
 
@@ -20,9 +25,11 @@ type EmployeeRow = {
 type HoursRow = {
   employeeId: string;
   durationSeconds: number;
+  kpiDurationSeconds: number;
   appliedHourlyRate: number;
   tiktokAllowance: number;
   completedShiftCount: number;
+  kpiCompletedShiftCount: number;
 };
 
 type TransferAllowanceRow = {
@@ -63,10 +70,13 @@ type PayrollItem = {
   position: string;
   employmentStatus: "ACTIVE" | "INACTIVE";
   completedShiftCount: number;
+  kpiCompletedShiftCount: number;
   kpiEligible: boolean;
   durationSeconds: number;
   durationMinutes: number;
   hours: number;
+  kpiDurationSeconds: number;
+  kpiHours: number;
   hourlyRate: number;
   baseSalary: number;
   tiktokAllowance: number;
@@ -93,14 +103,20 @@ type PayrollSummary = {
   totalDurationMinutes: number;
   kpiEligibleHours: number;
   kpiEligibleDurationSeconds: number;
+  managerFixedHours: number;
+  totalKpiHours: number;
+  totalKpiDurationSeconds: number;
   profitPerHour: number;
+  profitPerKpiHour: number;
   kpiRate: number;
+  kpiPool: number;
   totalBaseSalary: number;
   totalTikTokAllowance: number;
   totalSupportAllowance: number;
   totalManualAllowance: number;
   totalManualBonus: number;
   totalKpiBonus: number;
+  totalPerformanceBonus: number;
   managerSalary: number;
   managerBonus: number;
   managerTotal: number;
@@ -368,6 +384,11 @@ async function managerPayrollPeriod(db: Awaited<ReturnType<typeof initDb>>, peri
       profitBeforePerformanceRewards: summary.profit,
       employeeKpiBonus: summary.totalKpiBonus,
       finalProfit: summary.netProfit,
+      managerHours: summary.managerFixedHours ?? MANAGER_FIXED_WORK_HOURS_PER_STORE,
+      employeeEligibleHours: summary.kpiEligibleHours ?? 0,
+      totalKpiHours: summary.totalKpiHours ?? (summary.kpiEligibleHours ?? 0) + MANAGER_FIXED_WORK_HOURS_PER_STORE,
+      profitPerKpiHour: summary.profitPerKpiHour ?? summary.profitPerHour ?? 0,
+      kpiRate: summary.kpiRate ?? 0,
       managerSalary,
       managerBonus,
       managerTotal,
@@ -380,7 +401,15 @@ async function managerPayrollPeriod(db: Awaited<ReturnType<typeof initDb>>, peri
   const totalBonus = sumVnd(rows.map((row) => row.managerBonus));
   return {
     period,
-    policy: { salaryPerStore: MANAGER_MONTHLY_SALARY_VND, bonusRate: 0.02 },
+    policy: {
+      salaryPerStore: MANAGER_MONTHLY_SALARY_VND,
+      managerHoursPerStore: MANAGER_FIXED_WORK_HOURS_PER_STORE,
+      tiers: [
+        { minimumProfitPerHour: 30_000, rate: 0.07 },
+        { minimumProfitPerHour: 15_000, rate: 0.05 },
+        { minimumProfitPerHour: 7_000, rate: 0.03 },
+      ],
+    },
     rows,
     totals: { storeCount: rows.length, totalSalary, totalBonus, totalPay: sumVnd([totalSalary, totalBonus]) },
   };
@@ -432,13 +461,24 @@ async function buildPreview(db: Awaited<ReturnType<typeof initDb>>, storeId: str
         WHEN s.duration_seconds > 0 THEN s.duration_seconds
         ELSE ROUND((julianday(s.ended_at) - julianday(s.started_at)) * 86400, 0)
       END) AS durationSeconds,
+      SUM(CASE WHEN s.transfer_id IS NULL THEN
+        CASE WHEN s.duration_seconds > 0 THEN s.duration_seconds
+          ELSE ROUND((julianday(s.ended_at) - julianday(s.started_at)) * 86400, 0) END
+        ELSE 0 END) AS kpiDurationSeconds,
       COALESCE(s.applied_hourly_rate, e.hourly_rate) AS appliedHourlyRate,
       COALESCE(SUM(s.tiktok_allowance), 0) AS tiktokAllowance,
       SUM(CASE
         WHEN s.duration_seconds > 0 THEN 1
         WHEN (julianday(s.ended_at) - julianday(s.started_at)) * 86400 > 0 THEN 1
         ELSE 0
-      END) AS completedShiftCount
+      END) AS completedShiftCount,
+      SUM(CASE WHEN s.transfer_id IS NULL THEN
+        CASE
+          WHEN s.duration_seconds > 0 THEN 1
+          WHEN (julianday(s.ended_at) - julianday(s.started_at)) * 86400 > 0 THEN 1
+          ELSE 0
+        END
+        ELSE 0 END) AS kpiCompletedShiftCount
     FROM shift_sessions s
     JOIN employees e ON e.id = s.employee_id
     WHERE s.store_id = ? AND s.status = 'COMPLETED' AND s.ended_at IS NOT NULL
@@ -467,25 +507,32 @@ async function buildPreview(db: Awaited<ReturnType<typeof initDb>>, storeId: str
 
   const shiftsByEmployee = new Map<string, {
     durationSeconds: number;
+    kpiDurationSeconds: number;
     baseSalary: number;
     tiktokAllowance: number;
     completedShiftCount: number;
+    kpiCompletedShiftCount: number;
   }>();
   for (const row of hoursResult.results) {
     const current = shiftsByEmployee.get(row.employeeId) ?? {
       durationSeconds: 0,
+      kpiDurationSeconds: 0,
       baseSalary: 0,
       tiktokAllowance: 0,
       completedShiftCount: 0,
+      kpiCompletedShiftCount: 0,
     };
     const seconds = Math.max(0, Math.round(Number(row.durationSeconds ?? 0)));
+    const kpiSeconds = Math.max(0, Math.round(Number(row.kpiDurationSeconds ?? 0)));
     const appliedHourlyRate = requireVnd(Number(row.appliedHourlyRate), "Lương theo giờ");
     const tiktokAllowance = requireVnd(Math.max(0, Math.round(Number(row.tiktokAllowance ?? 0))), "Phụ cấp TikTok");
     shiftsByEmployee.set(row.employeeId, {
       durationSeconds: current.durationSeconds + seconds,
+      kpiDurationSeconds: current.kpiDurationSeconds + kpiSeconds,
       baseSalary: sumVnd([current.baseSalary, multiplyRatioVnd(appliedHourlyRate, seconds, 3_600)]),
       tiktokAllowance: sumVnd([current.tiktokAllowance, tiktokAllowance]),
       completedShiftCount: current.completedShiftCount + Math.max(0, Math.round(Number(row.completedShiftCount ?? 0))),
+      kpiCompletedShiftCount: current.kpiCompletedShiftCount + Math.max(0, Math.round(Number(row.kpiCompletedShiftCount ?? 0))),
     });
   }
   const revenue = requireVnd(Number(store.revenue), "Doanh thu");
@@ -514,10 +561,13 @@ async function buildPreview(db: Awaited<ReturnType<typeof initDb>>, storeId: str
       position: employee.position,
       employmentStatus: employeeStatusForPeriod(employee.status, employee.inactivePeriod, period),
       completedShiftCount: shift?.completedShiftCount ?? 0,
+      kpiCompletedShiftCount: shift?.kpiCompletedShiftCount ?? 0,
       kpiEligible: false,
       durationSeconds: employeeDurationSeconds,
       durationMinutes: minutes,
       hours,
+      kpiDurationSeconds: shift?.kpiDurationSeconds ?? 0,
+      kpiHours: (shift?.kpiDurationSeconds ?? 0) / 3_600,
       hourlyRate: employeeDurationSeconds > 0 ? multiplyRatioVnd(baseSalary, 3_600, employeeDurationSeconds) : requireVnd(Number(employee.hourlyRate), "Lương theo giờ"),
       baseSalary,
       tiktokAllowance,
@@ -540,6 +590,15 @@ async function buildPreview(db: Awaited<ReturnType<typeof initDb>>, storeId: str
       ...closing.item,
       employmentStatus: closing.employeeStatusAtLock,
       completedShiftCount: item.completedShiftCount,
+      kpiCompletedShiftCount: Number.isSafeInteger(closing.item.kpiCompletedShiftCount)
+        ? closing.item.kpiCompletedShiftCount
+        : item.kpiCompletedShiftCount,
+      kpiDurationSeconds: Number.isSafeInteger(closing.item.kpiDurationSeconds)
+        ? closing.item.kpiDurationSeconds
+        : item.kpiDurationSeconds,
+      kpiHours: Number.isFinite(closing.item.kpiHours)
+        ? closing.item.kpiHours
+        : item.kpiHours,
       kpiEligible: false,
       adjustments: Array.isArray(closing.item.adjustments) ? closing.item.adjustments : item.adjustments,
     };
@@ -556,12 +615,13 @@ async function buildPreview(db: Awaited<ReturnType<typeof initDb>>, storeId: str
       kpiLocked: false,
     };
   });
-  const kpiAllocations = distributeEmployeeKpiByPolicy(profit, itemBases.map(({ item }) => ({
+  const kpiDistribution = distributeStoreKpiByPolicy(profit, itemBases.map(({ item }) => ({
     employeeId: item.employeeId,
     employmentStatus: item.employmentStatus,
-    completedShiftCount: item.completedShiftCount,
-    durationSeconds: item.durationSeconds,
+    completedShiftCount: item.kpiCompletedShiftCount,
+    durationSeconds: item.kpiDurationSeconds,
   })));
+  const kpiAllocations = kpiDistribution.employees;
   const kpiAllocationByEmployee = new Map(kpiAllocations.map((allocation) => [allocation.employeeId, allocation]));
   const items = itemBases.map(({ item, kpiLocked }) => {
     const allocation = kpiAllocationByEmployee.get(item.employeeId);
@@ -581,8 +641,8 @@ async function buildPreview(db: Awaited<ReturnType<typeof initDb>>, storeId: str
   const totalHours = payrollDurationSeconds / 3_600;
   const managerSalary = MANAGER_MONTHLY_SALARY_VND;
   const totalKpiBonus = sumVnd(items.map((item) => item.kpiBonus));
-  const settlement = settleStoreProfit(profit, totalKpiBonus);
-  const managerBonus = settlement.managerBonus;
+  const managerBonus = kpiDistribution.managerBonus;
+  const settlement = settleStoreProfit(profit, totalKpiBonus, managerBonus);
   const netProfit = settlement.finalProfit;
   const expense = sumVnd([expenseBeforePerformanceRewards, totalKpiBonus, managerBonus]);
   const costBreakdown: StoreExpenseBreakdown = {
@@ -605,14 +665,20 @@ async function buildPreview(db: Awaited<ReturnType<typeof initDb>>, storeId: str
     totalDurationMinutes: durationMinutes(payrollDurationSeconds),
     kpiEligibleHours: kpiEligibleDurationSeconds / 3_600,
     kpiEligibleDurationSeconds,
-    profitPerHour: payrollDurationSeconds > 0 ? multiplyRatioVnd(profit, 3_600, payrollDurationSeconds) : 0,
-    kpiRate: employeeKpiRateFromSeconds(profit, kpiEligibleDurationSeconds),
+    managerFixedHours: MANAGER_FIXED_WORK_HOURS_PER_STORE,
+    totalKpiHours: kpiDistribution.totalHours,
+    totalKpiDurationSeconds: kpiDistribution.totalDurationSeconds,
+    profitPerHour: kpiDistribution.profitPerHour,
+    profitPerKpiHour: kpiDistribution.profitPerHour,
+    kpiRate: kpiDistribution.kpiRate,
+    kpiPool: kpiDistribution.kpiPool,
     totalBaseSalary: sumVnd(items.map((item) => item.baseSalary)),
     totalTikTokAllowance: sumVnd(items.map((item) => item.tiktokAllowance)),
     totalSupportAllowance: sumVnd(items.map((item) => item.supportAllowance)),
     totalManualAllowance: sumVnd(items.map((item) => item.manualAllowance)),
     totalManualBonus: sumVnd(items.map((item) => item.manualBonus)),
     totalKpiBonus,
+    totalPerformanceBonus: sumVnd([totalKpiBonus, managerBonus]),
     managerSalary,
     managerBonus,
     managerTotal: sumVnd([managerSalary, managerBonus]),
@@ -984,7 +1050,7 @@ export async function POST(request: Request) {
         }, 409);
       }
       const managerSalary = employeeSummary.managerSalary ?? MANAGER_MONTHLY_SALARY_VND;
-      const managerBonus = employeeSummary.managerBonus ?? managerProfitBonus(employeeSummary.profit);
+      const managerBonus = employeeSummary.managerBonus ?? 0;
       const managerTotal = sumVnd([managerSalary, managerBonus]);
       const salaryTotal = sumVnd([employeeSummary.totalBaseSalary, managerSalary]);
       const employeeRewards = employeeSummary.totalPay - employeeSummary.totalBaseSalary;

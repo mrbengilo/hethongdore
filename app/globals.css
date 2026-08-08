@@ -83,6 +83,186 @@
 /* Persistent fixed-cost and inventory draft lists */
 .fixed-cost-draft fieldset{border:0;margin:0;padding:0}.fixed-cost-draft .panel-title{padding:11px 15px}.fixed-cost-draft .panel-title>label{display:grid;gap:5px;color:#185d33;font-size:10px;font-weight:800}.fixed-cost-draft .panel-title input{min-width:160px;padding:8px 10px}.fixed-cost-draft-table{min-width:590px}.fixed-cost-draft-table th,.fixed-cost-draft-table td{padding:6px 10px}.fixed-cost-draft-table th:first-child,.fixed-cost-draft-table td:first-child{width:52px;text-align:center}.fixed-cost-draft-table th:last-child,.fixed-cost-draft-table td:last-child{width:94px;text-align:center}.fixed-cost-draft-table td:nth-child(2){width:46%}.fixed-cost-draft-table td:nth-child(3){width:36%}.fixed-cost-draft-table input{width:100%;min-height:32px;padding:6px 9px}.fixed-cost-draft-table tfoot td{background:#eef8f1;color:#087d36}.fixed-cost-draft-table tfoot td:nth-child(3){font-size:15px}.fixed-cost-default-label{display:inline-flex;padding:4px 8px;border-radius:999px;background:#f2f4f3;color:#667085;font-size:9px;font-weight:800}.fixed-cost-note{display:grid;gap:6px;padding:10px 15px 0;color:#185d33;font-size:11px;font-weight:800}.fixed-cost-note textarea{min-height:58px;font-weight:400}.fixed-cost-feedback{margin:10px 15px 0}.fixed-cost-save-actions{position:sticky;z-index:3;bottom:0;display:flex;justify-content:flex-end;gap:10px;padding:11px 15px;border-top:1px solid #e6eee8;background:rgba(255,255,255,.96);backdrop-filter:blur(8px)}.fixed-cost-save-actions button{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:38px;border:1px solid #dce5df;border-radius:8px;background:#fff;color:#176b38;padding:0 17px;font-weight:800}.fixed-cost-save-actions .primary-button{border:0;color:#fff}.fixed-cost-toolbar-save{box-shadow:0 8px 18px rgba(0,104,46,.2)}.fixed-cost-bars>.empty-cell{display:block;padding:24px;text-align:center}.fixed-cost-panel.history .data-table{min-width:1240px}.inventory-draft-metrics .ref-metric strong{font-size:18px}.inventory-draft-table input[inputmode="numeric"]{min-width:145px;font-variant-numeric:tabular-nums}
 @media(max-width:720px){.fixed-cost-draft .panel-title{align-items:flex-start;flex-direction:column}.fixed-cost-draft .panel-title>label,.fixed-cost-draft .panel-title input{width:100%}.fixed-cost-save-actions{display:grid;grid-template-columns:1fr}.fixed-cost-save-actions button{width:100%}.inventory-draft-metrics .ref-metric strong{font-size:17px}}
+/* Keep fixed-cost action labels visible above the generic white button rules. */
+.fixed-cost-toolbar .primary-button,
+.fixed-cost-save-actions .primary-button {
+  background: linear-gradient(135deg, #0a8d3c, #00672f);
+  color: #fff;
+}
+
+/* Employee prompt after declining the 60-minute shift rollover. */
+.rollover-warning-banner {
+  align-items: center;
+  background: #fff7e8;
+  border: 1px solid #efc36e;
+  border-left: 4px solid #e79400;
+  border-radius: 9px;
+  color: #7a4700;
+  display: flex;
+  font-size: 13px;
+  font-weight: 750;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 12px 14px;
+}
+
+.rollover-warning-banner button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  display: flex;
+  flex: 0 0 30px;
+  font-size: 22px;
+  height: 30px;
+  justify-content: center;
+}
+
+/* Manager settings use functional icons and a complete password workflow. */
+.settings-nav button {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.settings-nav button span {
+  min-width: 0;
+}
+
+.settings-nav button:disabled {
+  color: #98a2b3;
+}
+
+.settings-content {
+  min-height: 480px;
+}
+
+.settings-section-heading {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 12px;
+  margin: -2px 0 22px;
+  padding-bottom: 17px;
+}
+
+.settings-section-heading > i {
+  align-items: center;
+  background: #e8f6ec;
+  border-radius: 10px;
+  color: #087d36;
+  display: flex;
+  flex: 0 0 44px;
+  height: 44px;
+  justify-content: center;
+}
+
+.settings-section-heading h2,
+.settings-section-heading p {
+  margin: 0;
+}
+
+.settings-section-heading p {
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.settings-content form {
+  display: grid;
+  gap: 17px;
+}
+
+.settings-content form > label {
+  margin: 0;
+}
+
+.settings-content .profile-form .form-grid {
+  margin-bottom: 0;
+}
+
+.settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 2px;
+}
+
+.settings-security-note {
+  align-items: center;
+  background: #eff9f2;
+  border: 1px solid #cbe8d3;
+  border-radius: 11px;
+  color: #087632;
+  display: flex;
+  gap: 11px;
+  margin-bottom: 20px;
+  padding: 13px 15px;
+}
+
+.settings-security-note span {
+  display: grid;
+  gap: 3px;
+}
+
+.settings-security-note small {
+  color: #4f6d59;
+  font-size: 11px;
+}
+
+.password-settings-form {
+  max-width: 640px;
+}
+
+.password-settings-form > label > small {
+  color: #667085;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.settings-password-input {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #d7dee3;
+  border-radius: 8px;
+  color: #718096;
+  display: flex;
+  gap: 9px;
+  min-height: 46px;
+  padding: 0 11px;
+}
+
+.settings-password-input:focus-within {
+  border-color: #34a85d;
+  box-shadow: 0 0 0 3px rgba(8, 125, 54, .1);
+}
+
+.settings-password-input input {
+  border: 0;
+  box-shadow: none;
+  min-width: 0;
+  padding: 10px 0;
+}
+
+.settings-password-input button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: #5f6c64;
+  display: flex;
+  flex: 0 0 34px;
+  height: 34px;
+  justify-content: center;
+}
+
+@media(max-width:720px) {
+  .settings-content {
+    min-height: 0;
+  }
+
+  .settings-actions > button {
+    width: 100%;
+  }
+}
+
 /* DORE brand asset */
 .brand-logo-image{display:block;width:100%;height:100%;object-fit:cover;border-radius:inherit}
 .brand-mark,.login-logo,.mini-mark,.pulse-logo{overflow:hidden;background:#fff!important;padding:2px;color:transparent;box-shadow:0 10px 24px rgba(22,93,41,.16)}

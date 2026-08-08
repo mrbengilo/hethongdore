@@ -98,6 +98,9 @@ type CashflowResponse = {
   request?: { scope: "ALL" | "STORE"; storeId: string | null; from: string; to: string; granularity: Granularity };
   stores: Array<{ id: string; name: string }>;
   totals: CashTotals;
+  actualCashTotals?: { revenueInflow: number; cashOutflow: number; netCashFlow: number };
+  accountingTotals?: { revenue: number; expense: number; profit: number };
+  reconciliation?: { accountingExpense: number; cashOutflow: number; timingDifference: number };
   previousTotals: CashTotals;
   timeline: CashTimelineRow[];
   byStore: Array<CashTotals & { storeId: string; storeName: string }>;
@@ -384,8 +387,8 @@ function ReportBarChart({ points, granularity }: { points: ReportTimelineRow[]; 
   </section>;
 }
 
-function ChartLegend({ netLabel = "Lợi nhuận" }: { netLabel?: string }) {
-  return <div className="finance-chart-legend" aria-label="Chú giải biểu đồ"><span><i className="green"/>Doanh thu</span><span><i className="orange"/>Chi phí</span><span><i className="blue"/>{netLabel}</span></div>;
+function ChartLegend({ netLabel = "Lợi nhuận", expenseLabel = "Chi phí" }: { netLabel?: string; expenseLabel?: string }) {
+  return <div className="finance-chart-legend" aria-label="Chú giải biểu đồ"><span><i className="green"/>Doanh thu</span><span><i className="orange"/>{expenseLabel}</span><span><i className="blue"/>{netLabel}</span></div>;
 }
 
 function RevenueShare({ rows, totalRevenue }: { rows: StoreReportRow[]; totalRevenue: number }) {
@@ -547,8 +550,8 @@ function CashflowLineChart({ data }: { data: CashflowResponse }) {
   const minimum = Math.min(0, ...values);
   const maximum = Math.max(1, ...values);
   const labelStep = Math.max(1, Math.ceil(data.timeline.length / 7));
-  return <section className="finance-panel finance-cash-chart"><div className="finance-panel-heading"><div><h2>Biểu đồ dòng tiền</h2><p>Đối chiếu doanh thu, chi phí và dòng tiền thuần theo {data.granularity === "day" ? "ngày" : "tháng"}</p></div><ChartLegend netLabel="Dòng tiền thuần"/></div>
-    <div className="finance-line-chart" role="img" aria-label="Biểu đồ đường doanh thu, chi phí và dòng tiền thuần theo thời gian">
+  return <section className="finance-panel finance-cash-chart"><div className="finance-panel-heading"><div><h2>Biểu đồ dòng tiền</h2><p>Đối chiếu doanh thu, tiền đã chi và dòng tiền thuần theo {data.granularity === "day" ? "ngày" : "tháng"}</p></div><ChartLegend expenseLabel="Tiền đã chi" netLabel="Dòng tiền thuần"/></div>
+    <div className="finance-line-chart" role="img" aria-label="Biểu đồ đường doanh thu, tiền đã chi thực tế và dòng tiền thuần theo thời gian">
       {data.timeline.length === 0 ? <p className="finance-chart-empty">Chưa có dữ liệu dòng tiền.</p> : <>
         <div className="finance-y-labels" aria-hidden="true"><span>{compactMoney(maximum)}</span><span>{compactMoney((maximum + minimum) / 2)}</span><span>{compactMoney(minimum)}</span></div>
         <svg viewBox="0 -10 720 240" preserveAspectRatio="none" aria-hidden="true">
@@ -574,11 +577,11 @@ function CashflowStructure({ totals }: { totals: CashTotals }) {
     : "#edf2ee";
   const rows = [
     { label: "Doanh thu", value: totals.inflow, color: colors[0], percent: revenue > 0 ? "100%" : "Không xác định" },
-    { label: "Chi phí", value: totals.outflow, color: colors[1], percent: revenue > 0 ? `${(totals.outflow / revenue * 100).toFixed(1)}%` : "Không xác định" },
+    { label: "Tiền đã chi thực tế", value: totals.outflow, color: colors[1], percent: revenue > 0 ? `${(totals.outflow / revenue * 100).toFixed(1)}%` : "Không xác định" },
     { label: "Dòng tiền thuần", value: totals.net, color: colors[2], percent: revenue > 0 ? `${(totals.net / revenue * 100).toFixed(1)}%` : "Không xác định" },
   ];
-  return <section className="finance-panel finance-structure"><div className="finance-panel-heading"><div><h2>Tỷ lệ cơ cấu</h2><p>Cơ cấu chi phí và dòng tiền thuần trên doanh thu</p></div></div><div className="finance-structure-body">
-    <div><div className="finance-donut" style={{ background }} role="img" aria-label={revenue > 0 ? `Chi phí chiếm ${expenseShare.toFixed(1)}%, dòng tiền thuần dương chiếm ${profitShare.toFixed(1)}% trên doanh thu` : "Chưa có doanh thu để xác định cơ cấu"}><span><small>Doanh thu</small><b>{money(totals.inflow)}</b></span></div>{totals.net < 0 ? <strong className="finance-loss-badge">Âm {money(Math.abs(totals.net))}</strong> : remainder > 0.05 ? <small className="finance-remainder">Chưa phân bổ {remainder.toFixed(1)}%</small> : null}</div>
+  return <section className="finance-panel finance-structure"><div className="finance-panel-heading"><div><h2>Tỷ lệ cơ cấu dòng tiền</h2><p>Cơ cấu tiền đã chi và dòng tiền thuần trên doanh thu thực nhận</p></div></div><div className="finance-structure-body">
+    <div><div className="finance-donut" style={{ background }} role="img" aria-label={revenue > 0 ? `Tiền đã chi thực tế chiếm ${expenseShare.toFixed(1)}%, dòng tiền thuần dương chiếm ${profitShare.toFixed(1)}% trên doanh thu` : "Chưa có doanh thu để xác định cơ cấu"}><span><small>Doanh thu</small><b>{money(totals.inflow)}</b></span></div>{totals.net < 0 ? <strong className="finance-loss-badge">Âm {money(Math.abs(totals.net))}</strong> : remainder > 0.05 ? <small className="finance-remainder">Chưa phân bổ {remainder.toFixed(1)}%</small> : null}</div>
     <div className="finance-structure-list">{rows.map((row) => <p key={row.label}><i style={{ background: row.color }}/><span>{row.label}<b>{money(row.value)}</b></span><em>{row.percent}</em></p>)}</div>
   </div></section>;
 }
@@ -615,7 +618,7 @@ export function ManagerCashflow() {
   const exportCashflow = () => {
     if (!data) return;
     downloadExcel(`dong-tien-${storeId.toLocaleLowerCase()}-${financeRange.queryRange.from}-${financeRange.queryRange.to}.xls`, [
-      [data.granularity === "day" ? "Ngày" : "Tháng", "Doanh thu", "Chi phí", "Dòng tiền thuần", "Số phát sinh", "Nguồn ghi nhận", "Ghi chú"],
+      [data.granularity === "day" ? "Ngày" : "Tháng", "Doanh thu", "Tiền đã chi thực tế", "Dòng tiền thuần", "Số phát sinh", "Nguồn ghi nhận", "Ghi chú"],
       ...data.timeline.map((row) => [bucketLabel(row.key), row.inflow, row.outflow, row.net, row.transactionCount, row.sources.join("; "), row.notes.join("; ")]),
     ]);
   };
@@ -627,7 +630,7 @@ export function ManagerCashflow() {
 
   return <div className="page-content finance-view cashflow-view">
     <header className="finance-page-header">
-      <div className="finance-page-title"><h1>Dòng tiền</h1><p>Theo dõi doanh thu, chi phí và dòng tiền thuần thực tế của từng cửa hàng.</p></div>
+      <div className="finance-page-title"><h1>Dòng tiền</h1><p>Theo dõi doanh thu, tiền đã chi và dòng tiền thuần thực tế của từng cửa hàng.</p></div>
       <div className="finance-header-controls cashflow-controls">
         <label className="finance-store-select"><span>Chọn cửa hàng</span><select aria-label="Chọn cửa hàng xem dòng tiền" value={storeId} onChange={(event) => { setStoreId(event.target.value); setPage(0); }}><option value="ALL">Tất cả cửa hàng</option>{storeOptions.map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}</select></label>
         <GranularityToggle value={financeRange.granularity} onChange={setGranularity}/>
@@ -642,12 +645,13 @@ export function ManagerCashflow() {
     {data && totals && changes ? <>
       <div className="finance-metrics three cash-metrics">
         <FinanceMetric icon={ArrowUpRight} label={storeId === "ALL" ? "Tổng doanh thu tất cả cửa hàng" : "Doanh thu cửa hàng"} value={money(totals.inflow)} change={changes.inflow} sparkline={data.timeline.map((row) => row.inflow)}/>
-        <FinanceMetric icon={ArrowDownLeft} label={storeId === "ALL" ? "Tổng chi phí tất cả cửa hàng" : "Chi phí cửa hàng"} value={money(totals.outflow)} change={changes.outflow} tone="orange" sparkline={data.timeline.map((row) => row.outflow)}/>
+        <FinanceMetric icon={ArrowDownLeft} label={storeId === "ALL" ? "Tổng tiền đã chi thực tế tất cả cửa hàng" : "Tiền đã chi thực tế của cửa hàng"} value={money(totals.outflow)} change={changes.outflow} tone="orange" sparkline={data.timeline.map((row) => row.outflow)}/>
         <FinanceMetric icon={BarChart3} label="Dòng tiền thuần" value={money(totals.net)} change={changes.net} tone="blue" sparkline={data.timeline.map((row) => row.net)}/>
       </div>
+      <div className="notice-banner finance-cash-reconciliation" role="note"><b>Đối soát số liệu:</b> Dòng tiền chỉ cộng các khoản đã thực thu hoặc đã xác nhận thanh toán. “Tổng chi phí” tại Tổng quan và Báo cáo là chi phí kế toán phát sinh theo cùng kỳ, nên được trình bày riêng và không dùng chung tên với tiền đã chi.{data.reconciliation ? <span> Chi phí kế toán cùng kỳ: <b>{money(data.reconciliation.accountingExpense)}</b> · Tiền đã chi thực tế: <b>{money(data.reconciliation.cashOutflow)}</b> · Chênh lệch thời điểm ghi nhận: <b>{money(data.reconciliation.timingDifference)}</b>.</span> : null}</div>
       <div className="finance-cash-grid"><CashflowLineChart data={data}/><CashflowStructure totals={totals}/></div>
-      {storeId === "ALL" ? <section className="finance-panel finance-table-panel cash-store-summary"><div className="finance-panel-heading"><div><h2>Tổng hợp chi phí tất cả cửa hàng</h2><p>Đối chiếu tổng thu, tổng chi và dòng tiền thuần của từng cửa hàng trong khoảng đã chọn.</p></div><span>{data.byStore.length} cửa hàng</span></div><div className="data-table-wrap"><table className="data-table"><caption className="sr-only">Tổng hợp dòng tiền của tất cả cửa hàng</caption><thead><tr><th>Cửa hàng</th><th>Doanh thu</th><th>Chi phí</th><th>Dòng tiền thuần</th></tr></thead><tbody>{data.byStore.map((store) => <tr key={store.storeId}><td><b>{store.storeName}</b></td><td className="money-green">{money(store.inflow)}</td><td className="money-orange">{money(store.outflow)}</td><td className={store.net >= 0 ? "money-green" : "money-orange"}><b>{money(store.net)}</b></td></tr>)}</tbody><tfoot><tr><td>TỔNG TẤT CẢ CỬA HÀNG</td><td>{money(totals.inflow)}</td><td>{money(totals.outflow)}</td><td>{money(totals.net)}</td></tr></tfoot></table></div></section> : null}
-      <section className="finance-panel finance-table-panel cash-detail-table"><div className="finance-panel-heading"><div><h2>Chi tiết dòng tiền theo {financeRange.granularity === "day" ? "ngày" : "tháng"}</h2><p>{rangeLabel(data.range)}</p></div><span>{data.timeline.reduce((sum, row) => sum + row.transactionCount, 0)} phát sinh</span></div><div className="data-table-wrap"><table className="data-table"><caption className="sr-only">Chi tiết dòng tiền theo kỳ</caption><thead><tr><th>{financeRange.granularity === "day" ? "Ngày" : "Tháng"}</th><th>Doanh thu</th><th>Chi phí</th><th>Dòng tiền thuần</th><th>Số phát sinh</th><th>Nguồn ghi nhận</th><th>Ghi chú</th></tr></thead><tbody>{visibleTimeline.length === 0 ? <tr><td colSpan={7} className="empty-cell">Không có phát sinh trong kỳ đang xem.</td></tr> : visibleTimeline.map((row) => <tr className="cash-row-screen" key={row.key}><td><b>{bucketLabel(row.key)}</b></td><td className="money-green">{money(row.inflow)}</td><td className="money-orange">{money(row.outflow)}</td><td className={row.net >= 0 ? "money-green" : "money-orange"}><b>{money(row.net)}</b></td><td>{row.transactionCount}</td><td>{row.sources.length ? row.sources.join(", ") : "–"}</td><td>{row.notes.length ? row.notes.join(", ") : "–"}</td></tr>)}{data.timeline.map((row) => <tr className="cash-row-print" key={`print-${row.key}`}><td><b>{bucketLabel(row.key)}</b></td><td className="money-green">{money(row.inflow)}</td><td className="money-orange">{money(row.outflow)}</td><td className={row.net >= 0 ? "money-green" : "money-orange"}><b>{money(row.net)}</b></td><td>{row.transactionCount}</td><td>{row.sources.length ? row.sources.join(", ") : "–"}</td><td>{row.notes.length ? row.notes.join(", ") : "–"}</td></tr>)}</tbody></table></div>
+      {storeId === "ALL" ? <section className="finance-panel finance-table-panel cash-store-summary"><div className="finance-panel-heading"><div><h2>Tổng hợp tiền đã chi thực tế tất cả cửa hàng</h2><p>Đối chiếu tổng thu, tổng tiền đã chi và dòng tiền thuần của từng cửa hàng trong khoảng đã chọn.</p></div><span>{data.byStore.length} cửa hàng</span></div><div className="data-table-wrap"><table className="data-table"><caption className="sr-only">Tổng hợp dòng tiền của tất cả cửa hàng</caption><thead><tr><th>Cửa hàng</th><th>Doanh thu</th><th>Tiền đã chi thực tế</th><th>Dòng tiền thuần</th></tr></thead><tbody>{data.byStore.map((store) => <tr key={store.storeId}><td><b>{store.storeName}</b></td><td className="money-green">{money(store.inflow)}</td><td className="money-orange">{money(store.outflow)}</td><td className={store.net >= 0 ? "money-green" : "money-orange"}><b>{money(store.net)}</b></td></tr>)}</tbody><tfoot><tr><td>TỔNG TẤT CẢ CỬA HÀNG</td><td>{money(totals.inflow)}</td><td>{money(totals.outflow)}</td><td>{money(totals.net)}</td></tr></tfoot></table></div></section> : null}
+      <section className="finance-panel finance-table-panel cash-detail-table"><div className="finance-panel-heading"><div><h2>Chi tiết dòng tiền theo {financeRange.granularity === "day" ? "ngày" : "tháng"}</h2><p>{rangeLabel(data.range)}</p></div><span>{data.timeline.reduce((sum, row) => sum + row.transactionCount, 0)} phát sinh</span></div><div className="data-table-wrap"><table className="data-table"><caption className="sr-only">Chi tiết dòng tiền theo kỳ</caption><thead><tr><th>{financeRange.granularity === "day" ? "Ngày" : "Tháng"}</th><th>Doanh thu</th><th>Tiền đã chi thực tế</th><th>Dòng tiền thuần</th><th>Số phát sinh</th><th>Nguồn ghi nhận</th><th>Ghi chú</th></tr></thead><tbody>{visibleTimeline.length === 0 ? <tr><td colSpan={7} className="empty-cell">Không có phát sinh trong kỳ đang xem.</td></tr> : visibleTimeline.map((row) => <tr className="cash-row-screen" key={row.key}><td><b>{bucketLabel(row.key)}</b></td><td className="money-green">{money(row.inflow)}</td><td className="money-orange">{money(row.outflow)}</td><td className={row.net >= 0 ? "money-green" : "money-orange"}><b>{money(row.net)}</b></td><td>{row.transactionCount}</td><td>{row.sources.length ? row.sources.join(", ") : "–"}</td><td>{row.notes.length ? row.notes.join(", ") : "–"}</td></tr>)}{data.timeline.map((row) => <tr className="cash-row-print" key={`print-${row.key}`}><td><b>{bucketLabel(row.key)}</b></td><td className="money-green">{money(row.inflow)}</td><td className="money-orange">{money(row.outflow)}</td><td className={row.net >= 0 ? "money-green" : "money-orange"}><b>{money(row.net)}</b></td><td>{row.transactionCount}</td><td>{row.sources.length ? row.sources.join(", ") : "–"}</td><td>{row.notes.length ? row.notes.join(", ") : "–"}</td></tr>)}</tbody></table></div>
         <div className="finance-pagination"><label>Hiển thị <select aria-label="Số dòng trên mỗi trang" value={rowsPerPage} onChange={(event) => { setRowsPerPage(Number(event.target.value)); setPage(0); }}><option value={5}>5</option><option value={10}>10</option><option value={20}>20</option></select> trên mỗi trang</label><span>{data.timeline.length ? `${safePage * rowsPerPage + 1} – ${Math.min((safePage + 1) * rowsPerPage, data.timeline.length)} của ${data.timeline.length}` : "0 dòng"}</span><div><button type="button" onClick={() => setPage(Math.max(0, safePage - 1))} disabled={safePage === 0} aria-label="Trang trước"><ArrowLeft size={16}/></button><b aria-label={`Trang ${safePage + 1} trên ${pageCount}`}>{safePage + 1}</b><button type="button" onClick={() => setPage(Math.min(pageCount - 1, safePage + 1))} disabled={safePage >= pageCount - 1} aria-label="Trang sau"><ArrowRight size={16}/></button></div></div>
       </section>
     </> : null}

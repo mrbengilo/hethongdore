@@ -1,7 +1,7 @@
 import { initDb, writeAudit } from "../../../db/runtime";
-import { localPeriod } from "../../lib/finance";
+import { localDate, localMonthRange, localPeriod, previousComparableDateRange } from "../../lib/finance";
 import { getSessionUser, json } from "../_lib/auth";
-import { previousPeriod, storePeriodFinance } from "../_lib/store-finance";
+import { storeDateRangeFinance } from "../_lib/store-finance";
 
 const defaultShifts = [
   { name: "Ca 1", start: "07:00", end: "12:00", durationMinutes: 300 },
@@ -15,23 +15,42 @@ export async function GET(request: Request) {
   const db = await initDb();
   const requestedPeriod = new URL(request.url).searchParams.get("period") ?? localPeriod();
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(requestedPeriod)) return json({ message: "Kỳ báo cáo không hợp lệ." }, 400);
+  const today = localDate();
+  const fullCurrentRange = localMonthRange(requestedPeriod);
+  if (fullCurrentRange.from > today) return json({ message: "Không thể xem tổng quan cho kỳ trong tương lai." }, 400);
+  const currentRange = {
+    ...fullCurrentRange,
+    to: fullCurrentRange.to > today ? today : fullCurrentRange.to,
+  };
   const result = user.role === "MANAGER"
     ? await db.prepare("SELECT id FROM stores WHERE status IN ('ACTIVE', 'INACTIVE') ORDER BY created_at").all<{ id: string }>()
     : await db.prepare("SELECT id FROM stores WHERE id = ? AND status IN ('ACTIVE', 'INACTIVE')").bind(user.storeId).all<{ id: string }>();
-  const priorPeriod = previousPeriod(requestedPeriod);
+  const priorRange = previousComparableDateRange(currentRange, "month");
+  const priorPeriod = priorRange.to.slice(0, 7);
   const stores = (await Promise.all(result.results.map(async ({ id }) => {
     const [current, previous, employeeCount] = await Promise.all([
-      storePeriodFinance(db, id, requestedPeriod),
-      storePeriodFinance(db, id, priorPeriod),
+      storeDateRangeFinance(db, id, currentRange),
+      storeDateRangeFinance(db, id, priorRange),
       db.prepare("SELECT COUNT(*) AS count FROM employees WHERE store_id = ? AND status != 'ARCHIVED'").bind(id).first<{ count: number }>(),
     ]);
     return current ? {
       ...current,
+      period: requestedPeriod,
       employeeCount: Number(employeeCount?.count ?? 0),
-      previous: previous ? { period: previous.period, revenue: previous.revenue, expense: previous.expense, profit: previous.profit } : null,
+      previous: previous ? { period: priorPeriod, range: previous.range, revenue: previous.revenue, expense: previous.expense, profit: previous.profit } : null,
     } : null;
   }))).filter(Boolean);
-  return json({ period: requestedPeriod, stores });
+  const financeStatus = stores.length > 0 && stores.every((store) => store?.calculationStatus === "LOCKED")
+    ? "LOCKED"
+    : "PROVISIONAL";
+  return json({
+    period: requestedPeriod,
+    range: currentRange,
+    previousRange: priorRange,
+    financeStatus,
+    recognitionModel: "ACCRUAL",
+    stores,
+  });
 }
 
 export async function POST(request: Request) {

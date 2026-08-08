@@ -145,7 +145,7 @@ Bản build phải tạo entrypoint Worker tương thích và không còn lỗi 
 - Chi phí cố định: tạo/cập nhật theo kỳ, lưu lịch sử từng lần bấm LƯU và được cộng vào tổng chi phí cửa hàng.
 - Chi phí phát sinh: tạo từng khoản ở mục Dòng tiền, lưu lịch sử 24 giờ, xuất CSV và cộng chung với chi phí phát sinh từ ca.
 - Dữ liệu nghiệp vụ của cửa hàng `ACTIVE`: thêm, sửa, hủy mềm khi nghiệp vụ cho phép và xuất CSV; cửa hàng `INACTIVE` chỉ đọc/xuất lịch sử.
-- Lương quản lý: lương cố định 3,000,000 đồng/cửa hàng và thưởng 2% lợi nhuận.
+- Lương quản lý: lương cố định 3,000,000 đồng/cửa hàng, 140 giờ quản lý/cửa hàng và thưởng từ cùng quỹ KPI 3%/5%/7% với nhân viên, chia theo tỷ trọng giờ trên kỳ đã khóa.
 - Lương thưởng nhân viên: preview KPI theo cửa hàng/tháng, phân phối đúng một ngưỡng, chi tiết ca chính/hỗ trợ, sáu bước xác nhận chi và snapshot khóa.
 - Điều chuyển nhân sự: lưu `employee_transfers`, tự kích hoạt/hết hạn, tạo cửa hàng truy cập hiệu lực, kết thúc/hủy và xuất lịch sử.
 - Báo cáo: tổng hợp số liệu ca/chi phí thực tế, so sánh kỳ trước, phân tích chiều hướng và đánh giá hiệu quả theo cửa hàng/toàn chuỗi.

@@ -43,7 +43,7 @@ test("manager finance views expose report growth and daily-monthly cash-flow con
   assert.match(component, /aria-pressed/u);
 });
 
-test("store report selection stays on the store tab and all-store cash expenses reconcile", async () => {
+test("store report selection stays on the store tab and all-store cash outflows reconcile", async () => {
   const [component, portal] = await Promise.all([
     source("app/components/ManagerFinanceViews.tsx"),
     source("app/components/Portal.tsx"),
@@ -52,8 +52,15 @@ test("store report selection stays on the store tab and all-store cash expenses 
   assert.match(component, /options\.some\(\(store\) => store\.id === storeId\)/u);
   assert.doesNotMatch(component, /!data\.stores\.some\([\s\S]{0,120}setScope\("ALL"\)/u);
   assert.match(component, /data\.byStore\.reduce<CashTotals>/u);
-  assert.match(component, /Tổng chi phí tất cả cửa hàng/u);
+  assert.match(component, /Tổng tiền đã chi thực tế tất cả cửa hàng/u);
+  assert.match(component, /Tổng chi phí.*Tổng quan và Báo cáo là chi phí kế toán/u);
+  assert.match(component, /Chi phí kế toán cùng kỳ/u);
+  assert.match(component, /Chênh lệch thời điểm ghi nhận/u);
+  assert.doesNotMatch(component, /label=\{storeId === "ALL" \? "Tổng chi phí tất cả cửa hàng"/u);
   assert.match(component, /TỔNG TẤT CẢ CỬA HÀNG/u);
   assert.match(portal, /label="TỔNG DOANH THU" value=\{money\(totals\.revenue\)\}/u);
   assert.match(portal, /label="TỔNG CHI PHÍ" value=\{money\(totals\.expense\)\}/u);
+  assert.match(portal, /\/api\/stores\?period=\$\{encodeURIComponent\(period\)\}/u);
+  assert.match(portal, /type="month" value=\{period\} onChange=/u);
+  assert.match(portal, /so với kỳ trước/u);
 });

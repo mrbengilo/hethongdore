@@ -127,22 +127,25 @@ Khi bắt đầu ca, hệ thống phải ghi thời gian vào thực tế và sn
 ### 9.1. Quản lý
 
 - Lương cố định: 3,000,000 đồng cho mỗi cửa hàng mỗi tháng.
-- Thưởng quản lý theo cửa hàng: `2% × lợi nhuận dương của cửa hàng`.
+- Mỗi cửa hàng ghi nhận cố định 140 giờ làm của quản lý trong tổng giờ tính KPI.
+- Thưởng quản lý là phần của cùng một quỹ KPI cửa hàng với nhân viên: `140 / tổng giờ KPI cửa hàng × quỹ KPI`.
 - Tổng thưởng ngoài trang quản lý hệ thống bằng tổng thưởng của các cửa hàng.
 - Danh mục lương thưởng quản lý không có phụ cấp.
 
 ### 9.2. Nhân viên
 
-Gọi `P` là lợi nhuận cửa hàng trong tháng, `H` là tổng giờ làm của tất cả nhân viên và `h` là giờ làm của nhân viên:
+Gọi `P` là lợi nhuận trước thưởng hiệu quả của cửa hàng trong tháng; `He` là tổng giờ ca chính của các nhân viên đủ điều kiện KPI; `Hm = 140` là giờ quản lý cố định; `H = He + Hm`; và `h` là giờ ca chính của một nhân viên đủ điều kiện:
 
 - Nếu `P/H < 7,000`: thưởng lợi nhuận bằng 0.
 - Nếu `7,000 ≤ P/H < 15,000`: thưởng = `(h/H) × 3% × P`.
 - Nếu `15,000 ≤ P/H < 30,000`: thưởng = `(h/H) × 5% × P`.
 - Nếu `P/H ≥ 30,000`: thưởng = `(h/H) × 7% × P`.
 
+Ca hỗ trợ có `transfer_id` không được cộng vào `He`. Nhân viên ngưng làm việc có dưới 15 ca chính hoàn tất trong kỳ bị loại khỏi cả thưởng và mẫu số; từ 15 ca trở lên vẫn tham gia. Quỹ theo tỷ lệ được chọn chỉ phân bổ một lần giữa nhân viên đủ điều kiện và quản lý, và tổng các khoản sau làm tròn phải bằng đúng quỹ KPI.
+
 Tổng nhận nhân viên gồm lương theo giờ, thưởng lợi nhuận, phụ cấp TikTok, phụ cấp hỗ trợ, thưởng khác và phụ cấp khác. Với ca hỗ trợ, bảng lương phải nêu cửa hàng nhận chi, cửa hàng chính, số giờ thực tế, lương hỗ trợ/giờ và phần phụ cấp hỗ trợ được phân bổ cho ca.
 
-Thưởng KPI chỉ trở thành số liệu chính thức sau khi **Quản lý tổng kết tháng** cho từng cửa hàng. Hệ thống tính một preview từ dữ liệu ca đã hoàn thành, chọn đúng một ngưỡng cao nhất đạt được (không cộng dồn), sau đó lưu snapshot kỳ gồm lợi nhuận, tổng giờ, tỷ lệ KPI và chi tiết từng nhân viên. Snapshot đã khóa không tự thay đổi khi dữ liệu nguồn hoặc lương giờ được chỉnh sửa về sau; nhân viên chỉ xem kết quả của chính mình trong kỳ đã tổng kết.
+Thưởng KPI chỉ trở thành số liệu chính thức sau khi **Quản lý tổng kết tháng** cho từng cửa hàng. Hệ thống tính một preview từ dữ liệu ca đã hoàn thành, chọn đúng một ngưỡng cao nhất đạt được (không cộng dồn), sau đó lưu snapshot kỳ gồm lợi nhuận, giờ nhân viên đủ điều kiện, 140 giờ quản lý, tổng giờ KPI, tỷ lệ KPI và chi tiết phân bổ. Snapshot đã khóa không tự thay đổi khi dữ liệu nguồn hoặc lương giờ được chỉnh sửa về sau; nhân viên chỉ xem kết quả của chính mình trong kỳ đã tổng kết.
 
 Kỳ lương tại cửa hàng đi qua sáu bước: chốt lương nhân viên (`KPI_SUMMARY/LOCKED`) → chốt lương quản lý (`MANAGER_FINALIZED`) → xác nhận chi lương (`SALARY_CONFIRMED`) → xác nhận thưởng/phụ cấp (`REWARDS_CONFIRMED`) → xác nhận đã chi (`PAYMENT_CONFIRMED`) → kết sổ (`LOCKED`). Mỗi bước lưu người và ngày giờ thực hiện trong audit. Sau khi khóa, dữ liệu không được sửa/xóa; lịch sử, thống kê và so sánh kỳ trước vẫn đọc/xuất được.
 

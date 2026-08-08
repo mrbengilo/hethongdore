@@ -90,10 +90,10 @@ type ShiftClosePayload = {
 const money = (value: number) => new Intl.NumberFormat("en-US").format(Math.round(value)) + " đồng";
 const compactMoney = (value: number) => value >= 1000000000 ? `${(value / 1000000000).toFixed(2)} tỷ` : value >= 1000000 ? `${(value / 1000000).toFixed(1)} tr` : money(value);
 const comparisonNote = (current: number, previous: number) => {
-    if (previous === 0) return current === 0 ? "→ 0,00% so với tháng trước" : "Chưa có số liệu tháng trước";
+    if (previous === 0) return current === 0 ? "→ 0,00% so với kỳ trước" : "Chưa có số liệu kỳ trước";
     const change = (current - previous) / Math.abs(previous) * 100;
     const percent = Math.abs(change).toLocaleString("vi-VN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    return `${change > 0 ? "↑" : change < 0 ? "↓" : "→"} ${percent}% so với tháng trước`;
+    return `${change > 0 ? "↑" : change < 0 ? "↓" : "→"} ${percent}% so với kỳ trước`;
 };
 const dateTime = (value: string) => new Intl.DateTimeFormat("vi-VN", { dateStyle: "short", timeStyle: "short", timeZone: "Asia/Ho_Chi_Minh", hourCycle: "h23" }).format(new Date(value));
 const localDate = (value: string) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh" }).format(new Date(value));
@@ -165,24 +165,30 @@ function ManagerPortal({ user }: {
     const [selectedStore, setSelectedStore] = useState<Store | null>(null);
     const [stores, setStores] = useState<Store[]>([]);
     const [loading, setLoading] = useState(true);
+    const [period, setPeriod] = useState(() => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh", year: "numeric", month: "2-digit" }).format(new Date()));
+    const loadRequest = useRef(0);
     const loadStores = useCallback(async () => {
-        const response = await fetch("/api/stores");
+        const requestId = ++loadRequest.current;
+        setLoading(true);
+        const response = await fetch(`/api/stores?period=${encodeURIComponent(period)}`, { cache: "no-store" });
         const data = await response.json();
+        if (requestId !== loadRequest.current) return;
         const nextStores = data.stores ?? [];
         setStores(nextStores);
         setSelectedStore((current) => current ? nextStores.find((store: Store) => store.id === current.id) ?? current : null);
         setLoading(false);
-    }, []);
+    }, [period]);
     useEffect(() => { loadStores(); }, [loadStores]);
     if (selectedStore)
         return <AppShell brand={selectedStore.name} subtitle="Quản lý cửa hàng" menu={storeMenu} active={storeView} onActive={setStoreView} user={user} onBack={() => setSelectedStore(null)} accent="light"><StoreWorkspace store={selectedStore} view={storeView} onReload={loadStores}/></AppShell>;
     const financeOwnsHeader = view === "Báo cáo" || view === "Dòng tiền";
-    return <AppShell brand="DORE" subtitle="Quản lý toàn hệ thống" menu={managerMenu} active={view} onActive={setView} user={user}>{financeOwnsHeader ? null : <ManagerHeader view={view}/>}<ManagerView view={view} stores={stores} loading={loading} reload={loadStores} openStore={setSelectedStore}/></AppShell>;
+    return <AppShell brand="DORE" subtitle="Quản lý toàn hệ thống" menu={managerMenu} active={view} onActive={setView} user={user}>{financeOwnsHeader ? null : <ManagerHeader view={view} period={period} onPeriodChange={setPeriod}/>}<ManagerView view={view} stores={stores} loading={loading} reload={loadStores} openStore={setSelectedStore}/></AppShell>;
 }
-function ManagerHeader({ view }: {
+function ManagerHeader({ view, period, onPeriodChange }: {
     view: string;
+    period: string;
+    onPeriodChange: (period: string) => void;
 }) {
-    const currentPeriod = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh", year: "numeric", month: "2-digit" }).format(new Date());
     const subtitles: Record<string, string> = {
         "Tổng quan": "Xin chào, Quản trị viên! Đây là tổng quan hoạt động của tất cả cửa hàng.",
         "Cửa hàng": "Quản lý thông tin cửa hàng, nhân sự và kết quả hoạt động của từng cửa hàng.",
@@ -194,7 +200,7 @@ function ManagerHeader({ view }: {
         "Điều chuyển nhân sự": "Quản lý nhân viên hỗ trợ giữa các cửa hàng theo thời gian và ca làm việc.",
         "Cài đặt": "Quản lý thông tin tài khoản và các thiết lập hệ thống.",
     };
-    return <div className="page-header"><div><h1>{view}</h1><p>{subtitles[view]}</p></div><div className="header-actions"><label className="date-control"><Calendar size={17}/><input aria-label="Tháng báo cáo" type="month" defaultValue={currentPeriod}/></label><button className="bell" aria-label="Thông báo" onClick={() => alert("Bạn có 3 thông báo vận hành mới.")}><Bell size={20}/><span>3</span></button></div></div>;
+    return <div className="page-header"><div><h1>{view}</h1><p>{subtitles[view]}</p></div><div className="header-actions"><label className="date-control"><Calendar size={17}/><input aria-label="Tháng báo cáo" type="month" value={period} onChange={(event) => onPeriodChange(event.target.value)}/></label><button className="bell" aria-label="Thông báo" onClick={() => alert("Bạn có 3 thông báo vận hành mới.")}><Bell size={20}/><span>3</span></button></div></div>;
 }
 function StatCard({ label, value, note, tone = "green", icon = "↗" }: {
     label: string;
@@ -320,6 +326,11 @@ type ManagerPayrollRow = {
     profitBeforePerformanceRewards: number;
     employeeKpiBonus: number;
     finalProfit: number;
+    managerHours?: number;
+    employeeEligibleHours?: number;
+    totalKpiHours?: number;
+    profitPerKpiHour?: number;
+    kpiRate?: number;
     managerSalary: number;
     managerBonus: number;
     managerTotal: number;
@@ -329,7 +340,11 @@ type ManagerPayrollRow = {
 };
 type ManagerPayrollReport = {
     period: string;
-    policy: { salaryPerStore: number; bonusRate: number };
+    policy: {
+        salaryPerStore: number;
+        managerHoursPerStore?: number;
+        tiers?: Array<{ minimumProfitPerHour: number; rate: number }>;
+    };
     rows: ManagerPayrollRow[];
     totals: { storeCount: number; totalSalary: number; totalBonus: number; totalPay: number };
 };
@@ -359,21 +374,22 @@ function ManagerPayroll() {
     const exportReport = () => {
         if (!report) return;
         exportCsvFile(`luong-thuong-quan-ly-${report.period}.csv`, [
-            ["Cửa hàng", "Kỳ", "Lợi nhuận cơ sở", "Lương quản lý", "Thưởng KPI 2%", "Tổng nhận", "Lợi nhuận sau cùng", "Đã chi lúc", "Khóa lúc"],
-            ...report.rows.map((row) => [row.storeName, row.period, row.profitBeforePerformanceRewards, row.managerSalary, row.managerBonus, row.managerTotal, row.finalProfit, row.paymentConfirmedAt, row.closedAt]),
+            ["Cửa hàng", "Kỳ", "Lợi nhuận cơ sở", "Giờ KPI nhân viên chính", "Giờ quản lý", "Tổng giờ KPI", "Lợi nhuận/giờ", "Mức KPI", "Lương quản lý", "Thưởng KPI quản lý", "Tổng nhận", "Lợi nhuận sau cùng", "Đã chi lúc", "Khóa lúc"],
+            ...report.rows.map((row) => [row.storeName, row.period, row.profitBeforePerformanceRewards, row.employeeEligibleHours ?? 0, row.managerHours ?? report.policy.managerHoursPerStore ?? 140, row.totalKpiHours ?? 0, row.profitPerKpiHour ?? 0, `${((row.kpiRate ?? 0) * 100).toFixed(0)}%`, row.managerSalary, row.managerBonus, row.managerTotal, row.finalProfit, row.paymentConfirmedAt, row.closedAt]),
         ]);
     };
-    const policy = report?.policy ?? { salaryPerStore: 3_000_000, bonusRate: 0.02 };
+    const policy = report?.policy ?? { salaryPerStore: 3_000_000, managerHoursPerStore: 140, tiers: [{ minimumProfitPerHour: 30_000, rate: .07 }, { minimumProfitPerHour: 15_000, rate: .05 }, { minimumProfitPerHour: 7_000, rate: .03 }] };
+    const managerHours = policy.managerHoursPerStore ?? 140;
     const totals = report?.totals ?? { storeCount: 0, totalSalary: 0, totalBonus: 0, totalPay: 0 };
     const rows = report?.rows ?? [];
     return <div className="page-content manager-reference payroll-page">
         <div className="ref-toolbar"><div><h2>LƯƠNG THƯỞNG QUẢN LÝ</h2><p>Chỉ ghi nhận số liệu thật từ các cửa hàng đã xác nhận chi và khóa kỳ.</p></div><div className="ref-toolbar-actions"><input aria-label="Kỳ lương quản lý" type="month" value={period} onChange={(event) => setPeriod(event.target.value)}/><button onClick={() => void load()} disabled={loading}><RefreshCw size={16}/> {loading ? "Đang tải…" : "Làm mới"}</button><button onClick={exportReport} disabled={!rows.length}><Download size={16}/> Xuất CSV</button></div></div>
-        <div className="notice-banner">ℹ Lương mặc định {money(policy.salaryPerStore)}/cửa hàng/kỳ. Thưởng KPI quản lý = {(policy.bonusRate * 100).toFixed(0)}% lợi nhuận cơ sở dương của từng cửa hàng.</div>
+        <div className="notice-banner">ℹ Lương mặc định {money(policy.salaryPerStore)}/cửa hàng/kỳ. Quản lý được tính cố định {managerHours} giờ/cửa hàng; thưởng quản lý và nhân viên cùng chia quỹ KPI 3%/5%/7% theo tỷ trọng giờ làm. Giờ ca hỗ trợ không tham gia mẫu số.</div>
         {error && <div className="form-message">{error}</div>}
-        <div className="stats-grid four"><StatCard label="TỔNG LƯƠNG QUẢN LÝ" value={money(totals.totalSalary)} note={`${totals.storeCount} cửa hàng đã khóa kỳ`} icon="♕"/><StatCard label="TỔNG THƯỞNG KPI" value={money(totals.totalBonus)} note="2% theo từng cửa hàng" tone="orange" icon="✦"/><StatCard label="TỔNG THỰC NHẬN" value={money(totals.totalPay)} note={`Kỳ ${period}`} tone="blue" icon="₫"/><StatCard label="CỬA HÀNG ĐÃ CHỐT" value={String(totals.storeCount)} note="Đã xác nhận chi và khóa" icon="✓"/></div>
-        <section className="table-card"><div className="table-head"><div><h2>Lương thưởng theo từng cửa hàng · {period}</h2><p>Số liệu được lấy từ bản chốt bất biến của mỗi cửa hàng.</p></div><span className="status-pill">{rows.length} kỳ cửa hàng đã khóa</span></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>Cửa hàng</th><th>Lợi nhuận cơ sở</th><th>Lương mặc định</th><th>Thưởng KPI 2%</th><th>Tổng thực nhận</th><th>Lợi nhuận sau cùng</th><th>Đã chi lúc</th><th>Khóa kỳ lúc</th><th>Trạng thái</th></tr></thead><tbody>
-            {loading && !report ? <tr><td colSpan={9} className="empty-cell">Đang tải số liệu lương thưởng quản lý…</td></tr> : rows.length === 0 ? <tr><td colSpan={9} className="empty-cell">Chưa có cửa hàng nào hoàn tất xác nhận chi và khóa kỳ {period}.</td></tr> : rows.map((row) => <tr key={`${row.storeId}-${row.period}`}><td><b>{row.storeName}</b></td><td>{money(row.profitBeforePerformanceRewards)}</td><td>{money(row.managerSalary)}</td><td className="money-green">{money(row.managerBonus)}</td><td><b>{money(row.managerTotal)}</b></td><td>{money(row.finalProfit)}</td><td>{row.paymentConfirmedAt ? dateTime(row.paymentConfirmedAt) : "—"}</td><td>{row.closedAt ? dateTime(row.closedAt) : "—"}</td><td><span className="status-pill">Đã khóa</span></td></tr>)}
-        </tbody><tfoot><tr><td>TỔNG CỘNG</td><td/><td>{money(totals.totalSalary)}</td><td>{money(totals.totalBonus)}</td><td>{money(totals.totalPay)}</td><td colSpan={4}/></tr></tfoot></table></div></section>
+        <div className="stats-grid four"><StatCard label="TỔNG LƯƠNG QUẢN LÝ" value={money(totals.totalSalary)} note={`${totals.storeCount} cửa hàng đã khóa kỳ`} icon="♕"/><StatCard label="TỔNG THƯỞNG KPI" value={money(totals.totalBonus)} note={`${managerHours} giờ quản lý/cửa hàng`} tone="orange" icon="✦"/><StatCard label="TỔNG THỰC NHẬN" value={money(totals.totalPay)} note={`Kỳ ${period}`} tone="blue" icon="₫"/><StatCard label="CỬA HÀNG ĐÃ CHỐT" value={String(totals.storeCount)} note="Đã xác nhận chi và khóa" icon="✓"/></div>
+        <section className="table-card"><div className="table-head"><div><h2>Lương thưởng theo từng cửa hàng · {period}</h2><p>Số liệu được lấy từ bản chốt bất biến của mỗi cửa hàng.</p></div><span className="status-pill">{rows.length} kỳ cửa hàng đã khóa</span></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>Cửa hàng</th><th>Lợi nhuận cơ sở</th><th>Giờ xét KPI</th><th>Lợi nhuận/giờ</th><th>Mức KPI</th><th>Lương mặc định</th><th>Thưởng KPI quản lý</th><th>Tổng thực nhận</th><th>Lợi nhuận sau cùng</th><th>Đã chi lúc</th><th>Khóa kỳ lúc</th><th>Trạng thái</th></tr></thead><tbody>
+            {loading && !report ? <tr><td colSpan={12} className="empty-cell">Đang tải số liệu lương thưởng quản lý…</td></tr> : rows.length === 0 ? <tr><td colSpan={12} className="empty-cell">Chưa có cửa hàng nào hoàn tất xác nhận chi và khóa kỳ {period}.</td></tr> : rows.map((row) => <tr key={`${row.storeId}-${row.period}`}><td><b>{row.storeName}</b></td><td>{money(row.profitBeforePerformanceRewards)}</td><td><small>NV {Number(row.employeeEligibleHours ?? 0).toFixed(2)} giờ + QL {Number(row.managerHours ?? managerHours).toFixed(2)} giờ</small><br/><b>{Number(row.totalKpiHours ?? 0).toFixed(2)} giờ</b></td><td>{money(row.profitPerKpiHour ?? 0)}/giờ</td><td>{((row.kpiRate ?? 0) * 100).toFixed(0)}%</td><td>{money(row.managerSalary)}</td><td className="money-green">{money(row.managerBonus)}</td><td><b>{money(row.managerTotal)}</b></td><td>{money(row.finalProfit)}</td><td>{row.paymentConfirmedAt ? dateTime(row.paymentConfirmedAt) : "—"}</td><td>{row.closedAt ? dateTime(row.closedAt) : "—"}</td><td><span className="status-pill">Đã khóa</span></td></tr>)}
+        </tbody><tfoot><tr><td>TỔNG CỘNG</td><td colSpan={4}/><td>{money(totals.totalSalary)}</td><td>{money(totals.totalBonus)}</td><td>{money(totals.totalPay)}</td><td colSpan={5}/></tr></tfoot></table></div></section>
     </div>;
 }
 export function ReportsView({ stores, totals }: {
@@ -409,7 +425,7 @@ function StoreWorkspace({ store, view, onReload }: {
         fetch(`/api/orders?storeId=${store.id}`).then(r => r.json()).then(d => setOrders(d.orders ?? [])); }, [view, store.id]);
     const title = view === "Tổng quan" ? `Tổng quan ${store.name}` : view;
     const inactive = store.status === "INACTIVE";
-    const costLabels: Record<string, string> = { fixedCosts: "Chi phí cố định", incidentalCosts: "Chi phí phát sinh", inventoryGoods: "Tiền nhập hàng", inventoryShipping: "Vận chuyển", employeeBaseSalary: "Lương nhân viên", tiktokAllowance: "Phụ cấp TikTok", supportAllowance: "Phụ cấp hỗ trợ", manualAllowance: "Phụ cấp khác", manualBonus: "Thưởng nhân viên", managerSalary: "Lương quản lý", employeeKpiBonus: "Thưởng KPI", managerBonus: "Thưởng quản lý" };
+    const costLabels: Record<string, string> = { fixedCosts: "Chi phí cố định", incidentalCosts: "Chi phí phát sinh", inventoryGoods: "Tiền nhập hàng", inventoryShipping: "Vận chuyển", employeeBaseSalary: "Lương nhân viên", tiktokAllowance: "Phụ cấp TikTok", supportAllowance: "Phụ cấp hỗ trợ", manualAllowance: "Phụ cấp khác", manualBonus: "Thưởng nhân viên", managerSalary: "Lương quản lý", employeeKpiBonus: "Thưởng KPI nhân viên", managerBonus: "Thưởng KPI quản lý" };
     return <><div className="page-header store-header"><div><span className="breadcrumb">CỬA HÀNG · {store.address}</span><h1>{title}</h1><p>Dữ liệu vận hành độc lập của {store.name}.</p></div><div className="header-actions"><span className={`store-state ${inactive ? "inactive" : ""}`}>{inactive ? "Ngưng hoạt động" : "Đang hoạt động"}</span><span className="date-control">▣ Kỳ {store.period ?? new Date().toLocaleDateString("en-CA", { month: "2-digit", year: "numeric", timeZone: "Asia/Ho_Chi_Minh" })}</span></div></div><div className={`page-content ${inactive ? "store-readonly" : ""}`}>{inactive && <div className="inactive-store-banner">Cửa hàng đang ngưng hoạt động. Các thao tác tạo hoặc sửa dữ liệu đã khóa; lịch sử dòng tiền và báo cáo vẫn được giữ nguyên.</div>}{view === "Tổng quan" && <><div className="stats-grid four"><StatCard label="Doanh thu từ các ca" value={money(store.revenue)}/><StatCard label="Tổng tất cả chi phí" value={money(store.expense)} tone="orange"/><StatCard label="Lợi nhuận sau cùng" value={money(store.profit)} tone="blue"/><StatCard label="Biên lợi nhuận" value={`${store.revenue ? (store.profit / store.revenue * 100).toFixed(2) : "0.00"}%`} icon="%"/></div><section className="table-card"><div className="table-head"><div><h2>Cơ cấu tổng chi phí cửa hàng</h2><p>Đã cộng chi phí cố định, phát sinh, nhập hàng, vận chuyển, lương, thưởng và phụ cấp</p></div><b>{money(store.expense)}</b></div><div className="comparison-grid">{Object.entries(store.expenseBreakdown ?? {}).map(([key, value]) => <p key={key}><span>{costLabels[key] ?? key}</span><b>{money(Number(value))}</b><em>{store.expense ? `${(Number(value) / store.expense * 100).toFixed(1)}%` : "0%"}</em></p>)}</div></section><StoreFinancialReport store={store}/></>}{view === "Đơn hàng" ? <ManagerOrders orders={orders}/> : view === "Chi phí cố định" ? <FixedCostManagement store={store} onSaved={onReload}/> : view !== "Tổng quan" && <StoreModule store={store} view={view}/>}</div></>;
 }
 function ManagerOrders({ orders }: {
@@ -453,6 +469,7 @@ function EmployeePortal({ user, onUser }: {
     const [orders, setOrders] = useState<Order[]>([]);
     const [tiktok, setTiktok] = useState(false);
     const [rolloverNotice, setRolloverNotice] = useState("");
+    const [rolloverWarning, setRolloverWarning] = useState("");
     const [blockedRolloverNoticeShift, setBlockedRolloverNoticeShift] = useState<string | null>(null);
     const [rolloverPrompt, setRolloverPrompt] = useState<ShiftRolloverPrompt | null>(null);
     const [dismissedRolloverShift, setDismissedRolloverShift] = useState<string | null>(null);
@@ -468,6 +485,7 @@ function EmployeePortal({ user, onUser }: {
         const storeContextChanged = (typeof data.storeId === "string" || data.storeId === null) && data.storeId !== user.storeId;
         if (changedShift) {
             setTiktok(false);
+            setRolloverWarning("");
             setBlockedRolloverNoticeShift(null);
             setRolloverNotice(`Đã chuyển từ ${shift.shiftName ?? "ca trước"} sang ${data.shiftName ?? "ca tiếp theo"}. Thời gian làm được ghi nhận liên tục thành hai ca riêng.`);
             setRolloverPrompt(null);
@@ -489,6 +507,7 @@ function EmployeePortal({ user, onUser }: {
             setRolloverNotice(data.message ?? "Quyền hỗ trợ không còn áp dụng cho ca tiếp theo. Vui lòng kết ca hiện tại.");
         } else if (!data.rolloverPending) {
             setRolloverPrompt(null);
+            setRolloverWarning("");
         }
         setShift({
             active: Boolean(data.active),
@@ -562,6 +581,7 @@ function EmployeePortal({ user, onUser }: {
         if (action === "end") {
             setTiktok(false);
             setRolloverNotice("");
+            setRolloverWarning("");
             setBlockedRolloverNoticeShift(null);
         }
         setRolloverPrompt(null);
@@ -572,6 +592,7 @@ function EmployeePortal({ user, onUser }: {
         if (!rolloverPrompt) return;
         setDismissedRolloverShift(rolloverPrompt.shiftCode);
         setRolloverPrompt(null);
+        setRolloverWarning("Bạn cần phải Kết Ca làm việc vì đã quá thời gian kết ca hơn 60 phút");
     }
     async function confirmRollover() {
         if (!rolloverPrompt || rolloverSubmitting) return;
@@ -610,6 +631,7 @@ function EmployeePortal({ user, onUser }: {
             });
             setTiktok(false);
             setRolloverPrompt(null);
+            setRolloverWarning("");
             setDismissedRolloverShift(null);
             setBlockedRolloverNoticeShift(null);
             setRolloverNotice(`Đã chuyển từ ${previousShiftName} sang ${data.shiftName ?? "ca tiếp theo"}. Thời gian làm được ghi nhận liên tục thành hai ca riêng.`);
@@ -624,7 +646,7 @@ function EmployeePortal({ user, onUser }: {
             <div><div className="employee-brand-title"><strong>{employeeStoreName}</strong><span>{user.isSupporting ? `ĐANG HỖ TRỢ · CỬA HÀNG CHÍNH: ${user.homeStoreName ?? "DORE"}` : `${view.toLocaleUpperCase("vi-VN")} · HỆ THỐNG LÀM VIỆC NHÂN VIÊN`}</span></div></div>
             <div className="header-user"><button className="bell" aria-label="Thông báo"><Bell size={20}/><span>2</span></button><div className="avatar"><UserRound size={20}/></div><span><b>{user.name}</b><small>{user.employeeCode ?? "NV"}</small></span></div>
         </div>
-        <div className="page-content">{rolloverNotice && <div className="success-banner" role="status">{rolloverNotice}<button type="button" onClick={() => { setRolloverNotice(""); if (blockedRolloverNoticeShift) setDismissedRolloverShift(`blocked:${blockedRolloverNoticeShift}`); setBlockedRolloverNoticeShift(null); }}>×</button></div>}<EmployeeView user={user} view={view} shift={shift} orders={orders} onShift={shiftAction} tiktok={tiktok} setTiktok={setTiktok} reloadOrders={loadOrders}/></div>
+        <div className="page-content">{rolloverNotice && <div className="success-banner" role="status">{rolloverNotice}<button type="button" onClick={() => { setRolloverNotice(""); if (blockedRolloverNoticeShift) setDismissedRolloverShift(`blocked:${blockedRolloverNoticeShift}`); setBlockedRolloverNoticeShift(null); }}>×</button></div>}{rolloverWarning && <div className="rollover-warning-banner" role="alert"><span>{rolloverWarning}</span><button type="button" aria-label="Đóng cảnh báo kết ca" onClick={() => setRolloverWarning("")}>×</button></div>}<EmployeeView user={user} view={view} shift={shift} orders={orders} onShift={shiftAction} tiktok={tiktok} setTiktok={setTiktok} reloadOrders={loadOrders}/></div>
         {rolloverPrompt && <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-labelledby="rollover-confirm-title">
             <div className="modal-title"><div><h2 id="rollover-confirm-title">Bạn làm ca tiếp theo phải không?</h2><p>Ca hiện tại đã quá giờ kết thúc hơn 60 phút.</p></div></div>
             <div className="info-box"><b>{rolloverPrompt.currentShiftName}</b> → <b>{rolloverPrompt.nextShiftName}</b> · {rolloverPrompt.nextShiftTime}<br/>Nếu chọn Có, hệ thống sẽ lưu thành hai ca riêng và vẫn tính thời gian làm liên tục.</div>

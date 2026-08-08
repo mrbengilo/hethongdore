@@ -1,13 +1,16 @@
 import { env } from "cloudflare:workers";
 
 const MANAGER_HASH = "pbkdf2$100000$ZG9yZS1tYW5hZ2VyLTIwMjY=$d5VqMFL5PfeL24Iqy9+fDO394WhyMImlit02OntW4OM=";
-const EMPLOYEE_HASH = "pbkdf2$100000$ZG9yZS1lbXBsb3llZS0yMDI2$OSC1V7zX59lTKx20h2VcBhh6m/M1e3zedhN05HKkju8=";
+const DATA_RESET_KEY = "data_reset_2026_08_08";
+const RESET_UPLOADS_PENDING = "R2_PENDING";
+const RESET_COMPLETE = "COMPLETE";
 
 const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS stores (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, address TEXT NOT NULL, revenue INTEGER NOT NULL DEFAULT 0, expense INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'ACTIVE', created_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS employees (id TEXT PRIMARY KEY, store_id TEXT NOT NULL, code TEXT NOT NULL UNIQUE, name TEXT NOT NULL, position TEXT NOT NULL, phone TEXT NOT NULL, province TEXT NOT NULL DEFAULT '', ward TEXT NOT NULL DEFAULT '', address_line TEXT NOT NULL DEFAULT '', age INTEGER, cccd_image_key TEXT, cccd_image_name TEXT, hourly_rate INTEGER NOT NULL DEFAULT 20000, status TEXT NOT NULL DEFAULT 'ACTIVE', inactive_at TEXT)`,
   `CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, role TEXT NOT NULL, name TEXT NOT NULL, employee_id TEXT, store_id TEXT, failed_attempts INTEGER NOT NULL DEFAULT 0, locked_until INTEGER, shift_active INTEGER NOT NULL DEFAULT 0, current_shift TEXT, shift_started_at TEXT)`,
   `CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE, expires_at INTEGER NOT NULL, created_at TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS system_state (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, code TEXT NOT NULL UNIQUE, store_id TEXT NOT NULL, employee_id TEXT NOT NULL, shift_code TEXT NOT NULL, customer_name TEXT, phone TEXT, age INTEGER, amount INTEGER NOT NULL, payment_method TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'COMPLETED', created_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS audit_logs (id TEXT PRIMARY KEY, user_id TEXT, action TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id TEXT, detail TEXT, created_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS business_records (id TEXT PRIMARY KEY, category TEXT NOT NULL, store_id TEXT, owner_id TEXT, title TEXT NOT NULL, data_json TEXT NOT NULL DEFAULT '{}', status TEXT NOT NULL DEFAULT 'ACTIVE', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
@@ -24,19 +27,74 @@ const schemaStatements = [
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_employee_payroll_closing_period ON employee_payroll_closings(store_id, employee_id, period)`,
 ];
 
-const initialStores = [
-  ["st-thot-not", "DORE THỐT NỐT", "Thốt Nốt, Cần Thơ", 567890000, 298450000],
-  ["st-can-tho", "DORE CẦN THƠ", "Ninh Kiều, Cần Thơ", 678901000, 345670000],
-  ["st-long-xuyen", "DORE LONG XUYÊN", "Long Xuyên, An Giang", 642098000, 357327000],
-  ["st-vinh-long", "DORE VĨNH LONG", "TP. Vĩnh Long, Vĩnh Long", 456789000, 233120000],
-  ["st-soc-trang", "DORE SÓC TRĂNG", "TP. Sóc Trăng, Sóc Trăng", 525430000, 272800000],
-] as const;
+type ResetUploadsBucket = {
+  list(options: { prefix: string; cursor?: string; limit?: number }): Promise<{
+    objects: Array<{ key: string }>;
+    truncated: boolean;
+    cursor?: string;
+  }>;
+  delete(keys: string | string[]): Promise<void>;
+};
 
-const defaultStoreShifts = [
-  { name: "Ca 1", start: "07:00", end: "12:00", durationMinutes: 300 },
-  { name: "Ca 2", start: "12:00", end: "17:00", durationMinutes: 300 },
-  { name: "Ca 3", start: "17:00", end: "23:00", durationMinutes: 360 },
-] as const;
+async function ensureOneTimeDataReset(db: D1Database) {
+  const state = await db.prepare("SELECT value FROM system_state WHERE key = ? LIMIT 1")
+    .bind(DATA_RESET_KEY).first<{ value: string }>();
+  if (state) return;
+
+  const now = new Date().toISOString();
+  // The reset is intentionally idempotent. Manager sessions survive, while
+  // every operational row and every non-manager account is removed.
+  await db.batch([
+    db.prepare("DELETE FROM employee_payroll_closings"),
+    db.prepare("DELETE FROM orders"),
+    db.prepare("DELETE FROM shift_sessions"),
+    db.prepare("DELETE FROM employee_transfers"),
+    db.prepare("DELETE FROM business_records"),
+    db.prepare("DELETE FROM audit_logs"),
+    db.prepare("DELETE FROM sessions WHERE NOT EXISTS (SELECT 1 FROM users AS manager_user WHERE manager_user.id = sessions.user_id AND manager_user.role = 'MANAGER')"),
+    db.prepare("DELETE FROM users WHERE role != 'MANAGER'"),
+    db.prepare("UPDATE users SET employee_id = NULL, store_id = NULL, failed_attempts = 0, locked_until = NULL, shift_active = 0, current_shift = NULL, shift_started_at = NULL WHERE role = 'MANAGER'"),
+    db.prepare("DELETE FROM employees"),
+    db.prepare("DELETE FROM stores"),
+    db.prepare("DELETE FROM system_state WHERE key = ?").bind(DATA_RESET_KEY),
+    db.prepare("INSERT INTO system_state (key, value, updated_at) VALUES (?, ?, ?)").bind(DATA_RESET_KEY, RESET_UPLOADS_PENDING, now),
+  ]);
+}
+
+async function ensureManagerAccount(db: D1Database) {
+  await db.prepare(`INSERT OR IGNORE INTO users
+    (id, username, password_hash, role, name, employee_id, store_id, failed_attempts, locked_until, shift_active, current_shift, shift_started_at)
+    SELECT ?, ?, ?, 'MANAGER', ?, NULL, NULL, 0, NULL, 0, NULL, NULL
+    WHERE NOT EXISTS (SELECT 1 FROM users WHERE role = 'MANAGER')`)
+    .bind("user-manager", "admin", MANAGER_HASH, "Quản trị viên").run();
+}
+
+async function finishResetUploads(db: D1Database) {
+  const state = await db.prepare("SELECT value FROM system_state WHERE key = ? LIMIT 1")
+    .bind(DATA_RESET_KEY).first<{ value: string }>();
+  if (state?.value !== RESET_UPLOADS_PENDING) return;
+
+  const storage = (env as unknown as { UPLOADS?: ResetUploadsBucket }).UPLOADS;
+  if (!storage) return;
+  try {
+    let cursor: string | undefined;
+    do {
+      const page = await storage.list({ prefix: "cccd/", cursor, limit: 1000 });
+      const keys = page.objects
+        .map((object) => object.key)
+        .filter((key) => key.startsWith("cccd/"));
+      if (keys.length) await storage.delete(keys);
+      if (!page.truncated) break;
+      if (!page.cursor) throw new Error("R2 returned a truncated CCCD page without a continuation cursor");
+      cursor = page.cursor;
+    } while (cursor);
+    await db.prepare("UPDATE system_state SET value = ?, updated_at = ? WHERE key = ? AND value = ?")
+      .bind(RESET_COMPLETE, new Date().toISOString(), DATA_RESET_KEY, RESET_UPLOADS_PENDING).run();
+  } catch (error) {
+    // Keep the marker pending so a later request retries a transient R2 error.
+    console.error("Unable to finish the one-time CCCD upload reset", error);
+  }
+}
 
 export async function initDb() {
   const db = env.DB;
@@ -86,36 +144,9 @@ export async function initDb() {
   await db.prepare("UPDATE employees SET inactive_at = ? WHERE status = 'INACTIVE' AND inactive_at IS NULL")
     .bind(new Date().toISOString()).run();
 
-  const count = await db.prepare("SELECT COUNT(*) AS count FROM stores").first<{ count: number }>();
-  if (Number(count?.count ?? 0) === 0) {
-    const now = new Date().toISOString();
-    await db.batch(initialStores.map((store) => db.prepare("INSERT INTO stores (id, name, address, revenue, expense, status, created_at) VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?)").bind(...store, now)));
-  }
-  const storeRows = await db.prepare(`SELECT s.id, COUNT(r.id) AS shiftCount
-    FROM stores s
-    LEFT JOIN business_records r ON r.store_id = s.id AND r.category = 'CA_LAM_VIEC'
-    WHERE s.status IN ('ACTIVE', 'INACTIVE')
-    GROUP BY s.id`).all<{ id: string; shiftCount: number }>();
-  const shiftSeededAt = new Date().toISOString();
-  const missingDefaultShifts = storeRows.results.flatMap((store) => Number(store.shiftCount) === 0 ? defaultStoreShifts.map((shift, index) =>
-    db.prepare(`INSERT INTO business_records (id, category, store_id, owner_id, title, data_json, status, created_at, updated_at)
-      VALUES (?, 'CA_LAM_VIEC', ?, NULL, ?, ?, 'ACTIVE', ?, ?)`)
-      .bind(`default-shift:${store.id}:${index + 1}`, store.id, shift.name, JSON.stringify({ start: shift.start, end: shift.end, durationMinutes: shift.durationMinutes, overnight: false }), shiftSeededAt, shiftSeededAt)
-  ) : []);
-  if (missingDefaultShifts.length) await db.batch(missingDefaultShifts);
-  // Older deployments may already contain stores but not the employee/account
-  // seed rows introduced later. Idempotent inserts safely backfill that data.
-  await db.batch([
-    db.prepare("INSERT OR IGNORE INTO employees (id, store_id, code, name, position, phone, hourly_rate, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'ACTIVE')").bind("emp-001", "st-thot-not", "NV001", "Nguyễn Thị An", "Nhân viên bán hàng", "0765109784", 20000),
-    db.prepare("INSERT OR IGNORE INTO employees (id, store_id, code, name, position, phone, hourly_rate, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'ACTIVE')").bind("emp-002", "st-thot-not", "NV002", "Trần Văn Bình", "Nhân viên bán hàng", "0923456789", 20000),
-    db.prepare("INSERT OR IGNORE INTO employees (id, store_id, code, name, position, phone, hourly_rate, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'ACTIVE')").bind("emp-003", "st-thot-not", "NV003", "Lê Thị Cúc", "Thu ngân", "0812345678", 22000),
-    db.prepare("INSERT OR IGNORE INTO users (id, username, password_hash, role, name, failed_attempts, shift_active) VALUES (?, ?, ?, 'MANAGER', ?, 0, 0)").bind("user-manager", "admin", MANAGER_HASH, "Quản trị viên"),
-    db.prepare("INSERT OR IGNORE INTO users (id, username, password_hash, role, name, employee_id, store_id, failed_attempts, shift_active) VALUES (?, ?, ?, 'EMPLOYEE', ?, ?, ?, 0, 0)").bind("user-employee", "nv001", EMPLOYEE_HASH, "Nguyễn Thị An", "emp-001", "st-thot-not"),
-  ]);
-  await db.batch([
-    db.prepare("UPDATE users SET password_hash = ? WHERE username = 'admin' AND password_hash LIKE 'pbkdf2$210000$%'").bind(MANAGER_HASH),
-    db.prepare("UPDATE users SET password_hash = ? WHERE username = 'nv001' AND password_hash LIKE 'pbkdf2$210000$%'").bind(EMPLOYEE_HASH),
-  ]);
+  await ensureOneTimeDataReset(db);
+  await ensureManagerAccount(db);
+  await finishResetUploads(db);
   await db.prepare("PRAGMA optimize").run();
   return db;
 }

@@ -12,6 +12,7 @@ import {
   validateFinanceDateRange,
 } from "../../lib/finance";
 import { getSessionUser, json } from "../_lib/auth";
+import { storeDateRangeFinance } from "../_lib/store-finance";
 
 type Granularity = "day" | "month";
 
@@ -323,6 +324,10 @@ export async function GET(request: Request) {
   if (storeId && !storesResult.results.some((store) => store.id === storeId)) {
     return json({ message: "Cửa hàng không tồn tại." }, 404);
   }
+  const selectedStores = storesResult.results.filter((store) => !storeId || store.id === storeId);
+  const accountingStores = (await Promise.all(selectedStores.map((store) => (
+    storeDateRangeFinance(db, store.id, range)
+  )))).filter((store): store is NonNullable<typeof store> => Boolean(store));
   currentEntries.sort((first, second) => first.date.localeCompare(second.date));
   const keys = bucketKeys(range, granularity);
   const byStore = storesResult.results
@@ -338,6 +343,11 @@ export async function GET(request: Request) {
   const totalInflow = sumVnd(byStore.map((store) => store.inflow));
   const totalOutflow = sumVnd(byStore.map((store) => store.outflow));
   const currentTotals = { inflow: totalInflow, outflow: totalOutflow, net: totalInflow - totalOutflow };
+  const accountingTotals = {
+    revenue: sumVnd(accountingStores.map((store) => store.revenue)),
+    expense: sumVnd(accountingStores.map((store) => store.expense)),
+    profit: sumVnd(accountingStores.map((store) => store.revenue)) - sumVnd(accountingStores.map((store) => store.expense)),
+  };
   const priorTotals = summarize(previousEntries);
   return json({
     period: range.to.slice(0, 7),
@@ -349,6 +359,23 @@ export async function GET(request: Request) {
     request: { scope: storeId ? "STORE" : "ALL", storeId, from: range.from, to: range.to, granularity },
     stores: storesResult.results,
     totals: currentTotals,
+    actualCashTotals: {
+      revenueInflow: currentTotals.inflow,
+      cashOutflow: currentTotals.outflow,
+      netCashFlow: currentTotals.net,
+    },
+    accountingTotals,
+    reconciliation: {
+      accountingExpense: accountingTotals.expense,
+      cashOutflow: currentTotals.outflow,
+      timingDifference: accountingTotals.expense - currentTotals.outflow,
+    },
+    metricLabels: {
+      inflow: "Dòng tiền vào từ doanh thu",
+      outflow: "Tiền đã chi thực tế",
+      net: "Dòng tiền thuần",
+      accountingExpense: "Chi phí kế toán",
+    },
     previousTotals: priorTotals,
     comparison: {
       inflowChange: percentChange(currentTotals.inflow, priorTotals.inflow),
@@ -365,6 +392,7 @@ export async function GET(request: Request) {
       revenue: "Doanh thu được ghi nhận theo ngày kế toán của ca đã kết thúc.",
       expenses: "Chi phí có ngày được ghi đúng ngày nghiệp vụ; chi phí cố định ưu tiên paymentDate/paidAt và nếu thiếu dùng ngày cập nhật hoặc đầu kỳ với nhãn ngày ghi nhận.",
       payroll: "Lương, thưởng và phụ cấp chỉ là dòng tiền ra sau khi đã xác nhận thanh toán.",
+      accountingReconciliation: "Tiền đã chi thực tế có thể khác chi phí kế toán do ngày thanh toán và ngày ghi nhận chi phí khác nhau.",
     },
   });
 }

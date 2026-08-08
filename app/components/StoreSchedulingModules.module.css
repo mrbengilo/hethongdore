@@ -968,9 +968,35 @@
 }
 
 .employeePicker {
-  max-height: 290px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 5px;
+  max-height: 240px;
   overflow-y: auto;
   padding-right: 3px;
+}
+
+.employeePicker label {
+  border-radius: 8px;
+  min-height: 46px;
+  padding: 6px 9px;
+}
+
+.employeePicker .employeeName {
+  min-width: 0;
+}
+
+.employeePicker .employeeName > i {
+  flex-basis: 30px;
+  height: 30px;
+  width: 30px;
+}
+
+.employeePickerMessage {
+  color: #667085;
+  font-size: 12px;
+  margin: 0;
+  padding: 12px;
+  text-align: center;
 }
 
 .employeePicker label:has(input:checked) {

@@ -24,13 +24,6 @@ test("VND values are safe integers and use explicit rounding", async () => {
   assert.equal(formatVnd(12_890), "12,890 đồng");
 });
 
-test("manager profit bonus is exactly two percent of positive profit", async () => {
-  const { managerProfitBonus } = await financeModule();
-  assert.equal(managerProfitBonus(1_200_000_000), 24_000_000);
-  assert.equal(managerProfitBonus(101), 2);
-  assert.equal(managerProfitBonus(-10_000), 0);
-});
-
 test("profit sharing uses net final profit and preserves exact 40/60 totals across stores", async () => {
   const { allocateStoreProfitSharing } = await financeModule();
   const rows = allocateStoreProfitSharing([12_000_000, -2_000_000, 6_000_000, 4_000_000]);
@@ -49,14 +42,14 @@ test("profit sharing uses net final profit and preserves exact 40/60 totals acro
 
 test("final store profit deducts employee KPI and manager KPI exactly once", async () => {
   const { settleStoreProfit } = await financeModule();
-  assert.deepEqual(settleStoreProfit(100_000_000, 7_000_000), {
+  assert.deepEqual(settleStoreProfit(100_000_000, 4_000_000, 3_000_000), {
     profitBeforePerformanceRewards: 100_000_000,
-    employeeKpiBonus: 7_000_000,
-    managerBonus: 2_000_000,
-    performanceRewards: 9_000_000,
-    finalProfit: 91_000_000,
+    employeeKpiBonus: 4_000_000,
+    managerBonus: 3_000_000,
+    performanceRewards: 7_000_000,
+    finalProfit: 93_000_000,
   });
-  assert.deepEqual(settleStoreProfit(-5_000_000, 0), {
+  assert.deepEqual(settleStoreProfit(-5_000_000, 0, 0), {
     profitBeforePerformanceRewards: -5_000_000,
     employeeKpiBonus: 0,
     managerBonus: 0,

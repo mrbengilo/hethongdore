@@ -6,7 +6,6 @@ import {
   localDate,
   localDateRangeKeys,
   localMonthRange,
-  managerProfitBonus,
   multiplyRatioVnd,
   periodBoundsUtc,
   requireVnd,
@@ -14,7 +13,7 @@ import {
   storeExistsInPeriod,
   sumVnd,
 } from "../../lib/finance";
-import { distributeEmployeeKpiByPolicy } from "../../lib/payroll";
+import { distributeStoreKpiByPolicy } from "../../lib/payroll";
 
 type Db = Awaited<ReturnType<typeof initDb>>;
 
@@ -189,19 +188,23 @@ export async function storePeriodFinance(db: Db, storeId: string, period: string
     incidentalCosts = sumVnd([incidentalCosts, safeVnd(row.incidentalExpense)]);
     employeeBaseSalary = sumVnd([employeeBaseSalary, multiplyRatioVnd(hourlyRate, seconds, 3_600)]);
     tiktokAllowance = sumVnd([tiktokAllowance, safeVnd(row.tiktokAllowance)]);
-    secondsByEmployee.set(row.employeeId, (secondsByEmployee.get(row.employeeId) ?? 0) + seconds);
-    const currentKpiState = employeeKpiState.get(row.employeeId) ?? {
-      employmentStatus: row.lockedEmploymentStatus === "INACTIVE"
-        ? "INACTIVE" as const
-        : row.lockedEmploymentStatus === "ACTIVE"
-          ? "ACTIVE" as const
-          : employeeStatusForFinancePeriod(row.employeeStatus, row.inactivePeriod, period),
-      completedShiftCount: 0,
-    };
-    employeeKpiState.set(row.employeeId, {
-      ...currentKpiState,
-      completedShiftCount: currentKpiState.completedShiftCount + (seconds > 0 ? 1 : 0),
-    });
+    // Support work remains a real payroll cost for the receiving store, but it
+    // never contributes hours or headcount to that store's KPI pool.
+    if (!row.transferId) {
+      secondsByEmployee.set(row.employeeId, (secondsByEmployee.get(row.employeeId) ?? 0) + seconds);
+      const currentKpiState = employeeKpiState.get(row.employeeId) ?? {
+        employmentStatus: row.lockedEmploymentStatus === "INACTIVE"
+          ? "INACTIVE" as const
+          : row.lockedEmploymentStatus === "ACTIVE"
+            ? "ACTIVE" as const
+            : employeeStatusForFinancePeriod(row.employeeStatus, row.inactivePeriod, period),
+        completedShiftCount: 0,
+      };
+      employeeKpiState.set(row.employeeId, {
+        ...currentKpiState,
+        completedShiftCount: currentKpiState.completedShiftCount + (seconds > 0 ? 1 : 0),
+      });
+    }
     if (row.transferId && seconds > 0) supportByTransfer.set(row.transferId, safeVnd(row.supportAllowance));
   }
   incidentalCosts = sumVnd([
@@ -238,20 +241,21 @@ export async function storePeriodFinance(db: Db, storeId: string, period: string
   ]);
   const profitBeforePerformanceRewards = revenue - baseExpense;
   const lockedSnapshot = snapshotRow ? parseObject(snapshotRow.dataJson) : null;
+  const provisionalKpi = lockedSnapshot ? null : distributeStoreKpiByPolicy(
+    profitBeforePerformanceRewards,
+    [...secondsByEmployee].map(([employeeId, durationSeconds]) => ({
+      employeeId,
+      employmentStatus: employeeKpiState.get(employeeId)?.employmentStatus ?? "ACTIVE",
+      completedShiftCount: employeeKpiState.get(employeeId)?.completedShiftCount ?? 0,
+      durationSeconds,
+    })),
+  );
   const employeeKpiBonus = lockedSnapshot
     ? safeVnd(lockedSnapshot.totalKpiBonus)
-    : sumVnd(distributeEmployeeKpiByPolicy(
-      profitBeforePerformanceRewards,
-      [...secondsByEmployee].map(([employeeId, durationSeconds]) => ({
-        employeeId,
-        employmentStatus: employeeKpiState.get(employeeId)?.employmentStatus ?? "ACTIVE",
-        completedShiftCount: employeeKpiState.get(employeeId)?.completedShiftCount ?? 0,
-        durationSeconds,
-      })),
-    ).map((allocation) => allocation.bonus));
+    : provisionalKpi?.employeeBonusTotal ?? 0;
   const managerBonus = lockedSnapshot
     ? safeVnd(lockedSnapshot.managerBonus)
-    : managerProfitBonus(profitBeforePerformanceRewards);
+    : provisionalKpi?.managerBonus ?? 0;
   const expenseBreakdown: StoreExpenseBreakdown = {
     fixedCosts,
     incidentalCosts,

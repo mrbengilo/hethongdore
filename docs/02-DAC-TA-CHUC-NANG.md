@@ -254,7 +254,7 @@ Ca làm tại cửa hàng nhận hỗ trợ chịu lương, thưởng và phụ 
 - Cửa hàng: `ql_qlch.png`.
 - Giao việc: `ql_giaoviec.png`.
 - Dòng tiền: `ql_dongtien.png`.
-- Lương thưởng quản lý: `ql_luongthuong.png` (không có phụ cấp; lương cố định 3,000,000 đồng/cửa hàng và thưởng 2% lợi nhuận).
+- Lương thưởng quản lý: `ql_luongthuong.png` (không có phụ cấp; lương cố định 3,000,000 đồng/cửa hàng, 140 giờ quản lý/cửa hàng và thưởng từ quỹ KPI 3%/5%/7% được chia theo tỷ trọng giờ sau khi kỳ đã khóa).
 - Báo cáo: `ql_chinh.png`.
 - Cổ tức: `ql_cotuc.png`.
 - Điều chuyển nhân sự: `ql_nvhotro.png`.

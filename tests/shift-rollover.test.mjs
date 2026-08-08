@@ -15,7 +15,8 @@ test("rolls over only after the scheduled end plus the 60-minute grace period", 
   const { shouldRollOverShift } = await schedulingModule();
   const scheduledEndAt = "2026-08-06T05:00:00.000Z";
   assert.equal(shouldRollOverShift(scheduledEndAt, "2026-08-06T05:59:59.999Z"), false);
-  assert.equal(shouldRollOverShift(scheduledEndAt, "2026-08-06T06:00:00.000Z"), true);
+  assert.equal(shouldRollOverShift(scheduledEndAt, "2026-08-06T06:00:00.000Z"), false);
+  assert.equal(shouldRollOverShift(scheduledEndAt, "2026-08-06T06:00:00.001Z"), true);
   assert.equal(shouldRollOverShift("not-a-date", "2026-08-06T06:00:00.000Z"), false);
 });
 

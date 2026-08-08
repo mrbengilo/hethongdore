@@ -271,7 +271,7 @@ export function FixedCostManagement({ store, onSaved }: { store: StoreRef; onSav
         <input aria-label="Kỳ xem chi phí" type="month" value={period} onChange={(event) => setPeriod(event.target.value)}/>
         <button type="button" onClick={exportCsv}><Download size={16}/> Xuất CSV</button>
         <button type="button" className="primary-button" disabled={inactive || saving || items.length >= 100} onClick={addItem}><Plus size={17}/> Thêm chi phí</button>
-        <button type="submit" form="fixed-cost-entry-form" className="primary-button fixed-cost-toolbar-save" disabled={inactive || saving}><Save size={17}/> {saving ? "ĐANG LƯU..." : "LƯU"}</button>
+        <button type="submit" form="fixed-cost-entry-form" className="primary-button fixed-cost-toolbar-save" disabled={inactive || saving}><Save size={17}/> {saving ? "ĐANG LƯU..." : "Lưu chi phí"}</button>
       </div>
     </div>
     {inactive && <div className="inactive-store-banner">Cửa hàng đang ngưng hoạt động. Bạn vẫn xem và xuất được lịch sử, nhưng không thể thêm hoặc sửa chi phí.</div>}
@@ -304,7 +304,7 @@ export function FixedCostManagement({ store, onSaved }: { store: StoreRef; onSav
       {success && <div className="success-banner fixed-cost-feedback">{success}</div>}
       <div className="fixed-cost-save-actions">
         {editingId && <button type="button" disabled={saving} onClick={() => resetDraft()}>Hủy chỉnh sửa</button>}
-        <button className="primary-button" disabled={inactive || saving}><Save size={17}/> {saving ? "ĐANG LƯU..." : "LƯU"}</button>
+        <button className="primary-button" disabled={inactive || saving}><Save size={17}/> {saving ? "ĐANG LƯU..." : "Lưu chi phí"}</button>
       </div>
     </form>
 

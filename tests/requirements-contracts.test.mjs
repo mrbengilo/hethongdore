@@ -238,18 +238,36 @@ test("manager payroll uses only locked store ledgers and final profit includes e
 
   assert.match(payrollApi, /category = 'PAYROLL_CLOSING' AND status = 'LOCKED'/u);
   assert.match(payrollApi, /params\.get\("scope"\) === "manager"/u);
-  assert.match(payrollApi, /policy: \{ salaryPerStore: MANAGER_MONTHLY_SALARY_VND, bonusRate: 0\.02 \}/u);
-  assert.match(payrollApi, /settleStoreProfit\(profit, totalKpiBonus\)/u);
+  assert.match(payrollApi, /managerHoursPerStore: MANAGER_FIXED_WORK_HOURS_PER_STORE/u);
+  assert.match(payrollApi, /minimumProfitPerHour: 30_000, rate: 0\.07/u);
+  assert.match(payrollApi, /settleStoreProfit\(profit, totalKpiBonus, managerBonus\)/u);
   assert.match(portal, /view === "Lương thưởng quản lý"[\s\S]*return <ManagerPayroll\/>/u);
   assert.match(portal, /Chỉ ghi nhận số liệu thật từ các cửa hàng đã xác nhận chi và khóa kỳ/u);
   assert.match(finance, /profitBeforePerformanceRewards - performanceRewards/u);
   assert.match(aggregation, /managerSalary: MANAGER_MONTHLY_SALARY_VND/u);
-  assert.match(aggregation, /lockedSnapshot[\s\S]*managerProfitBonus\(profitBeforePerformanceRewards\)/u);
-  assert.match(aggregation, /distributeEmployeeKpiByPolicy\([\s\S]*profitBeforePerformanceRewards[\s\S]*completedShiftCount[\s\S]*durationSeconds/u);
+  assert.match(aggregation, /lockedSnapshot[\s\S]*provisionalKpi\?\.managerBonus/u);
+  assert.match(aggregation, /distributeStoreKpiByPolicy\([\s\S]*profitBeforePerformanceRewards[\s\S]*completedShiftCount[\s\S]*durationSeconds/u);
+  assert.match(aggregation, /if \(!row\.transferId\) \{[\s\S]*secondsByEmployee\.set/u);
   assert.match(aggregation, /employeeStatusForFinancePeriod\(row\.employeeStatus, row\.inactivePeriod, period\)/u);
   assert.match(aggregation, /employee_status_at_lock AS lockedEmploymentStatus[\s\S]*employee_payroll_closings employee_lock[\s\S]*employee_lock\.status IN \('BASE_LOCKED', 'LOCKED'\)/u);
   assert.match(aggregation, /const expense = sumVnd\(\[baseExpense, employeeKpiBonus, managerBonus\]\)/u);
   assert.match(aggregation, /profit: revenue - expense/u);
+});
+
+test("overview and reports share accrual ranges while cashflow labels actual payments distinctly", async () => {
+  const [storesApi, reportsApi, cashflowApi] = await sources([
+    "../app/api/stores/route.ts",
+    "../app/api/reports/route.ts",
+    "../app/api/cashflow/route.ts",
+  ]);
+
+  assert.match(storesApi, /storeDateRangeFinance\(db, id, currentRange\)/u);
+  assert.match(storesApi, /to: fullCurrentRange\.to > today \? today : fullCurrentRange\.to/u);
+  assert.match(storesApi, /previousComparableDateRange\(currentRange, "month"\)/u);
+  assert.match(reportsApi, /storeDateRangeFinance\(db, id, range\)/u);
+  assert.match(cashflowApi, /financeStatus: "ACTUAL_CASH"/u);
+  assert.match(cashflowApi, /outflow: "Tiền đã chi thực tế"/u);
+  assert.match(cashflowApi, /accountingReconciliation/u);
 });
 
 test("employee payroll exposes main/support shift identity and actual-pay components", async () => {
