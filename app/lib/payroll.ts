@@ -28,6 +28,33 @@ export type EmployeeKpiResult = EmployeeKpiInput & {
   bonus: number;
 };
 
+export const INACTIVE_EMPLOYEE_KPI_MIN_COMPLETED_SHIFTS = 15;
+
+export type EmployeeKpiPolicyInput = {
+  employeeId: string;
+  employmentStatus: "ACTIVE" | "INACTIVE";
+  completedShiftCount: number;
+  durationSeconds: number;
+};
+
+export type EmployeeKpiPolicyResult = EmployeeKpiPolicyInput & {
+  eligible: boolean;
+  bonus: number;
+};
+
+export type EmployeePayrollSourceState = {
+  locked: boolean;
+  paymentStatus: string;
+};
+
+export function employeePayrollOverallState(sources: EmployeePayrollSourceState[]) {
+  const locked = sources.length > 0 && sources.every((source) => source.locked);
+  const paid = locked && sources.every((source) => (
+    source.paymentStatus === "PAYMENT_CONFIRMED" || source.paymentStatus === "LOCKED"
+  ));
+  return { locked, paid };
+}
+
 /**
  * Return the single KPI tier reached by the store for a payroll period.
  * Tiers are deliberately checked from highest to lowest and never stack.
@@ -56,6 +83,52 @@ export function employeeKpiBonusFromSeconds(profit: number, totalSeconds: number
   const rate = employeeKpiRateFromSeconds(profit, totalSeconds);
   if (rate === 0) return 0;
   return multiplyDecimalRatioVnd(profit, rate.toFixed(2), employeeSeconds, totalSeconds);
+}
+
+/**
+ * Employees who are still active always share the store KPI by their actual
+ * worked time. An employee who left during the period remains in the KPI pool
+ * only after completing at least 15 real, completed shifts in that period.
+ */
+export function isEmployeeEligibleForKpi(
+  employmentStatus: EmployeeKpiPolicyInput["employmentStatus"],
+  completedShiftCount: number,
+) {
+  if (employmentStatus === "ACTIVE") return true;
+  return Number.isSafeInteger(completedShiftCount)
+    && completedShiftCount >= INACTIVE_EMPLOYEE_KPI_MIN_COMPLETED_SHIFTS;
+}
+
+export function distributeEmployeeKpiByPolicy(
+  profit: number,
+  employees: EmployeeKpiPolicyInput[],
+): EmployeeKpiPolicyResult[] {
+  const normalized = employees.map((employee) => ({
+    ...employee,
+    completedShiftCount: Number.isSafeInteger(employee.completedShiftCount)
+      ? Math.max(0, employee.completedShiftCount)
+      : 0,
+    durationSeconds: Number.isSafeInteger(employee.durationSeconds)
+      ? Math.max(0, employee.durationSeconds)
+      : 0,
+  }));
+  const eligibleSeconds = normalized.reduce((sum, employee) => (
+    isEmployeeEligibleForKpi(employee.employmentStatus, employee.completedShiftCount)
+      ? sum + employee.durationSeconds
+      : sum
+  ), 0);
+  const safeEligibleSeconds = Number.isSafeInteger(eligibleSeconds) ? eligibleSeconds : 0;
+
+  return normalized.map((employee) => {
+    const eligible = isEmployeeEligibleForKpi(employee.employmentStatus, employee.completedShiftCount);
+    return {
+      ...employee,
+      eligible,
+      bonus: eligible
+        ? employeeKpiBonusFromSeconds(profit, safeEligibleSeconds, employee.durationSeconds)
+        : 0,
+    };
+  });
 }
 
 export function distributeEmployeeKpi(profit: number, employees: EmployeeKpiInput[]): EmployeeKpiResult[] {

@@ -194,6 +194,51 @@ export function multiplyRatioVnd(amount: number, numerator: number | bigint, den
   return result;
 }
 
+export type StoreProfitShareAllocation = {
+  finalProfit: number;
+  distributableProfit: number;
+  firstShareAmount: number;
+  secondShareAmount: number;
+};
+
+/**
+ * Distribute the positive system-wide final profit back to profitable stores.
+ * Store losses therefore reduce the amount that can actually be shared, while
+ * cumulative rounding keeps every VND and the 40/60 member totals exact.
+ */
+export function allocateStoreProfitSharing(finalProfits: number[]): StoreProfitShareAllocation[] {
+  const normalized = finalProfits.map((value) => requireVnd(value, "Lợi nhuận sau cùng", true));
+  const signedTotal = normalized.reduce((total, value) => total + BigInt(value), 0n);
+  const systemFinalProfit = Number(signedTotal);
+  if (!Number.isSafeInteger(systemFinalProfit)) throw new Error("Tổng lợi nhuận vượt giới hạn an toàn.");
+  const totalDistributable = Math.max(0, systemFinalProfit);
+  const positiveProfits = normalized.map((value) => Math.max(0, value));
+  const totalPositiveProfit = sumVnd(positiveProfits);
+  let cumulativePositiveProfit = 0;
+  let allocatedProfit = 0;
+  let cumulativeDistributable = 0;
+  let allocatedFirstShare = 0;
+
+  return normalized.map((finalProfit, index) => {
+    cumulativePositiveProfit += positiveProfits[index];
+    const targetProfit = totalPositiveProfit > 0
+      ? multiplyRatioVnd(totalDistributable, cumulativePositiveProfit, totalPositiveProfit)
+      : 0;
+    const distributableProfit = targetProfit - allocatedProfit;
+    allocatedProfit = targetProfit;
+    cumulativeDistributable += distributableProfit;
+    const targetFirstShare = multiplyRatioVnd(cumulativeDistributable, 40, 100);
+    const firstShareAmount = targetFirstShare - allocatedFirstShare;
+    allocatedFirstShare = targetFirstShare;
+    return {
+      finalProfit,
+      distributableProfit,
+      firstShareAmount,
+      secondShareAmount: distributableProfit - firstShareAmount,
+    };
+  });
+}
+
 export function multiplyDecimalVnd(amount: number, decimalRate: string, rounding: RoundingMode = "HALF_UP") {
   const rate = decimalFraction(decimalRate);
   return multiplyRatioVnd(amount, rate.numerator, rate.denominator, rounding);

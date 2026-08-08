@@ -86,11 +86,12 @@ test("fixed costs use an eight-line resettable draft and persist custom rows in 
   assert.match(financeAggregation, /const savedTotal = safeVnd\(data\.total\)/u);
 });
 
-test("reports compare periods and dividend closing requires every store ledger to be locked", async () => {
-  const [reportsApi, financeAggregation, reportUi] = await sources([
+test("reports compare periods and profit sharing requires every store ledger to be locked", async () => {
+  const [reportsApi, financeAggregation, reportUi, portal] = await sources([
     "../app/api/reports/route.ts",
     "../app/api/_lib/store-finance.ts",
     "../app/components/FinancialReports.tsx",
+    "../app/components/Portal.tsx",
   ]);
 
   assert.match(reportsApi, /const range = localMonthRange\(period\)/u);
@@ -99,13 +100,30 @@ test("reports compare periods and dividend closing requires every store ledger t
   assert.match(reportsApi, /comparison:/u);
   assert.match(reportsApi, /category = 'PAYROLL_CLOSING'.*status = 'LOCKED'/su);
   assert.match(reportsApi, /category = 'DIVIDEND'.*status = 'LOCKED'/su);
-  assert.match(reportsApi, /multiplyRatioVnd\(profit, 60, 100\)/u);
-  assert.match(reportsApi, /DIVIDEND_PERIOD_CLOSE/u);
+  assert.match(reportsApi, /Phạm Thị Diễm Thúy.*percentage: 40/su);
+  assert.match(reportsApi, /Trương Việt Vi.*percentage: 60/su);
+  assert.match(reportsApi, /profitSharingSnapshot\(period, report\.stores\)/u);
+  assert.match(reportsApi, /allocateStoreProfitSharing\(stores\.map/u);
+  assert.match(reportsApi, /multiplyRatioVnd\(distributableProfit, 40, 100\)/u);
+  assert.match(reportsApi, /const viAmount = distributableProfit - thuyAmount/u);
+  assert.match(reportsApi, /thuyAmount = sumVnd\(storeAllocations/u);
+  assert.match(reportsApi, /viAmount = sumVnd\(storeAllocations/u);
+  assert.match(reportsApi, /storeAllocations/u);
+  assert.match(reportsApi, /PROFIT_SHARING_PERIOD_CLOSE/u);
+  assert.match(reportsApi, /body\.action === "CLOSE_PROFIT_SHARING" \|\| body\.action === "CLOSE_DIVIDEND"/u);
+  assert.match(reportsApi, /dividendHistory: profitSharingHistory/u);
   assert.match(financeAggregation, /category = 'CHI_PHI_CO_DINH'/u);
   assert.match(financeAggregation, /category = 'NHAP_HANG'/u);
   assert.match(financeAggregation, /profitBeforePerformanceRewards/u);
-  assert.match(reportUi, /CLOSE_DIVIDEND/u);
+  assert.match(reportUi, /CLOSE_PROFIT_SHARING/u);
+  assert.match(reportUi, /THỐNG KÊ PHÂN CHIA THEO TỪNG CỬA HÀNG/u);
+  assert.match(reportUi, /allStoresLocked/u);
+  assert.match(reportUi, /CHỜ CỬA HÀNG KHÓA KỲ/u);
+  assert.match(reportUi, /Phạm Thị Diễm Thúy \(40%\)/u);
+  assert.match(reportUi, /Trương Việt Vi \(60%\)/u);
   assert.match(reportUi, /profitChange/u);
+  assert.match(portal, /const managerMenu = \[[^\]]*"Chia lợi nhuận"/u);
+  assert.match(portal, /view === "Chia lợi nhuận"[\s\S]*?<ManagerProfitSharingClosing\/>/u);
 });
 
 test("operating expenses are validated, persisted and included in store finance", async () => {
@@ -189,6 +207,27 @@ test("attendance and employee payroll distinguish hourly rate from earned salary
   assert.match(closingUi, /Lương thực nhận = lương cứng theo giờ × giờ làm thực tế/u);
 });
 
+test("employee payroll itemizes every allowance below the allowance total", async () => {
+  const [payrollApi, employeePayroll, styles] = await sources([
+    "../app/api/payroll/route.ts",
+    "../app/components/ReferenceEmployeeModules.tsx",
+    "../app/globals.css",
+  ]);
+
+  assert.match(employeePayroll, /Phụ cấp clip TikTok/u);
+  assert.match(employeePayroll, /Phụ cấp hỗ trợ · \{row\.storeName\}/u);
+  assert.match(employeePayroll, /manualAllowanceDetails\.map\(\(adjustment\)/u);
+  assert.match(payrollApi, /adjustmentSourceRows[\s\S]*category = 'LUONG_THUONG'[\s\S]*json_extract\(r\.data_json, '\$\.employeeId'\)/u);
+  assert.doesNotMatch(payrollApi, /WHERE t\.target_store_id = \? AND t\.status != 'CANCELLED'/u);
+  assert.match(employeePayroll, /adjustment\.label/u);
+  assert.match(employeePayroll, /money\(adjustment\.amount\)/u);
+  assert.match(employeePayroll, /supportAllowanceByStore/u);
+  assert.match(employeePayroll, /aria-label="Chi tiết các khoản phụ cấp"/u);
+  assert.match(payrollApi, /label: item\.note/u);
+  assert.match(payrollApi, /adjustments: adjustmentDetails/u);
+  assert.match(styles, /\.allowance-breakdown/u);
+});
+
 test("manager payroll uses only locked store ledgers and final profit includes every payroll cost", async () => {
   const [payrollApi, portal, finance, aggregation] = await sources([
     "../app/api/payroll/route.ts",
@@ -206,7 +245,9 @@ test("manager payroll uses only locked store ledgers and final profit includes e
   assert.match(finance, /profitBeforePerformanceRewards - performanceRewards/u);
   assert.match(aggregation, /managerSalary: MANAGER_MONTHLY_SALARY_VND/u);
   assert.match(aggregation, /lockedSnapshot[\s\S]*managerProfitBonus\(profitBeforePerformanceRewards\)/u);
-  assert.match(aggregation, /employeeKpiBonusFromSeconds\(profitBeforePerformanceRewards, totalDurationSeconds, seconds\)/u);
+  assert.match(aggregation, /distributeEmployeeKpiByPolicy\([\s\S]*profitBeforePerformanceRewards[\s\S]*completedShiftCount[\s\S]*durationSeconds/u);
+  assert.match(aggregation, /employeeStatusForFinancePeriod\(row\.employeeStatus, row\.inactivePeriod, period\)/u);
+  assert.match(aggregation, /employee_status_at_lock AS lockedEmploymentStatus[\s\S]*employee_payroll_closings employee_lock[\s\S]*employee_lock\.status IN \('BASE_LOCKED', 'LOCKED'\)/u);
   assert.match(aggregation, /const expense = sumVnd\(\[baseExpense, employeeKpiBonus, managerBonus\]\)/u);
   assert.match(aggregation, /profit: revenue - expense/u);
 });
@@ -221,6 +262,10 @@ test("employee payroll exposes main/support shift identity and actual-pay compon
     assert.match(payrollApi, new RegExp(field, "u"));
   }
   assert.match(payrollApi, /multiplyRatioVnd\(safePayrollVnd\(shift\.supportAllowance\)/u);
+  assert.match(payrollApi, /const sourceIds = new Set\(\[\.\.\.lockedSourceByStore\.keys\(\), \.\.\.detailSourceNames\.keys\(\)\]\)/u);
+  assert.match(payrollApi, /locked: overallState\.locked/u);
+  assert.match(payrollApi, /paid: overallState\.paid/u);
+  assert.match(payrollApi, /lockedSource \? Promise\.resolve\(null\) : buildPreview/u);
   assert.match(payrollUi, /Nh[âa]n vi[êe]n h[oỗ] tr[oợ]/u);
   assert.match(payrollUi, /Lương h[oỗ] tr[oợ]\/gi[oờ]/u);
   assert.match(payrollUi, /Giờ làm thực tế/u);
@@ -230,6 +275,8 @@ test("employee payroll exposes main/support shift identity and actual-pay compon
   assert.match(payrollUi, /mainShiftRows.*!row\.isSupport/u);
   assert.match(payrollUi, /supportShiftRows.*row\.isSupport/u);
   assert.match(payrollUi, /support \? <><th>Lương hỗ trợ\/giờ<\/th><th>Phụ cấp hỗ trợ<\/th><\/> : <th>Lương cứng<\/th>/u);
+  assert.match(payrollUi, /CHỐT MỘT PHẦN/u);
+  assert.match(payrollUi, /sourcePaymentLabel/u);
 });
 
 test("website and store cards use logo.jpg as the canonical favicon and brand asset", async () => {

@@ -12,6 +12,39 @@ const allowedCategories = new Set([
 
 const protectedCategories = new Set(["KPI_SUMMARY", "PAYROLL_CLOSING", "DIVIDEND"]);
 const immutableHistoryCategories = new Set(["NHAP_HANG"]);
+const payrollSensitiveCategories = new Set(["LUONG_THUONG", "CHI_PHI_CO_DINH", "DONG_TIEN", "NHAP_HANG"]);
+
+const existingPeriodLockGuardSql = `NOT EXISTS (
+  SELECT 1 FROM business_records AS period_lock
+  WHERE period_lock.category = 'KPI_SUMMARY'
+    AND period_lock.store_id = business_records.store_id
+    AND period_lock.status IN ('CLOSING', 'LOCKED')
+    AND json_extract(period_lock.data_json, '$.period') = CASE
+      WHEN business_records.category = 'CHI_PHI_CO_DINH' THEN json_extract(business_records.data_json, '$.period')
+      ELSE COALESCE(json_extract(business_records.data_json, '$.period'), substr(json_extract(business_records.data_json, '$.date'), 1, 7))
+    END
+)`;
+const incomingPeriodLockGuardSql = `NOT EXISTS (
+  SELECT 1 FROM business_records AS period_lock
+  WHERE period_lock.category = 'KPI_SUMMARY'
+    AND period_lock.store_id = ?
+    AND period_lock.status IN ('CLOSING', 'LOCKED')
+    AND json_extract(period_lock.data_json, '$.period') = ?
+)`;
+const existingEmployeeLockGuardSql = `NOT EXISTS (
+  SELECT 1 FROM employee_payroll_closings AS employee_lock
+  WHERE employee_lock.store_id = business_records.store_id
+    AND employee_lock.employee_id = json_extract(business_records.data_json, '$.employeeId')
+    AND employee_lock.period = COALESCE(json_extract(business_records.data_json, '$.period'), substr(json_extract(business_records.data_json, '$.date'), 1, 7))
+    AND employee_lock.status IN ('CLOSING', 'BASE_LOCKED', 'LOCKED')
+)`;
+const incomingEmployeeLockGuardSql = `NOT EXISTS (
+  SELECT 1 FROM employee_payroll_closings AS employee_lock
+  WHERE employee_lock.store_id = ?
+    AND employee_lock.employee_id = ?
+    AND employee_lock.period = ?
+    AND employee_lock.status IN ('CLOSING', 'BASE_LOCKED', 'LOCKED')
+)`;
 
 type RecordBody = {
   id?: string;
@@ -37,6 +70,27 @@ const fixedCostKeys = fixedCostDefinitions.map(([key]) => key);
 type FixedCostKey = (typeof fixedCostDefinitions)[number][0];
 const monthPattern = /^\d{4}-(0[1-9]|1[0-2])$/;
 const datePattern = /^\d{4}-(0[1-9]|1[0-2])-([0-2]\d|3[01])$/;
+
+function affectedRows(result: unknown) {
+  return Number((result as { meta?: { changes?: number } } | null)?.meta?.changes ?? 0);
+}
+
+function financialWriteScope(category: string, storeId: string | null, data: Record<string, unknown>) {
+  if (!payrollSensitiveCategories.has(category) || !storeId) return null;
+  const period = category === "CHI_PHI_CO_DINH"
+    ? String(data.period ?? "")
+    : String(data.period ?? String(data.date ?? "").slice(0, 7));
+  if (!monthPattern.test(period)) return null;
+  return {
+    storeId,
+    period,
+    employeeId: category === "LUONG_THUONG" ? String(data.employeeId ?? "") : "",
+  };
+}
+
+function periodLockMessage() {
+  return json({ message: "K\u1ef3 d\u1eef li\u1ec7u \u0111ang \u0111\u01b0\u1ee3c ch\u1ed1t ho\u1eb7c \u0111\u00e3 kh\u00f3a s\u1ed5, kh\u00f4ng th\u1ec3 thay \u0111\u1ed5i." }, 423);
+}
 
 function validDate(value: string) {
   if (!datePattern.test(value)) return false;
@@ -275,8 +329,23 @@ export async function POST(request: Request) {
   let data = validated.data;
   if (body.category === "CHI_PHI_CO_DINH") data = { ...data, changeHistory: [{ action: "CREATE", at: now, by: user.id, total: data.total, items: data.items }] };
   if (body.category === "NHAP_HANG") data = { ...data, receiptNo: `PN-${String(data.date).replaceAll("-", "")}-${id.slice(0, 6).toUpperCase()}`, savedAt: now, savedBy: user.id };
-  await db.prepare("INSERT INTO business_records (id, category, store_id, owner_id, title, data_json, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    .bind(id, body.category, body.storeId ?? null, user.id, body.title.trim(), JSON.stringify(data), body.status ?? "ACTIVE", now, now).run();
+  const scope = financialWriteScope(body.category, body.storeId ?? null, data);
+  if (payrollSensitiveCategories.has(body.category) && !scope) return json({ message: "D\u1eef li\u1ec7u k\u1ef3 l\u01b0\u01a1ng kh\u00f4ng h\u1ee3p l\u1ec7." }, 400);
+  if (scope) {
+    const employeeGuard = body.category === "LUONG_THUONG" ? ` AND ${incomingEmployeeLockGuardSql}` : "";
+    const result = await db.prepare(`INSERT INTO business_records (id, category, store_id, owner_id, title, data_json, status, created_at, updated_at)
+      SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
+      WHERE ${incomingPeriodLockGuardSql}${employeeGuard}`)
+      .bind(
+        id, body.category, body.storeId ?? null, user.id, body.title.trim(), JSON.stringify(data), body.status ?? "ACTIVE", now, now,
+        scope.storeId, scope.period,
+        ...(body.category === "LUONG_THUONG" ? [scope.storeId, scope.employeeId, scope.period] : []),
+      ).run();
+    if (affectedRows(result) === 0) return periodLockMessage();
+  } else {
+    await db.prepare("INSERT INTO business_records (id, category, store_id, owner_id, title, data_json, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .bind(id, body.category, body.storeId ?? null, user.id, body.title.trim(), JSON.stringify(data), body.status ?? "ACTIVE", now, now).run();
+  }
   await writeAudit(user.id, "CREATE", body.category, id, body.title);
   return json({ id, message: "Đã lưu dữ liệu" }, 201);
 }
@@ -333,8 +402,27 @@ export async function PATCH(request: Request) {
     const history = Array.isArray(previous.changeHistory) ? previous.changeHistory : [];
     data = { ...data, changeHistory: [...history, { action: "UPDATE", at: updatedAt, by: user.id, total: data.total, items: data.items }] };
   }
-  await db.prepare("UPDATE business_records SET title = ?, data_json = ?, status = ?, updated_at = ? WHERE id = ?")
-    .bind(title, JSON.stringify(data), body.status ?? String(existing.status), updatedAt, body.id).run();
+  const scope = financialWriteScope(existingCategory, existingStoreId, data);
+  if (payrollSensitiveCategories.has(existingCategory) && !scope) return json({ message: "D\u1eef li\u1ec7u k\u1ef3 l\u01b0\u01a1ng kh\u00f4ng h\u1ee3p l\u1ec7." }, 400);
+  if (scope) {
+    const employeeGuards = existingCategory === "LUONG_THUONG"
+      ? ` AND ${existingEmployeeLockGuardSql} AND ${incomingEmployeeLockGuardSql}`
+      : "";
+    const result = await db.prepare(`UPDATE business_records
+      SET title = ?, data_json = ?, status = ?, updated_at = ?
+      WHERE id = ? AND status != 'DELETED'
+        AND ${existingPeriodLockGuardSql}
+        AND ${incomingPeriodLockGuardSql}${employeeGuards}`)
+      .bind(
+        title, JSON.stringify(data), body.status ?? String(existing.status), updatedAt, body.id,
+        scope.storeId, scope.period,
+        ...(existingCategory === "LUONG_THUONG" ? [scope.storeId, scope.employeeId, scope.period] : []),
+      ).run();
+    if (affectedRows(result) === 0) return periodLockMessage();
+  } else {
+    await db.prepare("UPDATE business_records SET title = ?, data_json = ?, status = ?, updated_at = ? WHERE id = ?")
+      .bind(title, JSON.stringify(data), body.status ?? String(existing.status), updatedAt, body.id).run();
+  }
   await writeAudit(user.id, "UPDATE", String(existing.category), body.id, title);
   return json({ ok: true });
 }
@@ -367,7 +455,18 @@ export async function DELETE(request: Request) {
       } catch { /* Invalid legacy rows remain protected by the normal validation path. */ }
     }
   }
-  await db.prepare("UPDATE business_records SET status = 'DELETED', updated_at = ? WHERE id = ?").bind(new Date().toISOString(), id).run();
+  const deletedAt = new Date().toISOString();
+  if (payrollSensitiveCategories.has(existing.category)) {
+    const employeeGuard = existing.category === "LUONG_THUONG" ? ` AND ${existingEmployeeLockGuardSql}` : "";
+    const result = await db.prepare(`UPDATE business_records
+      SET status = 'DELETED', updated_at = ?
+      WHERE id = ? AND status != 'DELETED'
+        AND ${existingPeriodLockGuardSql}${employeeGuard}`)
+      .bind(deletedAt, id).run();
+    if (affectedRows(result) === 0) return periodLockMessage();
+  } else {
+    await db.prepare("UPDATE business_records SET status = 'DELETED', updated_at = ? WHERE id = ?").bind(deletedAt, id).run();
+  }
   await writeAudit(user.id, "DELETE", "BUSINESS_RECORD", id);
   return json({ ok: true });
 }

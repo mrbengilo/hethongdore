@@ -31,6 +31,22 @@ test("manager profit bonus is exactly two percent of positive profit", async () 
   assert.equal(managerProfitBonus(-10_000), 0);
 });
 
+test("profit sharing uses net final profit and preserves exact 40/60 totals across stores", async () => {
+  const { allocateStoreProfitSharing } = await financeModule();
+  const rows = allocateStoreProfitSharing([12_000_000, -2_000_000, 6_000_000, 4_000_000]);
+  assert.equal(rows.reduce((sum, row) => sum + row.distributableProfit, 0), 20_000_000);
+  assert.equal(rows.reduce((sum, row) => sum + row.firstShareAmount, 0), 8_000_000);
+  assert.equal(rows.reduce((sum, row) => sum + row.secondShareAmount, 0), 12_000_000);
+  assert.equal(rows[1].distributableProfit, 0);
+  assert.deepEqual(allocateStoreProfitSharing([12_000_000, -20_000_000]).map((row) => row.distributableProfit), [0, 0]);
+
+  const rounding = allocateStoreProfitSharing([1, 1]);
+  assert.equal(rounding.reduce((sum, row) => sum + row.distributableProfit, 0), 2);
+  assert.equal(rounding.reduce((sum, row) => sum + row.firstShareAmount, 0), 1);
+  assert.equal(rounding.reduce((sum, row) => sum + row.secondShareAmount, 0), 1);
+  for (const row of rounding) assert.equal(row.firstShareAmount + row.secondShareAmount, row.distributableProfit);
+});
+
 test("final store profit deducts employee KPI and manager KPI exactly once", async () => {
   const { settleStoreProfit } = await financeModule();
   assert.deepEqual(settleStoreProfit(100_000_000, 7_000_000), {

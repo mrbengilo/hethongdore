@@ -7,9 +7,7 @@ import {
   BarChart3,
   CheckCircle2,
   Download,
-  LockKeyhole,
   Percent,
-  PieChart,
   RefreshCw,
   ShieldCheck,
   Store,
@@ -19,6 +17,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { formatVndInput, parseVndInput } from "../lib/format";
+import { ManagerProfitSharingClosing } from "./FinancialReports";
 
 export type ReferenceStore = {
   id: string;
@@ -235,20 +234,6 @@ export function ReferenceManagerTransfer({ stores }: { stores: ReferenceStore[] 
 }
 
 export function ReferenceManagerDividend({ totals }: { totals: { revenue: number; expense: number; profit: number } }) {
-  const { records, reload } = useRecords("DIVIDEND");
-  const month = monthNow();
-  const profit = Math.max(0, totals.profit);
-  const vi = Math.round(profit * .6);
-  const thuy = profit - vi;
-  const margin = totals.revenue ? profit / totals.revenue * 100 : 0;
-  const existing = records.find((record) => record.data.month === month);
-  const [message, setMessage] = useState("");
-  async function lock() { const response = await fetch("/api/records", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ category: "DIVIDEND", title: `Cổ tức ${month}`, status: "LOCKED", data: { month, revenue: totals.revenue, expense: totals.expense, profit, vi, thuy, margin } }) }); setMessage(response.ok ? "✓ Đã xác nhận chia cổ tức và khóa kỳ." : "Không thể khóa kỳ."); if (response.ok) reload(); }
-  const history = records.length ? records : Array.from({ length: 5 }, (_, index) => { const p = Math.round(profit * (1 - index * .045)); return { id: String(index), title: "", status: "LOCKED", created_at: "", data: { month: `2026-${String(8 - index).padStart(2, "0")}`, revenue: Math.round(totals.revenue * (1 - index * .03)), expense: Math.round(totals.expense * (1 - index * .025)), profit: p, vi: Math.round(p * .6), thuy: Math.round(p * .4) } }; });
-  return <div className="page-content manager-reference dividend-reference"><div className="manager-metrics four"><Metric icon={TrendingUp} label="DOANH THU THÁNG" value={money(totals.revenue)} note="↑ 5% so với kỳ trước"/><Metric icon={WalletCards} label="TỔNG CHI PHÍ" value={money(totals.expense)} note="↑ 1,2% so với kỳ trước"/><Metric icon={BadgeDollarSign} label="LỢI NHUẬN SAU CÙNG" value={money(profit)} note="↑ 20% so với kỳ trước"/><Metric icon={Percent} label="TỶ LỆ LỢI NHUẬN" value={`${margin.toFixed(2)}%`} note="↑ 2,86% so với kỳ trước"/></div>
-    <div className="dividend-top"><section className="manager-panel"><h2>THÔNG TIN CỔ ĐÔNG</h2><table className="share-table"><tbody><tr><td><UserRound/> TRƯƠNG VIỆT VI</td><td>60%</td><td>{money(vi)}</td></tr><tr><td><UserRound/> PHẠM THỊ DIỄM THÚY</td><td>40%</td><td>{money(thuy)}</td></tr><tr><th>TỔNG CỘNG</th><th>100%</th><th>{money(profit)}</th></tr></tbody></table><div className="formula-note"><PieChart/><span>Lợi nhuận sau cùng = Doanh thu − tất cả chi phí<br/><b>{money(profit)}</b></span></div><button disabled={Boolean(existing)} className="primary-button wide" onClick={lock}><LockKeyhole size={17}/>{existing ? "KỲ CHIA CỔ TỨC ĐÃ KHÓA" : "XÁC NHẬN CHIA CỔ TỨC"}</button>{message && <div className="success-banner">{message}</div>}</section><section className="manager-panel"><div className="panel-title"><h2>BIỂU ĐỒ LỢI NHUẬN SAU CÙNG</h2><select><option>8 tháng gần nhất</option></select></div><div className="profit-line"><svg viewBox="0 0 600 250" preserveAspectRatio="none"><polyline points="20,190 95,155 170,175 245,120 320,80 395,165 470,135 580,90"/><circle cx="20" cy="190" r="5"/><circle cx="95" cy="155" r="5"/><circle cx="170" cy="175" r="5"/><circle cx="245" cy="120" r="5"/><circle cx="320" cy="80" r="5"/><circle cx="395" cy="165" r="5"/><circle cx="470" cy="135" r="5"/><circle cx="580" cy="90" r="6"/></svg><div><span>T12</span><span>T1</span><span>T2</span><span>T3</span><span>T4</span><span>T5</span><span>T6</span><span>T7</span></div></div></section></div>
-    <section className="manager-panel table-panel"><div className="panel-title"><h2>LỊCH SỬ CHIA CỔ TỨC</h2><button onClick={() => csv("co-tuc.csv", [["Kỳ", "Doanh thu", "Chi phí", "Lợi nhuận", "Việt Vi", "Diễm Thúy"], ...history.map((record) => [String(record.data.month ?? ""), Number(record.data.revenue ?? 0), Number(record.data.expense ?? 0), Number(record.data.profit ?? 0), Number(record.data.vi ?? 0), Number(record.data.thuy ?? 0)])])}><Download size={17}/> Xuất Excel</button></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>Kỳ</th><th>Doanh thu</th><th>Tổng chi phí</th><th>Lợi nhuận sau cùng</th><th>Việt Vi (60%)</th><th>Diễm Thúy (40%)</th><th>Trạng thái</th></tr></thead><tbody>{history.map((record) => <tr key={record.id}><td>{String(record.data.month ?? "")}</td><td>{money(Number(record.data.revenue ?? 0))}</td><td>{money(Number(record.data.expense ?? 0))}</td><td className="money-green">{money(Number(record.data.profit ?? 0))}</td><td>{money(Number(record.data.vi ?? 0))}</td><td>{money(Number(record.data.thuy ?? 0))}</td><td><span className="status-pill">Đã chia</span></td></tr>)}</tbody></table></div></section>
-    <div className="comparison-grid"><section className="manager-panel"><h2>SO SÁNH TỔNG QUAN</h2><p><span>Doanh thu</span><b>{money(totals.revenue)}</b><em>↑ 5%</em></p><p><span>Tổng chi phí</span><b>{money(totals.expense)}</b><em>↑ 1,2%</em></p><p><span>Lợi nhuận sau cùng</span><b>{money(profit)}</b><em>↑ 20%</em></p></section><section className="manager-panel"><h2>SO SÁNH CỔ TỨC</h2><p><span>TRƯƠNG VIỆT VI</span><b>{money(vi)}</b><em>↑ 14,3%</em></p><p><span>PHẠM THỊ DIỄM THÚY</span><b>{money(thuy)}</b><em>↑ 14,3%</em></p></section></div>
-    <div className="ai-analysis"><div className="analysis-illustration"><TrendingUp size={42}/></div><div><h2>📈 KẾT LUẬN PHÂN TÍCH KỲ {month}</h2><p>Lợi nhuận sau cùng đạt <b>{money(profit)}</b>, biên lợi nhuận <b>{margin.toFixed(2)}%</b>. Doanh thu tăng nhanh hơn chi phí, cho thấy hiệu quả vận hành được cải thiện. Cổ đông Trương Việt Vi nhận <b>{money(vi)}</b>; cổ đông Phạm Thị Diễm Thúy nhận <b>{money(thuy)}</b>. Nếu xu hướng được duy trì, lợi nhuận và cổ tức các kỳ tiếp theo được kỳ vọng tiếp tục tăng trưởng ổn định.</p></div></div>
-  </div>;
+  void totals;
+  return <ManagerProfitSharingClosing />;
 }

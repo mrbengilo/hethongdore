@@ -8,7 +8,6 @@ import {
   localPeriod,
   previousComparableDateRange,
   shiftAccountingDate,
-  summarizeCashTimeline,
   sumVnd,
   validateFinanceDateRange,
 } from "../../lib/finance";
@@ -336,7 +335,9 @@ export async function GET(request: Request) {
       sources: [...new Set(currentEntries.filter((entry) => entry.storeId === store.id).map((entry) => entry.source))],
     }));
   const timeline = aggregateTimeline(currentEntries, keys, granularity);
-  const currentTotals = summarizeCashTimeline(timeline);
+  const totalInflow = sumVnd(byStore.map((store) => store.inflow));
+  const totalOutflow = sumVnd(byStore.map((store) => store.outflow));
+  const currentTotals = { inflow: totalInflow, outflow: totalOutflow, net: totalInflow - totalOutflow };
   const priorTotals = summarize(previousEntries);
   return json({
     period: range.to.slice(0, 7),

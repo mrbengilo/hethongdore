@@ -53,6 +53,27 @@ test("serializes Vietnam-local shifts as complete UTC ranges", async () => {
   assert.equal(shiftUtcRange("2026-08-06", "07:00", "07:00"), null);
 });
 
+test("resolves only the occurrence that is actually open, including boundaries and overnight shifts", async () => {
+  const { shiftOccurrenceAt } = await schedulingModule();
+  const shifts = [
+    { name: "Ca 1", start: "07:00", end: "12:00" },
+    { name: "Ca 2", start: "12:00", end: "17:00" },
+    { name: "Ca đêm", start: "22:00", end: "06:00" },
+  ];
+
+  assert.equal(shiftOccurrenceAt("2026-08-06T04:59:59.999Z", shifts)?.name, "Ca 1");
+  assert.equal(shiftOccurrenceAt("2026-08-06T05:00:00.000Z", shifts)?.name, "Ca 2");
+  assert.equal(shiftOccurrenceAt("2026-08-06T11:00:00.000Z", shifts), null);
+  assert.deepEqual(shiftOccurrenceAt("2026-08-06T20:00:00.000Z", shifts), {
+    name: "Ca đêm",
+    start: "22:00",
+    end: "06:00",
+    workDate: "2026-08-06",
+    startAt: "2026-08-06T15:00:00.000Z",
+    endAt: "2026-08-06T23:00:00.000Z",
+  });
+});
+
 test("schedule interface exposes the requested day, week, employee and save flow", async () => {
   const source = await readFile(new URL("../app/components/StoreSchedulingModules.tsx", import.meta.url), "utf8");
   assert.match(source, />Theo ngày</u);

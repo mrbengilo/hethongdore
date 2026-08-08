@@ -22,6 +22,7 @@ test("cash-flow API derives totals from persisted operational records", async ()
   assert.match(route, /'DONG_TIEN', 'NHAP_HANG', 'CHI_PHI_CO_DINH', 'PAYROLL_CLOSING'/u);
   assert.match(route, /paymentConfirmedAt/u);
   assert.match(route, /aggregateTimeline/u);
+  assert.match(route, /sumVnd\(byStore\.map\(\(store\) => store\.outflow\)\)/u);
   assert.doesNotMatch(route, /mock|fallback|sample/iu);
 });
 
@@ -40,4 +41,19 @@ test("manager finance views expose report growth and daily-monthly cash-flow con
   assert.match(component, /Theo tháng/u);
   assert.match(component, /Chi tiết dòng tiền theo/u);
   assert.match(component, /aria-pressed/u);
+});
+
+test("store report selection stays on the store tab and all-store cash expenses reconcile", async () => {
+  const [component, portal] = await Promise.all([
+    source("app/components/ManagerFinanceViews.tsx"),
+    source("app/components/Portal.tsx"),
+  ]);
+
+  assert.match(component, /options\.some\(\(store\) => store\.id === storeId\)/u);
+  assert.doesNotMatch(component, /!data\.stores\.some\([\s\S]{0,120}setScope\("ALL"\)/u);
+  assert.match(component, /data\.byStore\.reduce<CashTotals>/u);
+  assert.match(component, /Tổng chi phí tất cả cửa hàng/u);
+  assert.match(component, /TỔNG TẤT CẢ CỬA HÀNG/u);
+  assert.match(portal, /label="TỔNG DOANH THU" value=\{money\(totals\.revenue\)\}/u);
+  assert.match(portal, /label="TỔNG CHI PHÍ" value=\{money\(totals\.expense\)\}/u);
 });

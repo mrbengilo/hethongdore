@@ -37,6 +37,16 @@ type Order = {
   created_at: string;
 };
 
+type EmployeePayrollAdjustment = {
+  id: string;
+  kind: "ALLOWANCE" | "BONUS";
+  label: string;
+  amount: number;
+  date: string;
+  storeId: string;
+  storeName: string;
+};
+
 type EmployeePayrollItem = {
   employeeId: string;
   hours: number;
@@ -45,6 +55,7 @@ type EmployeePayrollItem = {
   supportAllowance: number;
   manualAllowance: number;
   manualBonus: number;
+  adjustments?: EmployeePayrollAdjustment[];
   kpiBonus: number;
   totalPay: number;
 };
@@ -53,6 +64,7 @@ type EmployeePayrollSource = EmployeePayrollItem & {
   storeId: string;
   storeName: string;
   isSupport: boolean;
+  locked: boolean;
   hourlyRate: number;
   paymentStatus: string;
   paidAt?: string | null;
@@ -153,6 +165,18 @@ function EmployeeShiftPayrollTable({ rows, support }: { rows: EmployeePayrollShi
   </section>;
 }
 
+function sourcePaymentLabel(source: EmployeePayrollSource) {
+  if (!source.locked) return "Tạm tính";
+  return source.paymentStatus === "LOCKED" || source.paymentStatus === "PAYMENT_CONFIRMED"
+    ? "Đã chi"
+    : "Đã chốt · Chờ chi";
+}
+
+function visibleSourcePay(source: EmployeePayrollSource) {
+  return source.baseSalary + source.tiktokAllowance + source.supportAllowance + source.manualAllowance
+    + source.manualBonus + (source.locked ? source.kpiBonus : 0);
+}
+
 export function ReferenceEmployeePayroll() {
   const { shifts, reload } = useShifts();
   const [month, setMonth] = useState(monthNow());
@@ -177,19 +201,42 @@ export function ReferenceEmployeePayroll() {
   const mainShiftRows = useMemo(() => detailRows.filter((row) => !row.isSupport), [detailRows]);
   const supportShiftRows = useMemo(() => detailRows.filter((row) => row.isSupport), [detailRows]);
   const shiftWage = detailRows.length ? detailRows.reduce((sum, row) => sum + row.baseSalary, 0) : rows.reduce((sum, row) => sum + row.wage, 0);
-  const shiftAllowance = detailRows.length ? detailRows.reduce((sum, row) => sum + row.tiktokAllowance + row.supportAllowance, 0) : rows.reduce((sum, row) => sum + row.tiktok_allowance, 0);
-  const wage = payrollLocked && payrollItem ? payrollItem.baseSalary : shiftWage;
-  const allowance = payrollLocked && payrollItem ? payrollItem.tiktokAllowance + payrollItem.supportAllowance + payrollItem.manualAllowance : shiftAllowance;
-  const reward = payrollLocked && payrollItem ? payrollItem.manualBonus + payrollItem.kpiBonus : 0;
-  const income = payrollLocked && payrollItem ? payrollItem.totalPay : wage + allowance;
+  const shiftTikTokAllowance = detailRows.length ? detailRows.reduce((sum, row) => sum + row.tiktokAllowance, 0) : rows.reduce((sum, row) => sum + row.tiktok_allowance, 0);
+  const shiftSupportAllowance = detailRows.reduce((sum, row) => sum + row.supportAllowance, 0);
+  const wage = payrollItem?.baseSalary ?? shiftWage;
+  const tiktokAllowance = payrollItem?.tiktokAllowance ?? shiftTikTokAllowance;
+  const supportAllowance = payrollItem?.supportAllowance ?? shiftSupportAllowance;
+  const manualAllowance = payrollItem?.manualAllowance ?? 0;
+  const allowance = tiktokAllowance + supportAllowance + manualAllowance;
+  const supportAllowanceByStore = useMemo(() => {
+    const totals = new Map<string, number>();
+    for (const row of detailRows) {
+      if (!row.isSupport || row.supportAllowance <= 0) continue;
+      totals.set(row.storeName, (totals.get(row.storeName) ?? 0) + row.supportAllowance);
+    }
+    return [...totals].map(([storeName, amount]) => ({ storeName, amount }));
+  }, [detailRows]);
+  const allocatedSupportAllowance = supportAllowanceByStore.reduce((sum, row) => sum + row.amount, 0);
+  const unallocatedSupportAllowance = Math.max(0, supportAllowance - allocatedSupportAllowance);
+  const manualAllowanceDetails = useMemo(
+    () => (payrollItem?.adjustments ?? []).filter((adjustment) => adjustment.kind === "ALLOWANCE"),
+    [payrollItem?.adjustments],
+  );
+  const itemizedManualAllowance = manualAllowanceDetails.reduce((sum, adjustment) => sum + adjustment.amount, 0);
+  const unitemizedManualAllowance = Math.max(0, manualAllowance - itemizedManualAllowance);
+  const manualBonus = payrollItem?.manualBonus ?? 0;
+  const finalizedKpiBonus = sources.reduce((sum, source) => sum + (source.locked ? source.kpiBonus : 0), 0);
+  const reward = manualBonus + finalizedKpiBonus;
+  const income = wage + allowance + reward;
+  const partiallyLocked = !payrollLocked && sources.some((source) => source.locked);
   const rowCount = detailRows.length || rows.length;
   const totalHours = detailRows.length ? detailRows.reduce((sum, row) => sum + row.hours, 0) : rows.reduce((sum, row) => sum + row.hours, 0);
   async function reloadAll() { await Promise.all([reload(), loadPayroll()]); }
   return <div className="employee-reference payroll-reference"><div className="employee-filter"><label>Tháng<input type="month" value={month} onChange={(event) => setMonth(event.target.value)}/></label><label>Đến ngày<input type="date" value={through} onChange={(event) => setThrough(event.target.value)}/></label><button className="primary-button" onClick={reloadAll}><TrendingUp size={17}/> Xem thống kê</button></div>
-    <div className="employee-metrics four"><EmployeeMetric icon={WalletCards} label="TỔNG THU NHẬP" value={money(income)} note={payrollPaid ? "Đã chi và ghi nhận lịch sử" : payrollLocked ? "Đã chốt, chờ xác nhận chi" : `Tạm tính đến ${through}`}/><EmployeeMetric icon={BadgeDollarSign} label="TỔNG LƯƠNG" value={money(wage)} note={`Từ ${rowCount} ca làm`} tone="blue"/><EmployeeMetric icon={Gift} label="THƯỞNG & PHỤ CẤP" value={money(reward + allowance)} note={payrollLocked ? "KPI + thưởng + phụ cấp" : "Chờ quản lý tổng kết KPI"} tone="orange"/><EmployeeMetric icon={CheckCircle2} label="TRẠNG THÁI CHI" value={payrollPaid ? "ĐÃ CHI" : payrollLocked ? "CHỜ CHI" : "TẠM TÍNH"} note={`${rowCount} ca đã ghi nhận`}/></div>
+    <div className="employee-metrics four"><EmployeeMetric icon={WalletCards} label="TỔNG THU NHẬP" value={money(income)} note={payrollPaid ? "Đã chi và ghi nhận lịch sử" : payrollLocked ? "Đã chốt tất cả nguồn, chờ xác nhận chi" : partiallyLocked ? "Một phần nguồn lương đã chốt" : `Tạm tính đến ${through}`}/><EmployeeMetric icon={BadgeDollarSign} label="TỔNG LƯƠNG" value={money(wage)} note={`Từ ${rowCount} ca làm`} tone="blue"/><EmployeeMetric icon={Gift} label="THƯỞNG & PHỤ CẤP" value={money(reward + allowance)} note={payrollLocked ? "KPI + thưởng + phụ cấp" : partiallyLocked ? "KPI chỉ tính từ nguồn đã chốt" : "Chờ quản lý tổng kết KPI"} tone="orange"/><EmployeeMetric icon={CheckCircle2} label="TRẠNG THÁI CHI" value={payrollPaid ? "ĐÃ CHI" : payrollLocked ? "CHỜ CHI" : partiallyLocked ? "CHỐT MỘT PHẦN" : "TẠM TÍNH"} note={`${rowCount} ca đã ghi nhận`}/></div>
     <section className="employee-detail-strip"><h2>CHI TIẾT THỐNG KÊ</h2><div><span>Số ca làm<b>{rowCount} ca</b></span><span>Tổng số giờ làm<b>{totalHours.toFixed(2)} giờ</b></span><span>Ca hỗ trợ<b>{detailRows.filter((row) => row.isSupport).length} ca</b></span><span>Cửa hàng tính lương<b>{Math.max(1, sources.length)} nơi</b></span><span>Lương trung bình/ca<b>{money(rowCount ? wage / rowCount : 0)}</b></span></div></section>
-    {sources.length > 0 && <section className="employee-panel table-panel"><div className="panel-title"><h2>NGUỒN CHI TRẢ THEO CỬA HÀNG</h2><span>{sources.length} cửa hàng</span></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>Cửa hàng</th><th>Vai trò</th><th>Giờ làm thực tế</th><th>Lương từ giờ làm</th><th>Phụ cấp hỗ trợ</th><th>Thưởng/KPI</th><th>Lương thực nhận</th><th>Trạng thái</th></tr></thead><tbody>{sources.map((source) => <tr key={source.storeId}><td><b>{source.storeName}</b></td><td>{source.isSupport ? <span className="status-pill">Nhân viên hỗ trợ</span> : "Nhân viên chính"}</td><td>{source.hours.toFixed(2)} giờ</td><td>{money(source.baseSalary)}</td><td>{source.isSupport ? money(source.supportAllowance) : "—"}</td><td>{money(source.manualBonus + source.kpiBonus + source.manualAllowance)}</td><td className="money-green"><b>{money(source.totalPay)}</b></td><td><span className="status-pill">{source.paymentStatus === "LOCKED" || source.paymentStatus === "PAYMENT_CONFIRMED" ? "Đã chi" : "Chờ chi"}</span></td></tr>)}</tbody></table></div></section>}
-    <div className="employee-payroll-grid"><section className="employee-panel table-panel"><div className="panel-title"><div><h2>CHI TIẾT LƯƠNG THEO CA</h2><p>Tách rõ ca tại cửa hàng chính và ca hỗ trợ để không nhầm mức lương theo giờ.</p></div><button onClick={() => csv("bang-luong.csv", [["Ngày", "Ca", "Cửa hàng", "Vai trò", "Giờ vào", "Giờ kết", "Giờ làm thực tế", "Lương cứng/giờ", "Lương hỗ trợ/giờ", "Phụ cấp hỗ trợ", "Phụ cấp TikTok", "Lương thực nhận"], ...detailRows.map((row) => [displayDay(row.workDate || localDay(row.startedAt)), row.shiftName ?? row.shiftCode, row.storeName, row.isSupport ? "Nhân viên hỗ trợ" : "Nhân viên chính", time(row.startedAt), time(row.endedAt), row.hours.toFixed(2), row.isSupport ? "" : row.hourlyRate, row.isSupport ? row.hourlyRate : "", row.isSupport ? row.supportAllowance : "", row.tiktokAllowance, row.netPay])])}><Download size={16}/> Xuất Excel</button></div>{detailRows.length === 0 ? <div className="empty-cell">Chưa có ca làm trong thời gian đã chọn.</div> : <div className="employee-shift-payroll-groups">{mainShiftRows.length > 0 ? <EmployeeShiftPayrollTable rows={mainShiftRows} support={false}/> : null}{supportShiftRows.length > 0 ? <EmployeeShiftPayrollTable rows={supportShiftRows} support/> : null}</div>}</section><aside className="employee-panel income-summary"><h2>TỔNG KẾT THU NHẬP</h2><p><span>Tổng lương ({rowCount} ca)</span><b>{money(wage)}</b></p><p><span>Tổng phụ cấp</span><b>{money(allowance)}</b></p><p><span>Thưởng khác</span><b>{money(payrollItem?.manualBonus ?? 0)}</b></p><p><span>Thưởng KPI</span><b>{money(payrollItem?.kpiBonus ?? 0)}</b></p><p className="total"><span>TỔNG THỰC NHẬN</span><b>{money(income)}</b></p><div><BadgeDollarSign size={30}/><span>{payrollPaid ? "Đã chi lương, thưởng và phụ cấp" : payrollLocked ? "Đã chốt, đang chờ chi" : "KPI chỉ hiển thị sau tổng kết"}<br/><b>{month}</b></span></div></aside></div>
+    {sources.length > 0 && <section className="employee-panel table-panel"><div className="panel-title"><h2>NGUỒN CHI TRẢ THEO CỬA HÀNG</h2><span>{sources.length} cửa hàng</span></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>Cửa hàng</th><th>Vai trò</th><th>Giờ làm thực tế</th><th>Lương từ giờ làm</th><th>Phụ cấp hỗ trợ</th><th>Phụ cấp khác / Thưởng / KPI</th><th>Lương thực nhận</th><th>Trạng thái</th></tr></thead><tbody>{sources.map((source) => <tr key={source.storeId}><td><b>{source.storeName}</b></td><td>{source.isSupport ? <span className="status-pill">Nhân viên hỗ trợ</span> : "Nhân viên chính"}</td><td>{source.hours.toFixed(2)} giờ</td><td>{money(source.baseSalary)}</td><td>{source.isSupport ? money(source.supportAllowance) : "—"}</td><td>{money(source.manualAllowance + source.manualBonus + (source.locked ? source.kpiBonus : 0))}</td><td className="money-green"><b>{money(visibleSourcePay(source))}</b></td><td><span className={`status-pill ${source.locked ? "" : "inactive"}`}>{sourcePaymentLabel(source)}</span></td></tr>)}</tbody></table></div></section>}
+    <div className="employee-payroll-grid"><section className="employee-panel table-panel"><div className="panel-title"><div><h2>CHI TIẾT LƯƠNG THEO CA</h2><p>Tách rõ ca tại cửa hàng chính và ca hỗ trợ để không nhầm mức lương theo giờ.</p></div><button onClick={() => csv("bang-luong.csv", [["Ngày", "Ca", "Cửa hàng", "Vai trò", "Giờ vào", "Giờ kết", "Giờ làm thực tế", "Lương cứng/giờ", "Lương hỗ trợ/giờ", "Phụ cấp hỗ trợ", "Phụ cấp TikTok", "Lương thực nhận"], ...detailRows.map((row) => [displayDay(row.workDate || localDay(row.startedAt)), row.shiftName ?? row.shiftCode, row.storeName, row.isSupport ? "Nhân viên hỗ trợ" : "Nhân viên chính", time(row.startedAt), time(row.endedAt), row.hours.toFixed(2), row.isSupport ? "" : row.hourlyRate, row.isSupport ? row.hourlyRate : "", row.isSupport ? row.supportAllowance : "", row.tiktokAllowance, row.netPay])])}><Download size={16}/> Xuất Excel</button></div>{detailRows.length === 0 ? <div className="empty-cell">Chưa có ca làm trong thời gian đã chọn.</div> : <div className="employee-shift-payroll-groups">{mainShiftRows.length > 0 ? <EmployeeShiftPayrollTable rows={mainShiftRows} support={false}/> : null}{supportShiftRows.length > 0 ? <EmployeeShiftPayrollTable rows={supportShiftRows} support/> : null}</div>}</section><aside className="employee-panel income-summary"><h2>TỔNG KẾT THU NHẬP</h2><p><span>Tổng lương ({rowCount} ca)</span><b>{money(wage)}</b></p><p><span>Tổng phụ cấp</span><b>{money(allowance)}</b></p><ul className="allowance-breakdown" aria-label="Chi tiết các khoản phụ cấp"><li><span>Phụ cấp clip TikTok</span><b>{money(tiktokAllowance)}</b></li>{supportAllowanceByStore.map((row) => <li key={row.storeName}><span>Phụ cấp hỗ trợ · {row.storeName}</span><b>{money(row.amount)}</b></li>)}{unallocatedSupportAllowance > 0 ? <li><span>Phụ cấp hỗ trợ</span><b>{money(unallocatedSupportAllowance)}</b></li> : null}{manualAllowanceDetails.map((adjustment) => <li key={`${adjustment.storeId}-${adjustment.id}`}><span>{adjustment.label}{sources.length > 1 ? ` · ${adjustment.storeName}` : ""}</span><b>{money(adjustment.amount)}</b></li>)}{unitemizedManualAllowance > 0 ? <li><span>Phụ cấp khác · dữ liệu kỳ cũ</span><b>{money(unitemizedManualAllowance)}</b></li> : null}</ul><p><span>Thưởng khác</span><b>{money(manualBonus)}</b></p><p><span>Thưởng KPI đã chốt</span><b>{money(finalizedKpiBonus)}</b></p><p className="total"><span>TỔNG THỰC NHẬN</span><b>{money(income)}</b></p><div><BadgeDollarSign size={30}/><span>{payrollPaid ? "Đã chi lương, thưởng và phụ cấp" : payrollLocked ? "Đã chốt tất cả nguồn, đang chờ chi" : partiallyLocked ? "Một phần nguồn lương đã chốt" : "KPI chỉ hiển thị sau tổng kết"}<br/><b>{month}</b></span></div></aside></div>
   </div>;
 }
 

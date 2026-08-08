@@ -1,6 +1,7 @@
 import { initDb, writeAudit } from "../../../db/runtime";
 import {
   type LocalDateRange,
+  allocateStoreProfitSharing,
   evaluateFinancePerformance,
   financeComparisonPopulation,
   localDate,
@@ -19,24 +20,144 @@ import {
   type StoreDateRangeFinance,
 } from "../_lib/store-finance";
 
-type DividendHistory = {
+const PROFIT_SHARING_MEMBERS = [
+  { id: "pham-thi-diem-thuy", name: "Phạm Thị Diễm Thúy", percentage: 40 },
+  { id: "truong-viet-vi", name: "Trương Việt Vi", percentage: 60 },
+] as const;
+
+type MemberProfitAllocation = {
+  memberId: string;
+  memberName: string;
+  percentage: number;
+  amount: number;
+};
+
+type StoreProfitAllocation = {
+  storeId: string;
+  storeName: string;
+  revenue: number;
+  expense: number;
+  finalProfit: number;
+  distributableProfit: number;
+  settlementStatus: "LOCKED" | "PAYMENT_CONFIRMED" | "OPEN" | "PROVISIONAL";
+  memberAllocations: MemberProfitAllocation[];
+};
+
+type ProfitSharingHistory = {
+  version: number;
   period: string;
   revenue: number;
   expense: number;
   profit: number;
+  accountingProfit: number;
+  distributableProfit: number;
+  memberAllocations: MemberProfitAllocation[];
+  storeAllocations: StoreProfitAllocation[];
+  totals: {
+    revenue: number;
+    expense: number;
+    finalProfit: number;
+    distributableProfit: number;
+    memberAllocations: MemberProfitAllocation[];
+  };
+  /** Legacy aliases retained so records created by earlier versions remain readable. */
   firstShare: number;
   secondShare: number;
   status: "LOCKED";
   closedAt: string;
   closedBy: string;
+  legacy?: boolean;
 };
 
 function validPeriod(value: string) {
   return /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
 }
 
-function parseDividend(value: string) {
-  try { return JSON.parse(value) as DividendHistory; } catch { return null; }
+function safeStoredVnd(value: unknown) {
+  const amount = Number(value ?? 0);
+  return Number.isSafeInteger(amount) && amount >= 0 ? amount : 0;
+}
+
+function memberAllocations(distributableProfit: number) {
+  const thuyAmount = multiplyRatioVnd(distributableProfit, 40, 100);
+  const viAmount = distributableProfit - thuyAmount;
+  return [
+    { memberId: PROFIT_SHARING_MEMBERS[0].id, memberName: PROFIT_SHARING_MEMBERS[0].name, percentage: 40, amount: thuyAmount },
+    { memberId: PROFIT_SHARING_MEMBERS[1].id, memberName: PROFIT_SHARING_MEMBERS[1].name, percentage: 60, amount: viAmount },
+  ];
+}
+
+function normalizeMemberAllocations(raw: unknown, profit: number, firstShare: number, secondShare: number) {
+  const rows = Array.isArray(raw) ? raw.flatMap((item) => item && typeof item === "object" && !Array.isArray(item)
+    ? [item as Record<string, unknown>]
+    : []) : [];
+  const amountFor = (memberId: string, memberName: string, fallback: number) => {
+    const match = rows.find((row) => row.memberId === memberId || row.memberName === memberName);
+    return match ? safeStoredVnd(match.amount) : fallback;
+  };
+  const viAmount = amountFor(PROFIT_SHARING_MEMBERS[1].id, PROFIT_SHARING_MEMBERS[1].name, firstShare);
+  const thuyAmount = amountFor(PROFIT_SHARING_MEMBERS[0].id, PROFIT_SHARING_MEMBERS[0].name, secondShare);
+  if (viAmount + thuyAmount === 0 && profit > 0) return memberAllocations(profit);
+  return [
+    { memberId: PROFIT_SHARING_MEMBERS[0].id, memberName: PROFIT_SHARING_MEMBERS[0].name, percentage: 40, amount: thuyAmount },
+    { memberId: PROFIT_SHARING_MEMBERS[1].id, memberName: PROFIT_SHARING_MEMBERS[1].name, percentage: 60, amount: viAmount },
+  ];
+}
+
+function parseProfitSharing(value: string): ProfitSharingHistory | null {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const raw = parsed as Record<string, unknown>;
+    const period = String(raw.period ?? "");
+    if (!validPeriod(period)) return null;
+    const profit = safeStoredVnd(raw.distributableProfit ?? raw.profit);
+    const firstShare = safeStoredVnd(raw.firstShare);
+    const secondShare = safeStoredVnd(raw.secondShare);
+    const allocations = normalizeMemberAllocations(raw.memberAllocations, profit, firstShare, secondShare);
+    const storeAllocations = Array.isArray(raw.storeAllocations) ? raw.storeAllocations.flatMap((item) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+      const row = item as Record<string, unknown>;
+      const distributableProfit = safeStoredVnd(row.distributableProfit);
+      return [{
+        storeId: String(row.storeId ?? ""),
+        storeName: String(row.storeName ?? row.storeId ?? "Cửa hàng"),
+        revenue: safeStoredVnd(row.revenue),
+        expense: safeStoredVnd(row.expense),
+        finalProfit: Number(row.finalProfit ?? 0),
+        distributableProfit,
+        settlementStatus: row.settlementStatus === "LOCKED" ? "LOCKED" as const : "PROVISIONAL" as const,
+        memberAllocations: normalizeMemberAllocations(row.memberAllocations, distributableProfit, 0, 0),
+      }];
+    }) : [];
+    const revenue = safeStoredVnd(raw.revenue);
+    const expense = safeStoredVnd(raw.expense);
+    const rawTotals = raw.totals && typeof raw.totals === "object" && !Array.isArray(raw.totals)
+      ? raw.totals as Record<string, unknown>
+      : null;
+    const storedAccountingProfit = raw.accountingProfit ?? rawTotals?.finalProfit;
+    const accountingProfit = storedAccountingProfit === undefined ? revenue - expense : Number(storedAccountingProfit);
+    return {
+      version: Number(raw.version ?? 1),
+      period,
+      revenue,
+      expense,
+      profit,
+      accountingProfit: Number.isSafeInteger(accountingProfit) ? accountingProfit : revenue - expense,
+      distributableProfit: profit,
+      memberAllocations: allocations,
+      storeAllocations,
+      totals: { revenue, expense, finalProfit: Number.isSafeInteger(accountingProfit) ? accountingProfit : revenue - expense, distributableProfit: profit, memberAllocations: allocations },
+      firstShare: allocations.find((item) => item.memberId === PROFIT_SHARING_MEMBERS[1].id)?.amount ?? firstShare,
+      secondShare: allocations.find((item) => item.memberId === PROFIT_SHARING_MEMBERS[0].id)?.amount ?? secondShare,
+      status: "LOCKED",
+      closedAt: String(raw.closedAt ?? ""),
+      closedBy: String(raw.closedBy ?? ""),
+      legacy: !Array.isArray(raw.storeAllocations),
+    };
+  } catch {
+    return null;
+  }
 }
 
 function totals(stores: FinanceSnapshot[]) {
@@ -170,6 +291,47 @@ async function reportRangeData(
   };
 }
 
+function profitSharingSnapshot(period: string, stores: Array<{ current: StoreDateRangeFinance }>) {
+  const storeShares = allocateStoreProfitSharing(stores.map(({ current }) => current.profit));
+  const storeAllocations: StoreProfitAllocation[] = stores.map(({ current }, index) => {
+    const share = storeShares[index];
+    const distributableProfit = share?.distributableProfit ?? 0;
+    return {
+      storeId: current.id,
+      storeName: current.name,
+      revenue: current.revenue,
+      expense: current.expense,
+      finalProfit: current.profit,
+      distributableProfit,
+      settlementStatus: current.settlementStatus,
+      memberAllocations: [
+        { memberId: PROFIT_SHARING_MEMBERS[0].id, memberName: PROFIT_SHARING_MEMBERS[0].name, percentage: 40, amount: share?.firstShareAmount ?? 0 },
+        { memberId: PROFIT_SHARING_MEMBERS[1].id, memberName: PROFIT_SHARING_MEMBERS[1].name, percentage: 60, amount: share?.secondShareAmount ?? 0 },
+      ],
+    };
+  });
+  const revenue = sumVnd(storeAllocations.map((store) => store.revenue));
+  const expense = sumVnd(storeAllocations.map((store) => store.expense));
+  const finalProfit = revenue - expense;
+  const distributableProfit = sumVnd(storeAllocations.map((store) => store.distributableProfit));
+  const thuyAmount = sumVnd(storeAllocations.map((store) => store.memberAllocations[0]?.amount ?? 0));
+  const viAmount = sumVnd(storeAllocations.map((store) => store.memberAllocations[1]?.amount ?? 0));
+  const allocations: MemberProfitAllocation[] = [
+    { memberId: PROFIT_SHARING_MEMBERS[0].id, memberName: PROFIT_SHARING_MEMBERS[0].name, percentage: 40, amount: thuyAmount },
+    { memberId: PROFIT_SHARING_MEMBERS[1].id, memberName: PROFIT_SHARING_MEMBERS[1].name, percentage: 60, amount: viAmount },
+  ];
+  return {
+    period,
+    revenue,
+    expense,
+    finalProfit,
+    distributableProfit,
+    memberAllocations: allocations,
+    storeAllocations,
+    totals: { revenue, expense, finalProfit, distributableProfit, memberAllocations: allocations },
+  };
+}
+
 export async function GET(request: Request) {
   const user = await getSessionUser(request);
   if (!user || user.role !== "MANAGER") return json({ message: "Không có quyền xem báo cáo." }, 403);
@@ -202,10 +364,11 @@ export async function GET(request: Request) {
   const data = await reportRangeData(db, range, previousRange, granularity, storeId, storeOptions);
   const historyRows = await db.prepare("SELECT data_json AS dataJson FROM business_records WHERE category = 'DIVIDEND' AND status = 'LOCKED' ORDER BY created_at DESC LIMIT 36")
     .all<{ dataJson: string }>();
-  const dividendHistory = historyRows.results.flatMap((row) => {
-    const item = parseDividend(row.dataJson);
+  const profitSharingHistory = historyRows.results.flatMap((row) => {
+    const item = parseProfitSharing(row.dataJson);
     return item ? [item] : [];
   });
+  const profitSharingPreview = profitSharingSnapshot(range.to.slice(0, 7), data.stores);
   return json({
     ...data,
     period: range.to.slice(0, 7),
@@ -224,42 +387,52 @@ export async function GET(request: Request) {
       monthlyAccrual: "Chi phí cố định và lương quản lý được phân bổ theo ngày cửa hàng hoạt động; tổng các ngày khớp tổng kỳ.",
       performanceRewards: "KPI nhân viên và quản lý chỉ được ghi nhận từ ảnh chụp kỳ đã khóa; kỳ chưa khóa có trạng thái PROVISIONAL.",
     },
-    dividendHistory,
+    profitSharingMembers: PROFIT_SHARING_MEMBERS,
+    profitSharingPreview,
+    profitSharingHistory,
+    dividendHistory: profitSharingHistory,
   });
 }
 
 export async function POST(request: Request) {
   const user = await getSessionUser(request);
-  if (!user || user.role !== "MANAGER") return json({ message: "Không có quyền chốt chia cổ tức." }, 403);
+  if (!user || user.role !== "MANAGER") return json({ message: "Không có quyền chốt chia lợi nhuận." }, 403);
   const body = await request.json().catch(() => ({})) as { action?: string; period?: string };
   const period = body.period ?? "";
-  if (body.action !== "CLOSE_DIVIDEND" || !validPeriod(period)) return json({ message: "Thao tác hoặc kỳ chia cổ tức không hợp lệ." }, 400);
-  if (period >= localPeriod()) return json({ message: "Chỉ được chốt chia cổ tức sau khi kỳ tháng đã kết thúc." }, 409);
+  const validAction = body.action === "CLOSE_PROFIT_SHARING" || body.action === "CLOSE_DIVIDEND";
+  if (!validAction || !validPeriod(period)) return json({ message: "Thao tác hoặc kỳ chia lợi nhuận không hợp lệ." }, 400);
+  if (period >= localPeriod()) return json({ message: "Chỉ được chốt chia lợi nhuận sau khi kỳ tháng đã kết thúc." }, 409);
   const db = await initDb();
   const report = await reportData(db, period);
-  if (report.stores.length === 0) return json({ message: "Không có cửa hàng hoạt động trong kỳ để chốt chia cổ tức." }, 409);
+  if (report.stores.length === 0) return json({ message: "Không có cửa hàng hoạt động trong kỳ để chốt chia lợi nhuận." }, 409);
   const unlocked: string[] = [];
   for (const store of report.stores) {
     const closing = await db.prepare("SELECT id FROM business_records WHERE category = 'PAYROLL_CLOSING' AND store_id = ? AND status = 'LOCKED' AND json_extract(data_json, '$.period') = ? LIMIT 1")
       .bind(store.current.id, period).first<{ id: string }>();
     if (!closing) unlocked.push(store.current.id);
   }
-  if (unlocked.length) return json({ message: `Còn ${unlocked.length} cửa hàng chưa khóa kỳ lương. Hãy hoàn tất trước khi chia cổ tức.` }, 409);
+  if (unlocked.length) return json({ message: `Còn ${unlocked.length} cửa hàng chưa khóa kỳ lương. Hãy hoàn tất trước khi chia lợi nhuận.` }, 409);
 
   const id = `dividend:${period}`;
   const existing = await db.prepare("SELECT id FROM business_records WHERE id = ? AND category = 'DIVIDEND' AND status = 'LOCKED' LIMIT 1")
     .bind(id).first<{ id: string }>();
-  if (existing) return json({ message: "Kỳ chia cổ tức này đã được chốt và khóa." }, 409);
+  if (existing) return json({ message: "Kỳ chia lợi nhuận này đã được chốt và khóa." }, 409);
 
-  const profit = Math.max(0, report.totals.profit);
-  const firstShare = multiplyRatioVnd(profit, 60, 100);
-  const secondShare = profit - firstShare;
+  const snapshot = profitSharingSnapshot(period, report.stores);
+  const firstShare = snapshot.memberAllocations.find((item) => item.memberId === PROFIT_SHARING_MEMBERS[1].id)?.amount ?? 0;
+  const secondShare = snapshot.memberAllocations.find((item) => item.memberId === PROFIT_SHARING_MEMBERS[0].id)?.amount ?? 0;
   const closedAt = new Date().toISOString();
-  const record: DividendHistory = {
+  const record: ProfitSharingHistory = {
+    version: 2,
     period,
-    revenue: report.totals.revenue,
-    expense: report.totals.expense,
-    profit,
+    revenue: snapshot.revenue,
+    expense: snapshot.expense,
+    profit: snapshot.distributableProfit,
+    accountingProfit: snapshot.finalProfit,
+    distributableProfit: snapshot.distributableProfit,
+    memberAllocations: snapshot.memberAllocations,
+    storeAllocations: snapshot.storeAllocations,
+    totals: snapshot.totals,
     firstShare,
     secondShare,
     status: "LOCKED",
@@ -268,13 +441,13 @@ export async function POST(request: Request) {
   };
   try {
     await db.prepare("INSERT INTO business_records (id, category, store_id, owner_id, title, data_json, status, created_at, updated_at) VALUES (?, 'DIVIDEND', NULL, ?, ?, ?, 'LOCKED', ?, ?)")
-      .bind(id, user.id, `Chia cổ tức ${period}`, JSON.stringify(record), closedAt, closedAt).run();
+      .bind(id, user.id, `Chia lợi nhuận ${period}`, JSON.stringify(record), closedAt, closedAt).run();
   } catch (error) {
     const current = await db.prepare("SELECT id FROM business_records WHERE id = ? AND category = 'DIVIDEND' AND status = 'LOCKED' LIMIT 1")
       .bind(id).first<{ id: string }>();
-    if (current) return json({ message: "Kỳ chia cổ tức này đã được chốt và khóa." }, 409);
+    if (current) return json({ message: "Kỳ chia lợi nhuận này đã được chốt và khóa." }, 409);
     throw error;
   }
-  await writeAudit(user.id, "DIVIDEND_PERIOD_CLOSE", "DIVIDEND", id, JSON.stringify(record));
-  return json({ record, message: "Đã xác nhận chia cổ tức, ghi lịch sử và khóa kỳ." }, 201);
+  await writeAudit(user.id, "PROFIT_SHARING_PERIOD_CLOSE", "DIVIDEND", id, JSON.stringify(record));
+  return json({ record, message: "Đã xác nhận chia lợi nhuận, ghi lịch sử theo từng cửa hàng và khóa kỳ." }, 201);
 }

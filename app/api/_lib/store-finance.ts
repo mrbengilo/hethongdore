@@ -14,7 +14,7 @@ import {
   storeExistsInPeriod,
   sumVnd,
 } from "../../lib/finance";
-import { employeeKpiBonusFromSeconds } from "../../lib/payroll";
+import { distributeEmployeeKpiByPolicy } from "../../lib/payroll";
 
 type Db = Awaited<ReturnType<typeof initDb>>;
 
@@ -28,6 +28,9 @@ type StoreRow = {
 
 type ShiftFinanceRow = {
   employeeId: string;
+  employeeStatus: string;
+  inactivePeriod: string | null;
+  lockedEmploymentStatus: string | null;
   durationSeconds: number;
   appliedHourlyRate: number;
   cashRevenue: number;
@@ -37,6 +40,11 @@ type ShiftFinanceRow = {
   transferId: string | null;
   supportAllowance: number | null;
 };
+
+function employeeStatusForFinancePeriod(status: string, inactivePeriod: string | null, period: string) {
+  if (status !== "INACTIVE") return "ACTIVE" as const;
+  return !inactivePeriod || inactivePeriod <= period ? "INACTIVE" as const : "ACTIVE" as const;
+}
 
 type RecordRow = { dataJson: string };
 
@@ -127,6 +135,9 @@ export async function storePeriodFinance(db: Db, storeId: string, period: string
     db.prepare(`
       SELECT
         s.employee_id AS employeeId,
+        e.status AS employeeStatus,
+        strftime('%Y-%m', e.inactive_at, '+7 hours') AS inactivePeriod,
+        employee_lock.employee_status_at_lock AS lockedEmploymentStatus,
         CASE WHEN s.duration_seconds > 0 THEN s.duration_seconds
           ELSE ROUND((julianday(s.ended_at) - julianday(s.started_at)) * 86400, 0) END AS durationSeconds,
         COALESCE(s.applied_hourly_rate, e.hourly_rate) AS appliedHourlyRate,
@@ -139,12 +150,17 @@ export async function storePeriodFinance(db: Db, storeId: string, period: string
       FROM shift_sessions s
       JOIN employees e ON e.id = s.employee_id
       LEFT JOIN employee_transfers t ON t.id = s.transfer_id
+      LEFT JOIN employee_payroll_closings employee_lock
+        ON employee_lock.store_id = s.store_id
+        AND employee_lock.employee_id = s.employee_id
+        AND employee_lock.period = ?
+        AND employee_lock.status IN ('BASE_LOCKED', 'LOCKED')
       WHERE s.store_id = ? AND s.status = 'COMPLETED' AND s.ended_at IS NOT NULL
         AND (
           (NULLIF(s.work_date, '') IS NOT NULL AND s.work_date >= ? AND s.work_date < ?)
           OR (NULLIF(s.work_date, '') IS NULL AND s.started_at >= ? AND s.started_at < ?)
         )
-    `).bind(storeId, localStart, localEnd, startUtc, endUtc).all<ShiftFinanceRow>(),
+    `).bind(period, storeId, localStart, localEnd, startUtc, endUtc).all<ShiftFinanceRow>(),
     db.prepare("SELECT data_json AS dataJson FROM business_records WHERE category = 'CHI_PHI_CO_DINH' AND store_id = ? AND status != 'DELETED' AND json_extract(data_json, '$.period') = ?")
       .bind(storeId, period).all<RecordRow>(),
     db.prepare("SELECT data_json AS dataJson FROM business_records WHERE category = 'DONG_TIEN' AND store_id = ? AND status != 'DELETED' AND (json_extract(data_json, '$.period') = ? OR substr(json_extract(data_json, '$.date'), 1, 7) = ?)")
@@ -163,8 +179,8 @@ export async function storePeriodFinance(db: Db, storeId: string, period: string
   let incidentalCosts = 0;
   let employeeBaseSalary = 0;
   let tiktokAllowance = 0;
-  let totalDurationSeconds = 0;
   const secondsByEmployee = new Map<string, number>();
+  const employeeKpiState = new Map<string, { employmentStatus: "ACTIVE" | "INACTIVE"; completedShiftCount: number }>();
   const supportByTransfer = new Map<string, number>();
   for (const row of shiftResult.results) {
     const seconds = Math.max(0, Math.round(Number(row.durationSeconds ?? 0)));
@@ -173,8 +189,19 @@ export async function storePeriodFinance(db: Db, storeId: string, period: string
     incidentalCosts = sumVnd([incidentalCosts, safeVnd(row.incidentalExpense)]);
     employeeBaseSalary = sumVnd([employeeBaseSalary, multiplyRatioVnd(hourlyRate, seconds, 3_600)]);
     tiktokAllowance = sumVnd([tiktokAllowance, safeVnd(row.tiktokAllowance)]);
-    totalDurationSeconds += seconds;
     secondsByEmployee.set(row.employeeId, (secondsByEmployee.get(row.employeeId) ?? 0) + seconds);
+    const currentKpiState = employeeKpiState.get(row.employeeId) ?? {
+      employmentStatus: row.lockedEmploymentStatus === "INACTIVE"
+        ? "INACTIVE" as const
+        : row.lockedEmploymentStatus === "ACTIVE"
+          ? "ACTIVE" as const
+          : employeeStatusForFinancePeriod(row.employeeStatus, row.inactivePeriod, period),
+      completedShiftCount: 0,
+    };
+    employeeKpiState.set(row.employeeId, {
+      ...currentKpiState,
+      completedShiftCount: currentKpiState.completedShiftCount + (seconds > 0 ? 1 : 0),
+    });
     if (row.transferId && seconds > 0) supportByTransfer.set(row.transferId, safeVnd(row.supportAllowance));
   }
   incidentalCosts = sumVnd([
@@ -213,7 +240,15 @@ export async function storePeriodFinance(db: Db, storeId: string, period: string
   const lockedSnapshot = snapshotRow ? parseObject(snapshotRow.dataJson) : null;
   const employeeKpiBonus = lockedSnapshot
     ? safeVnd(lockedSnapshot.totalKpiBonus)
-    : sumVnd([...secondsByEmployee.values()].map((seconds) => employeeKpiBonusFromSeconds(profitBeforePerformanceRewards, totalDurationSeconds, seconds)));
+    : sumVnd(distributeEmployeeKpiByPolicy(
+      profitBeforePerformanceRewards,
+      [...secondsByEmployee].map(([employeeId, durationSeconds]) => ({
+        employeeId,
+        employmentStatus: employeeKpiState.get(employeeId)?.employmentStatus ?? "ACTIVE",
+        completedShiftCount: employeeKpiState.get(employeeId)?.completedShiftCount ?? 0,
+        durationSeconds,
+      })),
+    ).map((allocation) => allocation.bonus));
   const managerBonus = lockedSnapshot
     ? safeVnd(lockedSnapshot.managerBonus)
     : managerProfitBonus(profitBeforePerformanceRewards);

@@ -40,6 +40,65 @@ test("employee KPI is proportional to actual hours", async () => {
   ]);
 });
 
+test("inactive employee below 15 completed shifts is excluded from KPI and its denominator", async () => {
+  const { distributeEmployeeKpiByPolicy } = await payrollModule();
+  const result = distributeEmployeeKpiByPolicy(1_000_000, [
+    { employeeId: "active", employmentStatus: "ACTIVE", completedShiftCount: 8, durationSeconds: 40 * 3_600 },
+    { employeeId: "left-early", employmentStatus: "INACTIVE", completedShiftCount: 14, durationSeconds: 10 * 3_600 },
+  ]);
+
+  assert.deepEqual(result.map(({ employeeId, eligible, bonus }) => ({ employeeId, eligible, bonus })), [
+    { employeeId: "active", eligible: true, bonus: 50_000 },
+    { employeeId: "left-early", eligible: false, bonus: 0 },
+  ]);
+});
+
+test("inactive employee with at least 15 completed shifts remains in KPI allocation", async () => {
+  const { distributeEmployeeKpiByPolicy } = await payrollModule();
+  const result = distributeEmployeeKpiByPolicy(1_000_000, [
+    { employeeId: "active", employmentStatus: "ACTIVE", completedShiftCount: 8, durationSeconds: 40 * 3_600 },
+    { employeeId: "left-qualified", employmentStatus: "INACTIVE", completedShiftCount: 15, durationSeconds: 10 * 3_600 },
+  ]);
+
+  assert.deepEqual(result.map(({ employeeId, eligible, bonus }) => ({ employeeId, eligible, bonus })), [
+    { employeeId: "active", eligible: true, bonus: 40_000 },
+    { employeeId: "left-qualified", eligible: true, bonus: 10_000 },
+  ]);
+});
+
+test("active employees always participate by actual worked time", async () => {
+  const { distributeEmployeeKpiByPolicy } = await payrollModule();
+  const result = distributeEmployeeKpiByPolicy(1_000_000, [
+    { employeeId: "active", employmentStatus: "ACTIVE", completedShiftCount: 1, durationSeconds: 30 * 3_600 },
+    { employeeId: "left-early", employmentStatus: "INACTIVE", completedShiftCount: 14, durationSeconds: 10 * 3_600 },
+    { employeeId: "left-qualified", employmentStatus: "INACTIVE", completedShiftCount: 20, durationSeconds: 20 * 3_600 },
+  ]);
+
+  assert.deepEqual(result.map(({ employeeId, eligible, bonus }) => ({ employeeId, eligible, bonus })), [
+    { employeeId: "active", eligible: true, bonus: 30_000 },
+    { employeeId: "left-early", eligible: false, bonus: 0 },
+    { employeeId: "left-qualified", eligible: true, bonus: 20_000 },
+  ]);
+});
+
+test("multi-store employee payroll is locked and paid only when every source is complete", async () => {
+  const { employeePayrollOverallState } = await payrollModule();
+
+  assert.deepEqual(employeePayrollOverallState([
+    { locked: true, paymentStatus: "LOCKED" },
+    { locked: false, paymentStatus: "PROVISIONAL" },
+  ]), { locked: false, paid: false });
+  assert.deepEqual(employeePayrollOverallState([
+    { locked: true, paymentStatus: "PAYMENT_CONFIRMED" },
+    { locked: true, paymentStatus: "PENDING" },
+  ]), { locked: true, paid: false });
+  assert.deepEqual(employeePayrollOverallState([
+    { locked: true, paymentStatus: "PAYMENT_CONFIRMED" },
+    { locked: true, paymentStatus: "LOCKED" },
+  ]), { locked: true, paid: true });
+  assert.deepEqual(employeePayrollOverallState([]), { locked: false, paid: false });
+});
+
 test("employee KPI handles invalid or non-positive values", async () => {
   const { employeeKpiBonus, employeeKpiRate } = await payrollModule();
   assert.equal(employeeKpiRate(0, 100), 0);

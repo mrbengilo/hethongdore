@@ -9,7 +9,7 @@ import { ReferenceEmployeeHome } from "./ReferenceEmployeeHome";
 import { ReferenceStoreModule } from "./ReferenceStoreModules";
 import { FixedCostManagement } from "./FixedCostManagement";
 import { StoreScheduleManagement, StoreShiftManagement } from "./StoreSchedulingModules";
-import { ManagerDividendClosing, StoreFinancialReport } from "./FinancialReports";
+import { ManagerProfitSharingClosing, StoreFinancialReport } from "./FinancialReports";
 import { ManagerBusinessReport, ManagerCashflow } from "./ManagerFinanceViews";
 import { StoreInventoryManagement } from "./InventoryManagement";
 import { StoreEmployeeManagement } from "./EmployeeManagement";
@@ -109,10 +109,10 @@ export function calculateEmployeeBonus(profit: number, totalHours: number, emplo
     const rate = profitPerHour >= 30000 ? 0.07 : profitPerHour >= 15000 ? 0.05 : profitPerHour >= 7000 ? 0.03 : 0;
     return Math.round((employeeHours / totalHours) * profit * rate);
 }
-const managerMenu = ["Tổng quan", "Cửa hàng", "Giao việc", "Dòng tiền", "Lương thưởng quản lý", "Báo cáo", "Cổ tức", "Điều chuyển nhân sự", "Cài đặt"];
+const managerMenu = ["Tổng quan", "Cửa hàng", "Giao việc", "Dòng tiền", "Lương thưởng quản lý", "Báo cáo", "Chia lợi nhuận", "Điều chuyển nhân sự", "Cài đặt"];
 const storeMenu = ["Tổng quan", "Ca làm việc", "Lịch phân ca", "Nhân viên", "Nhập hàng", "Chi phí cố định", "Chấm công", "Lương thưởng", "Đơn hàng", "Dòng tiền", "Báo cáo", "Cài đặt"];
 const employeeMenu = ["Trang chủ", "Đơn hàng", "Doanh thu", "Bảng lương", "Dòng tiền", "Lịch sử ca làm"];
-const menuIcons: Record<string, LucideIcon> = { "Tổng quan": LayoutDashboard, "Cửa hàng": Store, "Giao việc": ClipboardCheck, "Dòng tiền": WalletCards, "Lương thưởng quản lý": BadgeDollarSign, "Báo cáo": BarChart3, "Điều chuyển nhân sự": UsersRound, "Cổ tức": PieChart, "Cài đặt": Settings, "Ca làm việc": CalendarDays, "Lịch phân ca": CalendarRange, "Nhân viên": UserRound, "Nhập hàng": PackageOpen, "Chi phí cố định": ReceiptText, "Chấm công": Clock3, "Lương thưởng": BadgeDollarSign, "Đơn hàng": ShoppingCart, "Trang chủ": Home, "Doanh thu": TrendingUp, "Bảng lương": BadgeDollarSign, "Lịch sử ca làm": History };
+const menuIcons: Record<string, LucideIcon> = { "Tổng quan": LayoutDashboard, "Cửa hàng": Store, "Giao việc": ClipboardCheck, "Dòng tiền": WalletCards, "Lương thưởng quản lý": BadgeDollarSign, "Báo cáo": BarChart3, "Điều chuyển nhân sự": UsersRound, "Chia lợi nhuận": PieChart, "Cài đặt": Settings, "Ca làm việc": CalendarDays, "Lịch phân ca": CalendarRange, "Nhân viên": UserRound, "Nhập hàng": PackageOpen, "Chi phí cố định": ReceiptText, "Chấm công": Clock3, "Lương thưởng": BadgeDollarSign, "Đơn hàng": ShoppingCart, "Trang chủ": Home, "Doanh thu": TrendingUp, "Bảng lương": BadgeDollarSign, "Lịch sử ca làm": History };
 const statIcons: Record<string, LucideIcon> = { "₫": Banknote, "▤": ReceiptText, "▥": BarChart3, "%": Percent, "♕": BadgeDollarSign, "✦": Gift, "✓": CheckCircle2, "▧": ShoppingBag, "↓": ReceiptText, "↗": TrendingUp };
 export default function Portal({ expectedRole }: {
     expectedRole: Role;
@@ -190,7 +190,7 @@ function ManagerHeader({ view }: {
         "Dòng tiền": "Theo dõi doanh thu, chi phí và lợi nhuận của từng cửa hàng.",
         "Lương thưởng quản lý": "Xem lương quản lý và thưởng theo số liệu tài chính đã ghi nhận của từng cửa hàng.",
         "Báo cáo": "Theo dõi và phân tích kết quả hoạt động của hệ thống.",
-        "Cổ tức": "Quản lý lợi nhuận sau cùng và phân chia cổ tức cho cổ đông.",
+        "Chia lợi nhuận": "Phân chia lợi nhuận sau cùng đã khóa cho hai thành viên theo tỷ lệ cố định.",
         "Điều chuyển nhân sự": "Quản lý nhân viên hỗ trợ giữa các cửa hàng theo thời gian và ca làm việc.",
         "Cài đặt": "Quản lý thông tin tài khoản và các thiết lập hệ thống.",
     };
@@ -228,8 +228,8 @@ function ManagerView({ view, stores, loading, reload, openStore }: {
         return <ManagerBusinessReport/>;
     if (view === "Điều chuyển nhân sự")
         return <ReferenceManagerTransfer stores={stores}/>;
-    if (view === "Cổ tức")
-        return <ManagerDividendClosing/>;
+    if (view === "Chia lợi nhuận")
+        return <ManagerProfitSharingClosing/>;
     return <FunctionalSettings name="Quản trị viên" email="admin@dore.vn"/>;
 }
 function DashboardOverview({ stores, totals, loading, openStore }: {
@@ -253,7 +253,7 @@ function DashboardOverview({ stores, totals, loading, openStore }: {
         ? comparisonNote(totals[key], previousTotals[key])
         : "Chưa đủ số liệu tháng trước";
     return <div className="page-content">
-    <div className="stats-grid three"><StatCard label="TỔNG DOANH THU" value={compactMoney(totals.revenue)} note={note("revenue")} icon="₫"/><StatCard label="TỔNG CHI PHÍ" value={compactMoney(totals.expense)} note={note("expense")} tone="orange" icon="▤"/><StatCard label="TỔNG LỢI NHUẬN" value={compactMoney(totals.profit)} note={note("profit")} tone="blue" icon="▥"/></div>
+    <div className="stats-grid three"><StatCard label="TỔNG DOANH THU" value={money(totals.revenue)} note={note("revenue")} icon="₫"/><StatCard label="TỔNG CHI PHÍ" value={money(totals.expense)} note={note("expense")} tone="orange" icon="▤"/><StatCard label="TỔNG LỢI NHUẬN" value={money(totals.profit)} note={note("profit")} tone="blue" icon="▥"/></div>
     <div className="section-title"><div><h2>Quản lý cửa hàng</h2><p>Chọn cửa hàng để xem và quản lý chi tiết.</p></div><span>{stores.filter((store) => store.status === "ACTIVE").length} cửa hàng đang hoạt động</span></div>
     <div className="store-grid">{loading ? Array.from({ length: 5 }, (_, i) => <div className="store-card loading-card" key={i}/>) : stores.map((store, index) => <article className={`store-card ${store.status === "INACTIVE" ? "inactive" : ""}`} key={store.id}><div className={`store-cover cover-${index % 5}`}><div className="shop-sign"><img className="store-logo-image" src="/logo.jpg" alt={`Logo ${store.name}`} width={1254} height={1254}/><span>{store.name.replace("DORE ", "")}</span></div><div className="shop-front"><i /><i /><i /></div></div><div className="store-card-body"><div className={`store-status ${store.status === "INACTIVE" ? "inactive" : ""}`}>● {store.status === "INACTIVE" ? "Ngưng hoạt động" : "Đang hoạt động"}</div><h3>{store.name}</h3><p>⌖ {store.address}</p><div className="store-numbers"><span>Doanh thu tháng <b>{money(store.revenue)}</b></span><span>Lợi nhuận <b>{money(store.profit)}</b></span></div><button className="store-open" onClick={() => openStore(store)}>Xem cửa hàng <span>→</span></button></div></article>)}</div>
   </div>;
@@ -393,7 +393,7 @@ function DividendView({ totals }: {
         expense: number;
         profit: number;
     };
-}) { const profit = Math.max(0, totals.profit); const vi = Math.round(profit * .6); const thuy = profit - vi; const [locked, setLocked] = useState(false); return <div className="page-content"><div className="stats-grid four"><StatCard label="DOANH THU THÁNG" value={compactMoney(totals.revenue)}/><StatCard label="TỔNG CHI PHÍ" value={compactMoney(totals.expense)} tone="orange"/><StatCard label="LỢI NHUẬN SAU CÙNG" value={compactMoney(profit)} tone="blue"/><StatCard label="TỶ LỆ LỢI NHUẬN" value={`${(profit / totals.revenue * 100).toFixed(2)}%`} icon="%"/></div><div className="chart-grid dividend-grid"><section className="chart-card"><h2>Thông tin cổ đông</h2><div className="shareholder"><span>TRƯƠNG VIỆT VI <b>60%</b></span><strong>{money(vi)}</strong></div><div className="shareholder"><span>PHẠM THỊ DIỄM THÚY <b>40%</b></span><strong>{money(thuy)}</strong></div><div className="share-total"><span>Tổng cổ tức</span><b>{money(profit)}</b></div><button disabled={locked} className="primary-button wide" onClick={() => setLocked(true)}>{locked ? "✓ Kỳ cổ tức đã khóa" : "Xác nhận chia cổ tức"}</button></section><ChartCard title="Lợi nhuận 8 tháng gần nhất" values={[40, 48, 44, 58, 71, 50, 62, 78]} labels={["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8"]}/></div><div className="table-card"><div className="table-head"><h2>Lịch sử chia cổ tức</h2><button>Xuất Excel ↓</button></div><table className="data-table"><thead><tr><th>Kỳ</th><th>Doanh thu</th><th>Chi phí</th><th>Lợi nhuận</th><th>Việt Vi (60%)</th><th>Diễm Thúy (40%)</th><th>Trạng thái</th></tr></thead><tbody><tr><td>08/2026</td><td>{money(totals.revenue)}</td><td>{money(totals.expense)}</td><td>{money(profit)}</td><td>{money(vi)}</td><td>{money(thuy)}</td><td><span className="status-pill">{locked ? "Đã khóa" : "Chờ xác nhận"}</span></td></tr></tbody></table></div><div className="ai-analysis"><div className="analysis-illustration">↗</div><div><h2>📈 Kết luận phân tích kỳ 08/2026</h2><p>Lợi nhuận sau cùng đạt <b>{compactMoney(profit)}</b>, tương đương biên lợi nhuận <b>{(profit / totals.revenue * 100).toFixed(2)}%</b>. Doanh thu tăng nhanh hơn chi phí, cho thấy hiệu quả vận hành được cải thiện. Cổ đông Trương Việt Vi nhận {compactMoney(vi)} và Phạm Thị Diễm Thúy nhận {compactMoney(thuy)}.</p></div></div></div>; }
+}) { void totals; return null; }
 function SettingsView({ name, email }: {
     name: string;
     email: string;
@@ -453,6 +453,7 @@ function EmployeePortal({ user, onUser }: {
     const [orders, setOrders] = useState<Order[]>([]);
     const [tiktok, setTiktok] = useState(false);
     const [rolloverNotice, setRolloverNotice] = useState("");
+    const [blockedRolloverNoticeShift, setBlockedRolloverNoticeShift] = useState<string | null>(null);
     const [rolloverPrompt, setRolloverPrompt] = useState<ShiftRolloverPrompt | null>(null);
     const [dismissedRolloverShift, setDismissedRolloverShift] = useState<string | null>(null);
     const [rolloverSubmitting, setRolloverSubmitting] = useState(false);
@@ -464,8 +465,10 @@ function EmployeePortal({ user, onUser }: {
         const data = await response.json();
         const nextShiftCode = data.active ? data.shiftCode : null;
         const changedShift = Boolean(shift.shiftCode && nextShiftCode && shift.shiftCode !== nextShiftCode);
+        const storeContextChanged = (typeof data.storeId === "string" || data.storeId === null) && data.storeId !== user.storeId;
         if (changedShift) {
             setTiktok(false);
+            setBlockedRolloverNoticeShift(null);
             setRolloverNotice(`Đã chuyển từ ${shift.shiftName ?? "ca trước"} sang ${data.shiftName ?? "ca tiếp theo"}. Thời gian làm được ghi nhận liên tục thành hai ca riêng.`);
             setRolloverPrompt(null);
             setDismissedRolloverShift(null);
@@ -480,6 +483,10 @@ function EmployeePortal({ user, onUser }: {
                     ? `${data.nextShift.start} - ${data.nextShift.end}`
                     : "Theo lịch của cửa hàng",
             });
+        } else if (data.rolloverBlocked && nextShiftCode && dismissedRolloverShift !== `blocked:${nextShiftCode}`) {
+            setRolloverPrompt(null);
+            setBlockedRolloverNoticeShift(nextShiftCode);
+            setRolloverNotice(data.message ?? "Quyền hỗ trợ không còn áp dụng cho ca tiếp theo. Vui lòng kết ca hiện tại.");
         } else if (!data.rolloverPending) {
             setRolloverPrompt(null);
         }
@@ -492,8 +499,12 @@ function EmployeePortal({ user, onUser }: {
             scheduledEnd: data.active ? data.scheduledEnd : null,
             scheduledEndAt: data.active ? data.scheduledEndAt : null,
         });
-        if (changedShift || Boolean(user.shiftActive) !== Boolean(data.active)) onUser({
+        if (changedShift || storeContextChanged || Boolean(user.shiftActive) !== Boolean(data.active)) onUser({
             ...user,
+            storeId: typeof data.storeId === "string" || data.storeId === null ? data.storeId : user.storeId,
+            storeName: typeof data.storeName === "string" || data.storeName === null ? data.storeName : user.storeName,
+            isSupporting: typeof data.isSupporting === "boolean" ? data.isSupporting : user.isSupporting,
+            activeTransferId: typeof data.activeTransferId === "string" || data.activeTransferId === null ? data.activeTransferId : user.activeTransferId,
             shiftActive: data.active ? 1 : 0,
             currentShift: nextShiftCode,
             shiftStartedAt: data.active ? data.startedAt : null,
@@ -525,6 +536,10 @@ function EmployeePortal({ user, onUser }: {
             return alert(data.message);
         const next = {
             ...user,
+            storeId: typeof data.storeId === "string" || data.storeId === null ? data.storeId : user.storeId,
+            storeName: typeof data.storeName === "string" || data.storeName === null ? data.storeName : user.storeName,
+            isSupporting: typeof data.isSupporting === "boolean" ? data.isSupporting : user.isSupporting,
+            activeTransferId: data.returnedToHomeStore ? null : user.activeTransferId,
             shiftActive: data.active ? 1 : 0,
             currentShift: data.active ? data.shiftCode : null,
             shiftStartedAt: data.active ? data.startedAt : null,
@@ -544,7 +559,11 @@ function EmployeePortal({ user, onUser }: {
         });
         if (action === "end")
             alert(data.tiktokAllowance ? `${data.message} Phụ cấp TikTok: ${money(data.tiktokAllowance)}.` : (data.message ?? "Đã kết ca và ghi nhận lịch sử ca làm."));
-        if (action === "end") setTiktok(false);
+        if (action === "end") {
+            setTiktok(false);
+            setRolloverNotice("");
+            setBlockedRolloverNoticeShift(null);
+        }
         setRolloverPrompt(null);
         setDismissedRolloverShift(null);
         loadOrders();
@@ -592,6 +611,7 @@ function EmployeePortal({ user, onUser }: {
             setTiktok(false);
             setRolloverPrompt(null);
             setDismissedRolloverShift(null);
+            setBlockedRolloverNoticeShift(null);
             setRolloverNotice(`Đã chuyển từ ${previousShiftName} sang ${data.shiftName ?? "ca tiếp theo"}. Thời gian làm được ghi nhận liên tục thành hai ca riêng.`);
             await loadOrders();
         } finally {
@@ -604,7 +624,7 @@ function EmployeePortal({ user, onUser }: {
             <div><div className="employee-brand-title"><strong>{employeeStoreName}</strong><span>{user.isSupporting ? `ĐANG HỖ TRỢ · CỬA HÀNG CHÍNH: ${user.homeStoreName ?? "DORE"}` : `${view.toLocaleUpperCase("vi-VN")} · HỆ THỐNG LÀM VIỆC NHÂN VIÊN`}</span></div></div>
             <div className="header-user"><button className="bell" aria-label="Thông báo"><Bell size={20}/><span>2</span></button><div className="avatar"><UserRound size={20}/></div><span><b>{user.name}</b><small>{user.employeeCode ?? "NV"}</small></span></div>
         </div>
-        <div className="page-content">{rolloverNotice && <div className="success-banner" role="status">{rolloverNotice}<button type="button" onClick={() => setRolloverNotice("")}>×</button></div>}<EmployeeView user={user} view={view} shift={shift} orders={orders} onShift={shiftAction} tiktok={tiktok} setTiktok={setTiktok} reloadOrders={loadOrders}/></div>
+        <div className="page-content">{rolloverNotice && <div className="success-banner" role="status">{rolloverNotice}<button type="button" onClick={() => { setRolloverNotice(""); if (blockedRolloverNoticeShift) setDismissedRolloverShift(`blocked:${blockedRolloverNoticeShift}`); setBlockedRolloverNoticeShift(null); }}>×</button></div>}<EmployeeView user={user} view={view} shift={shift} orders={orders} onShift={shiftAction} tiktok={tiktok} setTiktok={setTiktok} reloadOrders={loadOrders}/></div>
         {rolloverPrompt && <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-labelledby="rollover-confirm-title">
             <div className="modal-title"><div><h2 id="rollover-confirm-title">Bạn làm ca tiếp theo phải không?</h2><p>Ca hiện tại đã quá giờ kết thúc hơn 60 phút.</p></div></div>
             <div className="info-box"><b>{rolloverPrompt.currentShiftName}</b> → <b>{rolloverPrompt.nextShiftName}</b> · {rolloverPrompt.nextShiftTime}<br/>Nếu chọn Có, hệ thống sẽ lưu thành hai ca riêng và vẫn tính thời gian làm liên tục.</div>

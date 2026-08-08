@@ -62,16 +62,47 @@ type Comparison = {
   profitChange: number | null;
 };
 
-type DividendHistoryItem = {
+type MemberProfitAllocation = {
+  memberId: string;
+  memberName: string;
+  percentage: number;
+  amount: number;
+};
+
+type StoreProfitAllocation = {
+  storeId: string;
+  storeName: string;
+  revenue: number;
+  expense: number;
+  finalProfit: number;
+  distributableProfit: number;
+  settlementStatus: "LOCKED" | "PAYMENT_CONFIRMED" | "OPEN" | "PROVISIONAL";
+  memberAllocations: MemberProfitAllocation[];
+};
+
+type ProfitSharingSummary = {
+  period: string;
+  revenue: number;
+  expense: number;
+  finalProfit: number;
+  distributableProfit: number;
+  memberAllocations: MemberProfitAllocation[];
+  storeAllocations: StoreProfitAllocation[];
+};
+
+type ProfitSharingHistoryItem = {
   period: string;
   revenue: number;
   expense: number;
   profit: number;
-  firstShare: number;
-  secondShare: number;
+  accountingProfit: number;
+  distributableProfit: number;
+  memberAllocations: MemberProfitAllocation[];
+  storeAllocations: StoreProfitAllocation[];
   status: string;
   closedAt: string;
   closedBy: string;
+  legacy?: boolean;
 };
 
 type FinancialReportResponse = {
@@ -81,7 +112,10 @@ type FinancialReportResponse = {
   totals: FinancialSnapshot;
   previousTotals: FinancialSnapshot;
   comparison: Comparison;
-  dividendHistory: DividendHistoryItem[];
+  profitSharingMembers: Array<{ id: string; name: string; percentage: number }>;
+  profitSharingPreview: ProfitSharingSummary;
+  profitSharingHistory: ProfitSharingHistoryItem[];
+  dividendHistory?: ProfitSharingHistoryItem[];
   message?: string;
 };
 
@@ -401,27 +435,31 @@ export function StoreFinancialReport({ store, initialPeriod }: { store: StoreRef
   </div>;
 }
 
-export function ManagerDividendClosing({ initialPeriod }: { initialPeriod?: string } = {}) {
+export function ManagerProfitSharingClosing({ initialPeriod }: { initialPeriod?: string } = {}) {
   const [period, setPeriod] = useState(initialPeriod ?? currentPeriod());
   const { data, loading, error, reload } = useFinancialReport(period);
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState("");
   const [message, setMessage] = useState("");
-  const totals = useMemo(() => data ? completeTotals(data, "current") : null, [data]);
-  const comparisonEvaluation = useMemo(() => data && totals ? overallEvaluation(data, totals) : null, [data, totals]);
+  const history = data?.profitSharingHistory ?? data?.dividendHistory ?? [];
+  const currentHistory = history.find((item) => item.period === period);
+  const preview = data?.profitSharingPreview;
+  const currentRevenue = currentHistory?.revenue ?? preview?.revenue ?? 0;
+  const currentExpense = currentHistory?.expense ?? preview?.expense ?? 0;
+  const finalProfit = currentHistory?.accountingProfit ?? preview?.finalProfit ?? 0;
+  const distributableProfit = currentHistory?.distributableProfit ?? preview?.distributableProfit ?? 0;
+  const allocations = currentHistory?.memberAllocations ?? preview?.memberAllocations ?? [];
+  const storeAllocations = currentHistory?.storeAllocations ?? preview?.storeAllocations ?? [];
+  const amountFor = (memberId: string) => allocations.find((item) => item.memberId === memberId)?.amount ?? 0;
+  const thuyShare = amountFor("pham-thi-diem-thuy");
+  const viShare = amountFor("truong-viet-vi");
+  const periodClosed = period < currentPeriod();
+  const allStoresLocked = storeAllocations.length > 0 && storeAllocations.every((store) => store.settlementStatus === "LOCKED");
+  const pendingStoreCount = storeAllocations.filter((store) => store.settlementStatus !== "LOCKED").length;
 
-  const currentHistory = useMemo(() => data?.dividendHistory.find((item) => item.period === period), [data?.dividendHistory, period]);
-  const currentRevenue = currentHistory?.revenue ?? data?.totals.revenue;
-  const currentExpense = currentHistory?.expense ?? data?.totals.expense;
-  const distributableProfit = Math.max(0, finiteNumber(currentHistory?.profit ?? data?.totals.profit) ?? 0);
-  const previewFirstShare = Math.round(distributableProfit * 0.6);
-  const previewSecondShare = distributableProfit - previewFirstShare;
-  const firstShare = currentHistory ? currentHistory.firstShare : previewFirstShare;
-  const secondShare = currentHistory ? currentHistory.secondShare : previewSecondShare;
-
-  const closeDividend = async () => {
+  const closeProfitSharing = async () => {
     if (!data || currentHistory) return;
-    if (!window.confirm(`Xác nhận chia ${money(distributableProfit)} cổ tức và khóa kỳ ${period}?`)) return;
+    if (!window.confirm(`Xác nhận chia ${money(distributableProfit)} lợi nhuận cho hai thành viên và khóa kỳ ${period}?`)) return;
     setSaving(true);
     setActionError("");
     setMessage("");
@@ -429,14 +467,14 @@ export function ManagerDividendClosing({ initialPeriod }: { initialPeriod?: stri
       const response = await fetch("/api/reports", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "CLOSE_DIVIDEND", period }),
+        body: JSON.stringify({ action: "CLOSE_PROFIT_SHARING", period }),
       });
       const payload = await response.json().catch(() => ({})) as { message?: string };
-      if (!response.ok) throw new Error(payload.message || "Không thể xác nhận chia cổ tức.");
-      setMessage(payload.message || "Đã xác nhận chia cổ tức và khóa kỳ.");
+      if (!response.ok) throw new Error(payload.message || "Không thể xác nhận chia lợi nhuận.");
+      setMessage(payload.message || "Đã xác nhận chia lợi nhuận và khóa kỳ.");
       await reload();
     } catch (cause) {
-      setActionError(cause instanceof Error ? cause.message : "Không thể xác nhận chia cổ tức.");
+      setActionError(cause instanceof Error ? cause.message : "Không thể xác nhận chia lợi nhuận.");
     } finally {
       setSaving(false);
     }
@@ -444,41 +482,41 @@ export function ManagerDividendClosing({ initialPeriod }: { initialPeriod?: stri
 
   const exportHistory = () => {
     if (!data) return;
-    downloadCsv(`lich-su-chia-co-tuc-${period}.csv`, [
-      ["Kỳ", "Doanh thu", "Tổng chi phí", "Lợi nhuận", "Cổ đông thứ nhất", "Cổ đông thứ hai", "Trạng thái", "Khóa lúc", "Người khóa"],
-      ...data.dividendHistory.map((item) => [item.period, item.revenue, item.expense, item.profit, item.firstShare, item.secondShare, item.status, dateTime(item.closedAt), item.closedBy]),
+    downloadCsv(`lich-su-chia-loi-nhuan-${period}.csv`, [
+      ["Kỳ", "Doanh thu", "Tổng chi phí", "Lợi nhuận sau cùng", "Lợi nhuận được chia", "Phạm Thị Diễm Thúy (40%)", "Trương Việt Vi (60%)", "Số cửa hàng", "Trạng thái", "Khóa lúc", "Người khóa"],
+      ...history.map((item) => [item.period, item.revenue, item.expense, item.accountingProfit, item.distributableProfit, item.memberAllocations.find((member) => member.memberId === "pham-thi-diem-thuy")?.amount ?? 0, item.memberAllocations.find((member) => member.memberId === "truong-viet-vi")?.amount ?? 0, item.storeAllocations.length, "Đã khóa", dateTime(item.closedAt), item.closedBy]),
     ]);
   };
 
-  const previousProfit = Math.max(0, finiteNumber(data?.previousTotals.profit) ?? 0);
-  const previousFirstShare = Math.round(previousProfit * 0.6);
-  const previousSecondShare = previousProfit - previousFirstShare;
-
-  return <div className="page-content manager-reference dividend-reference">
-    <ReportToolbar title="CHỐT SỔ CHIA CỔ TỨC" description="Xác nhận, khóa kỳ và lưu lịch sử chia từ lợi nhuận thực tế" period={period} setPeriod={setPeriod} onRefresh={reload} onExport={exportHistory} loading={loading || saving} exportDisabled={!data}/>
+  return <div className="page-content manager-reference profit-sharing-reference">
+    <ReportToolbar title="CHỐT SỔ CHIA LỢI NHUẬN" description="Phân chia lợi nhuận sau cùng đã khóa của từng cửa hàng cho hai thành viên cố định" period={period} setPeriod={setPeriod} onRefresh={reload} onExport={exportHistory} loading={loading || saving} exportDisabled={!data}/>
     {(error || actionError) && <div className="form-message">{actionError || error}</div>}
     {message && <div className="success-banner">{message}</div>}
-    {loading && !data && <div className="report-profit-note"><RefreshCw size={17}/> Đang tải số liệu cổ tức…</div>}
+    {loading && !data && <div className="report-profit-note"><RefreshCw size={17}/> Đang tải số liệu chia lợi nhuận…</div>}
+    {data && !currentHistory && periodClosed && !allStoresLocked && <div className="report-profit-note"><LockKeyhole size={17}/> Còn {pendingStoreCount} cửa hàng chưa khóa lợi nhuận sau cùng. Hoàn tất khóa kỳ trước khi xác nhận chia.</div>}
     {data && <>
       <div className="manager-metrics four">
         <Metric icon={TrendingUp} label="DOANH THU KỲ" value={money(currentRevenue)} note={changeText(data.comparison.revenueChange)}/>
         <Metric icon={WalletCards} label="TỔNG CHI PHÍ" value={money(currentExpense)} note={changeText(data.comparison.expenseChange)} tone="orange"/>
-        <Metric icon={BadgeDollarSign} label="LỢI NHUẬN CHIA CỔ TỨC" value={money(distributableProfit)} note={changeText(data.comparison.profitChange)} tone="blue"/>
+        <Metric icon={BadgeDollarSign} label="LỢI NHUẬN SAU CÙNG" value={money(finalProfit)} note={changeText(data.comparison.profitChange)} tone="blue"/>
         <Metric icon={currentHistory ? CheckCircle2 : LockKeyhole} label="TRẠNG THÁI KỲ" value={currentHistory ? "Đã khóa" : "Chờ xác nhận"} note={currentHistory ? dateTime(currentHistory.closedAt) : periodLabel(period)} tone="purple"/>
       </div>
-      <div className="comparison-grid"><section className="manager-panel"><h2>PHÂN CHIA KỲ HIỆN TẠI</h2>
-        <p><span>Cổ đông thứ nhất (60%)</span><b>{money(firstShare)}</b><em>{currentHistory ? "Đã ghi lịch sử" : "Bản xem trước"}</em></p>
-        <p><span>Cổ đông thứ hai (40%)</span><b>{money(secondShare)}</b><em>{currentHistory ? "Đã ghi lịch sử" : "Bản xem trước"}</em></p>
-        <p><span>Tổng chia</span><b>{money(firstShare + secondShare)}</b><em>{periodLabel(period)}</em></p>
-        <button className="primary-button wide" disabled={saving || loading || Boolean(currentHistory)} onClick={() => void closeDividend()}><LockKeyhole size={17}/> {saving ? "ĐANG KHÓA KỲ…" : currentHistory ? "KỲ CỔ TỨC ĐÃ KHÓA" : "XÁC NHẬN CHIA VÀ KHÓA KỲ"}</button>
-      </section><section className="manager-panel"><h2>SO SÁNH KỲ TRƯỚC</h2>
-        <p><span>Tổng cổ tức · {periodLabel(data.previousPeriod)}</span><b>{money(previousProfit)}</b><em>{changeText(data.comparison.profitChange)}</em></p>
-        <p><span>Cổ đông thứ nhất</span><b>{money(previousFirstShare)}</b><em>Hiện tại: {money(firstShare)}</em></p>
-        <p><span>Cổ đông thứ hai</span><b>{money(previousSecondShare)}</b><em>Hiện tại: {money(secondShare)}</em></p>
-        <p><span>Đánh giá</span><b>{comparisonEvaluation?.rating || "Chưa đánh giá"}</b><em>{directionText(comparisonEvaluation?.direction)}</em></p>
+      <div className="comparison-grid"><section className="manager-panel"><h2>THÀNH VIÊN VÀ TỶ LỆ PHÂN CHIA</h2>
+        <p><span>Phạm Thị Diễm Thúy (40%)</span><b>{money(thuyShare)}</b><em>{currentHistory ? "Đã ghi lịch sử" : "Bản xem trước"}</em></p>
+        <p><span>Trương Việt Vi (60%)</span><b>{money(viShare)}</b><em>{currentHistory ? "Đã ghi lịch sử" : "Bản xem trước"}</em></p>
+        <p><span>Tổng lợi nhuận được chia</span><b>{money(distributableProfit)}</b><em>{periodLabel(period)}</em></p>
+        <button className="primary-button wide" disabled={saving || loading || Boolean(currentHistory) || !periodClosed || !allStoresLocked} onClick={() => void closeProfitSharing()}><LockKeyhole size={17}/> {saving ? "ĐANG KHÓA KỲ…" : currentHistory ? "KỲ CHIA LỢI NHUẬN ĐÃ KHÓA" : !periodClosed ? "CHỜ KẾT THÚC KỲ" : !allStoresLocked ? "CHỜ CỬA HÀNG KHÓA KỲ" : "XÁC NHẬN CHIA VÀ KHÓA KỲ"}</button>
+      </section><section className="manager-panel"><h2>NGUYÊN TẮC GHI NHẬN</h2>
+        <p><span>Nguồn tính</span><b>Lợi nhuận sau cùng đã khóa</b><em>Từng cửa hàng</em></p>
+        <p><span>Cửa hàng có lỗ</span><b>Trừ khỏi lợi nhuận toàn hệ thống</b><em>Phần còn lại phân bổ theo cửa hàng có lãi</em></p>
+        <p><span>Tổng phân chia</span><b>{money(thuyShare + viShare)}</b><em>Khớp tổng theo cửa hàng</em></p>
+        <p><span>Trạng thái</span><b>{currentHistory ? "Đã khóa sổ" : "Bản xem trước"}</b><em>{currentHistory ? dateTime(currentHistory.closedAt) : "Chưa tạo lịch sử"}</em></p>
       </section></div>
-      <section className="manager-panel table-panel"><div className="panel-title"><div><h2>LỊCH SỬ CHIA CỔ TỨC</h2><p>Chỉ hiển thị các kỳ được ghi nhận từ hệ thống</p></div><span>{data.dividendHistory.length} kỳ</span></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>Kỳ</th><th>Doanh thu</th><th>Tổng chi phí</th><th>Lợi nhuận</th><th>Cổ đông thứ nhất</th><th>Cổ đông thứ hai</th><th>Trạng thái</th><th>Ngày giờ khóa</th><th>Người khóa</th></tr></thead><tbody>
-        {data.dividendHistory.length === 0 ? <tr><td colSpan={9} className="empty-cell">Chưa có lịch sử chia cổ tức.</td></tr> : data.dividendHistory.map((item) => <tr key={item.period}><td><b>{periodLabel(item.period)}</b></td><td>{money(item.revenue)}</td><td>{money(item.expense)}</td><td className="money-green"><b>{money(item.profit)}</b></td><td>{money(item.firstShare)}</td><td>{money(item.secondShare)}</td><td><span className="status-pill">{item.status}</span></td><td>{dateTime(item.closedAt)}</td><td>{item.closedBy || "—"}</td></tr>)}
+      <section className="manager-panel table-panel"><div className="panel-title"><div><h2>THỐNG KÊ PHÂN CHIA THEO TỪNG CỬA HÀNG</h2><p>Lợi nhuận được chia lấy từ số liệu sau cùng của từng cửa hàng</p></div><span>{storeAllocations.length} cửa hàng</span></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>Cửa hàng</th><th>Trạng thái số liệu</th><th>Doanh thu</th><th>Tổng chi phí</th><th>Lợi nhuận sau cùng</th><th>Lợi nhuận được chia</th><th>Phạm Thị Diễm Thúy (40%)</th><th>Trương Việt Vi (60%)</th></tr></thead><tbody>
+        {storeAllocations.length === 0 ? <tr><td colSpan={8} className="empty-cell">{currentHistory?.legacy ? "Lịch sử cũ chưa lưu chi tiết theo cửa hàng; tổng phân chia vẫn được bảo toàn." : "Chưa có số liệu cửa hàng trong kỳ."}</td></tr> : storeAllocations.map((store) => <tr key={store.storeId}><td><b>{store.storeName}</b></td><td><span className="status-pill">{store.settlementStatus === "LOCKED" ? "Đã khóa" : "Chưa khóa"}</span></td><td>{money(store.revenue)}</td><td>{money(store.expense)}</td><td className={store.finalProfit >= 0 ? "money-green" : "money-orange"}><b>{money(store.finalProfit)}</b></td><td>{money(store.distributableProfit)}</td><td>{money(store.memberAllocations.find((member) => member.memberId === "pham-thi-diem-thuy")?.amount ?? 0)}</td><td>{money(store.memberAllocations.find((member) => member.memberId === "truong-viet-vi")?.amount ?? 0)}</td></tr>)}
+      </tbody><tfoot><tr><td colSpan={2}>TỔNG TẤT CẢ CỬA HÀNG</td><td>{money(currentRevenue)}</td><td>{money(currentExpense)}</td><td>{money(finalProfit)}</td><td>{money(distributableProfit)}</td><td>{money(thuyShare)}</td><td>{money(viShare)}</td></tr></tfoot></table></div></section>
+      <section className="manager-panel table-panel"><div className="panel-title"><div><h2>LỊCH SỬ CHIA LỢI NHUẬN</h2><p>Mỗi kỳ chỉ được xác nhận và khóa một lần</p></div><span>{history.length} kỳ</span></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>Kỳ</th><th>Doanh thu</th><th>Tổng chi phí</th><th>Lợi nhuận sau cùng</th><th>Lợi nhuận được chia</th><th>Phạm Thị Diễm Thúy (40%)</th><th>Trương Việt Vi (60%)</th><th>Trạng thái</th><th>Ngày giờ khóa</th><th>Người khóa</th></tr></thead><tbody>
+        {history.length === 0 ? <tr><td colSpan={10} className="empty-cell">Chưa có lịch sử chia lợi nhuận.</td></tr> : history.map((item) => <tr key={item.period}><td><b>{periodLabel(item.period)}</b></td><td>{money(item.revenue)}</td><td>{money(item.expense)}</td><td className={item.accountingProfit >= 0 ? "money-green" : "money-orange"}><b>{money(item.accountingProfit)}</b></td><td>{money(item.distributableProfit)}</td><td>{money(item.memberAllocations.find((member) => member.memberId === "pham-thi-diem-thuy")?.amount ?? 0)}</td><td>{money(item.memberAllocations.find((member) => member.memberId === "truong-viet-vi")?.amount ?? 0)}</td><td><span className="status-pill">Đã khóa</span></td><td>{dateTime(item.closedAt)}</td><td>{item.closedBy || "—"}</td></tr>)}
       </tbody></table></div></section>
     </>}
   </div>;

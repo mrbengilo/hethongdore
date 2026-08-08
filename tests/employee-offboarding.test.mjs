@@ -52,7 +52,7 @@ test("individual payroll locks are immutable, idempotent and preserve offboardin
   assert.match(payroll, /period === localPeriod\(\) && employee\.status !== "INACTIVE"/u);
   assert.match(payroll, /const kpiDeferred = true/u);
   assert.doesNotMatch(payroll, /kpiDeferred = period === localPeriod\(\)/u);
-  assert.match(payroll, /employeePayWithKpi\(locked, kpiBonus\)/u);
+  assert.match(payroll, /employeePayWithKpi\(item, allocation\.bonus\)/u);
   assert.match(payroll, /employeePayWithKpi\(sourceItem, 0\)/u);
   assert.match(payroll, /\(e\.status = 'ACTIVE' AND e\.store_id = \?\)/u);
   assert.match(payroll, /e\.status = 'INACTIVE'.*strftime\('%Y-%m', e\.inactive_at, '\+7 hours'\) = \?/su);
@@ -60,11 +60,50 @@ test("individual payroll locks are immutable, idempotent and preserve offboardin
   assert.match(payroll, /Hãy chốt lương riêng cho từng nhân viên/u);
   assert.match(records, /isEmployeePayrollLocked/u);
   assert.match(records, /đã khóa sổ riêng/u);
-  assert.doesNotMatch(`${payroll}\n${records}`, /DELETE FROM employee_payroll_closings|UPDATE employee_payroll_closings/u);
+  assert.match(payroll, /UPDATE employee_payroll_closings[\s\S]*status = 'BASE_LOCKED'[\s\S]*status = 'CLOSING' AND locked_by = \?/u);
+  assert.match(payroll, /DELETE FROM employee_payroll_closings[\s\S]*status = 'CLOSING' AND locked_by = \?/u);
+  assert.match(records, /employee_lock\.status IN \('CLOSING', 'BASE_LOCKED', 'LOCKED'\)/u);
   assert.match(ui, /runAction\("FINALIZE_SINGLE_EMPLOYEE", item\)/u);
   assert.match(ui, /dateTime24\(employeeClosing\.lockedAt\)/u);
   assert.match(ui, /KPI chờ chốt kỳ/u);
   assert.match(ui, /Chốt bắt buộc/u);
+});
+
+test("payroll closing gates serialize operational writes, active shifts and concurrent finalizers", async () => {
+  const [payroll, records] = await Promise.all([
+    source("../app/api/payroll/route.ts"),
+    source("../app/api/records/route.ts"),
+  ]);
+
+  const singleStart = payroll.indexOf('if (action === "FINALIZE_SINGLE_EMPLOYEE")');
+  const storeStart = payroll.indexOf('if (await lockedSummary(db, storeId, period))', singleStart);
+  const singleBranch = payroll.slice(singleStart, storeStart);
+  const storeBranch = payroll.slice(storeStart);
+  assert.ok(singleStart >= 0 && storeStart > singleStart);
+
+  const singleGate = singleBranch.indexOf("INSERT OR IGNORE INTO employee_payroll_closings");
+  const singlePreview = singleBranch.indexOf("const summary = await lockedSummary");
+  assert.ok(singleGate >= 0 && singlePreview > singleGate, "employee CLOSING gate must be acquired before its snapshot is built");
+  assert.match(singleBranch, /SELECT \?, \?, \?, \?, \?, \?, 'CLOSING', \?, \?[\s\S]*NOT EXISTS \([\s\S]*shift_sessions[\s\S]*status = 'ACTIVE'/u);
+  assert.match(singleBranch, /NOT EXISTS \([\s\S]*category = 'KPI_SUMMARY'[\s\S]*status = 'CLOSING'[\s\S]*'\$\.period'/u);
+  assert.match(singleBranch, /UPDATE employee_payroll_closings[\s\S]*status = 'BASE_LOCKED'[\s\S]*WHERE id = \? AND status = 'CLOSING' AND locked_by = \?/u);
+  assert.match(singleBranch, /DELETE FROM employee_payroll_closings[\s\S]*id = \? AND status = 'CLOSING' AND locked_by = \?/u);
+
+  const storeGate = storeBranch.indexOf("INSERT OR IGNORE INTO business_records");
+  const storePreview = storeBranch.indexOf("const preview = await buildPreview");
+  assert.ok(storeGate >= 0 && storePreview > storeGate, "store CLOSING gate must be acquired before its snapshot is built");
+  assert.match(storeBranch, /SELECT \?, 'KPI_SUMMARY',[\s\S]*'CLOSING'[\s\S]*NOT EXISTS \([\s\S]*shift_sessions[\s\S]*status = 'ACTIVE'/u);
+  assert.match(storeBranch, /NOT EXISTS \([\s\S]*employee_payroll_closings[\s\S]*status = 'CLOSING'/u);
+  assert.match(storeBranch, /gateData = JSON\.stringify\(\{ gateToken, period, storeId, status: "CLOSING"/u);
+  assert.match(storeBranch, /UPDATE business_records[\s\S]*status = 'LOCKED'[\s\S]*status = 'CLOSING'[\s\S]*'\$\.gateToken'/u);
+  assert.match(storeBranch, /DELETE FROM business_records[\s\S]*status = 'CLOSING'[\s\S]*'\$\.gateToken'/u);
+
+  assert.match(payroll, /PAYROLL_GATE_STALE_MS = 10 \* 60 \* 1_000/u);
+  assert.match(payroll, /status = 'CLOSING' AND locked_at < \?/u);
+  assert.match(payroll, /status = 'CLOSING' AND updated_at < \?/u);
+  assert.match(records, /period_lock\.status IN \('CLOSING', 'LOCKED'\)/u);
+  assert.match(records, /employee_lock\.status IN \('CLOSING', 'BASE_LOCKED', 'LOCKED'\)/u);
+  assert.match(records, /affectedRows\(result\) === 0/u);
 });
 
 test("previous-period individual closing defers KPI until the locked store summary", async () => {
@@ -72,7 +111,7 @@ test("previous-period individual closing defers KPI until the locked store summa
   assert.match(payroll, /const kpiDeferred = true/u);
   assert.match(payroll, /kpiBonus: 0/u);
   assert.match(payroll, /employeePayWithKpi\(sourceItem, 0\)/u);
-  assert.match(payroll, /employeePayWithKpi\(locked, kpiBonus\)/u);
+  assert.match(payroll, /employeePayWithKpi\(item, allocation\.bonus\)/u);
   assert.match(payroll, /single immutable KPI_SUMMARY created by FINALIZE_EMPLOYEE/u);
 });
 
@@ -89,6 +128,23 @@ test("inactive_at includes an offboarded zero-pay employee only in the offboardi
   assert.match(employeesApi, /inactive_at = \?/u);
   assert.match(employeesApi, /inactive_at = NULL/u);
   assert.match(payroll, /e\.status = 'INACTIVE'.*e\.inactive_at.*= \?/su);
+});
+
+test("offboarding KPI uses completed shift eligibility and keeps individual KPI deferred", async () => {
+  const [payroll, payrollPolicy] = await Promise.all([
+    source("../app/api/payroll/route.ts"),
+    source("../app/lib/payroll.ts"),
+  ]);
+
+  assert.match(payroll, /AS completedShiftCount/u);
+  assert.match(payroll, /distributeEmployeeKpiByPolicy\(profit/u);
+  assert.match(payroll, /kpiEligibleDurationSeconds/u);
+  assert.match(payroll, /const kpiDeferred = true/u);
+  assert.match(payrollPolicy, /INACTIVE_EMPLOYEE_KPI_MIN_COMPLETED_SHIFTS = 15/u);
+  assert.match(payrollPolicy, /employmentStatus === "ACTIVE"/u);
+  assert.match(payroll, /employeeStatusForPeriod/u);
+  assert.doesNotMatch(payroll, /employeeStatusMap/u);
+  assert.match(payroll, /const summary = snapshot \?\? await buildPreview/u);
 });
 
 test("transfer creation rejects inactive employees and closes the status-change race", async () => {
@@ -116,4 +172,9 @@ test("employee form and payroll controls remain visible", async () => {
   assert.match(css, /@media\(min-width:1001px\).*employee-drawer\{position:fixed.*bottom:16px/su);
   assert.match(payrollUi, /Khóa sổ riêng/u);
   assert.match(payrollUi, /employeeClosingById/u);
+  assert.match(payrollUi, /completedShiftCount/u);
+  assert.match(payrollUi, /Đủ điều kiện KPI/u);
+  assert.match(payrollUi, /Không đủ điều kiện KPI/u);
+  assert.match(payrollUi, /ca thực tế/u);
+  assert.match(css, /employee-kpi-status/u);
 });

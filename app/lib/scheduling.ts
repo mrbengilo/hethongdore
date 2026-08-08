@@ -97,6 +97,45 @@ export function shiftUtcRange(date: string, start: string, end: string) {
   };
 }
 
+/**
+ * Resolve the configured occurrence which is open at an exact instant.
+ * Checking complete UTC intervals (instead of only the local clock) prevents
+ * a completed occurrence from being mistaken for yesterday's shift and also
+ * handles overnight shifts consistently.
+ */
+export function shiftOccurrenceAt(
+  now: Date | string,
+  definitions: ShiftClockDefinition[],
+): ShiftOccurrence | null {
+  const instant = typeof now === "string" ? new Date(now) : now;
+  const instantTime = instant.getTime();
+  if (!Number.isFinite(instantTime)) return null;
+
+  const anchor = localDate(instant);
+  const dates = [addDays(anchor, -1), anchor];
+  const occurrences = definitions.flatMap((definition, definitionIndex) => {
+    if (!definition.name.trim() || !validClock(definition.start) || !validClock(definition.end)) return [];
+    return dates.flatMap((workDate) => {
+      const range = shiftUtcRange(workDate, definition.start, definition.end);
+      if (!range) return [];
+      const startTime = new Date(range.startAt).getTime();
+      const endTime = new Date(range.endAt).getTime();
+      if (instantTime < startTime || instantTime >= endTime) return [];
+      return [{ ...definition, workDate, ...range, definitionIndex }];
+    });
+  });
+
+  occurrences.sort((left, right) => {
+    const byStart = new Date(right.startAt).getTime() - new Date(left.startAt).getTime();
+    return byStart || left.definitionIndex - right.definitionIndex;
+  });
+  const current = occurrences[0];
+  if (!current) return null;
+  const { definitionIndex: _definitionIndex, ...occurrence } = current;
+  void _definitionIndex;
+  return occurrence;
+}
+
 export function shiftsOverlap(
   firstDate: string,
   firstStart: string,
