@@ -381,7 +381,7 @@ test("attendance grace migration normalizes every historical row and is idempote
   }
 });
 
-test("START, lifecycle closures, admin edits and runtime normalization share the attendance helper", async () => {
+test("START snapshots the current policy while closures and admin edits reuse each row snapshot", async () => {
   const [shiftApi, lifecycle, employeesApi, resetItems, runtime] = await Promise.all([
     readFile(new URL("../app/api/shift/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/_lib/employee-lifecycle.ts", import.meta.url), "utf8"),
@@ -390,8 +390,11 @@ test("START, lifecycle closures, admin edits and runtime normalization share the
     readFile(new URL("../db/runtime.ts", import.meta.url), "utf8"),
   ]);
   for (const source of [shiftApi, lifecycle, employeesApi, resetItems]) assert.match(source, /attendanceStatusAt\(/u);
-  assert.match(runtime, /ATTENDANCE_ON_TIME_GRACE_MINUTES \* 60_000/u);
-  assert.doesNotMatch(runtime, /attendance_status IS NULL OR attendance_delta_minutes IS NULL/u);
+  for (const source of [lifecycle, employeesApi, resetItems]) assert.match(source, /attendanceGraceMinutes/u);
+  assert.match(shiftApi, /loadAttendancePolicy/u);
+  assert.match(shiftApi, /attendance_grace_minutes/u);
+  assert.match(runtime, /COALESCE\(attendance_grace_minutes, \$\{DEFAULT_ATTENDANCE_GRACE_MINUTES\}\) \* 60000/u);
+  assert.match(runtime, /attendance_status IS NULL OR attendance_delta_minutes IS NULL/u);
 });
 
 test("attendance candidates expose current and eligible next shifts with signed deltas", async () => {

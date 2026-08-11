@@ -73,6 +73,8 @@ type StartShiftPreview = {
   attendanceStatus?: "EARLY" | "ON_TIME" | "LATE";
   attendanceDeltaMinutes?: number;
   earlyMinutes?: number;
+  attendanceGraceMinutes?: number;
+  policyVersion?: number;
 };
 type StartShiftConfirmation = {
   clockInLocation: ClockInLocation;
@@ -128,7 +130,7 @@ function startShiftSentenceLabel(shiftName: string) {
 
 function startCandidateAttendanceStatus(candidate: StartShiftPreview, actualStartedAt: string) {
   const scheduled = shiftUtcRange(candidate.workDate, candidate.scheduledStart, candidate.scheduledEnd)?.startAt;
-  return scheduled ? attendanceStatusAt(actualStartedAt, scheduled) : null;
+  return scheduled ? attendanceStatusAt(actualStartedAt, scheduled, candidate.attendanceGraceMinutes) : null;
 }
 
 function attendanceStatusLabel(status: AttendanceStatus | undefined) {
@@ -429,6 +431,9 @@ export function ReferenceEmployeeHome({ user, shift, orders, onShift, tiktok, se
             ? preview.attendanceStatus : undefined,
           attendanceDeltaMinutes: Number.isInteger(preview.attendanceDeltaMinutes) ? preview.attendanceDeltaMinutes : undefined,
           earlyMinutes: Number.isInteger(preview.earlyMinutes) && Number(preview.earlyMinutes) > 0 ? Number(preview.earlyMinutes) : 0,
+          attendanceGraceMinutes: Number.isInteger(preview.attendanceGraceMinutes)
+            ? Number(preview.attendanceGraceMinutes) : undefined,
+          policyVersion: Number.isInteger(preview.policyVersion) ? Number(preview.policyVersion) : undefined,
         }];
       });
       if (candidates.length === 0) {

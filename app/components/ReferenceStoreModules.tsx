@@ -8,10 +8,10 @@ import {
 } from "lucide-react";
 import StorePayrollClosing from "./StorePayrollClosing";
 import SalaryAdvancePanel from "./SalaryAdvancePanel";
+import AttendanceStatsPanel from "./AttendanceStatsPanel";
 import { formatDateTime24, formatDateVn, formatMonthVn, formatVndInput, parseVndInput } from "../lib/format";
 import { PAYROLL_UPDATED_EVENT } from "../lib/payroll";
 import {
-  ATTENDANCE_ON_TIME_GRACE_MINUTES,
   attendanceDeltaMinutes,
   attendanceStatusAt,
 } from "../lib/scheduling";
@@ -39,6 +39,7 @@ type ShiftSession = {
   duration_seconds?: number; admin_adjusted_duration_seconds?: number | null; adminAdjustedDurationSeconds?: number | null; supportAllowance?: number | null; sourceStoreName?: string | null; targetStoreName?: string | null;
   scheduled_start_at?: string | null; attendance_status?: "EARLY" | "ON_TIME" | "LATE" | null;
   attendance_delta_minutes?: number | null;
+  attendanceGraceMinutes?: number | null; attendance_grace_minutes?: number | null;
   clockInLatitude?: number | null; clockInLongitude?: number | null;
   clockInAccuracyMeters?: number | null; clockInLocationCapturedAt?: string | null;
   clock_in_latitude?: number | null; clock_in_longitude?: number | null;
@@ -117,8 +118,10 @@ const sessionAttendance = (shift: ShiftSession) => {
   if (persistedStatus && shift.attendance_delta_minutes !== null && shift.attendance_delta_minutes !== undefined
     && Number.isFinite(persistedDelta)) return { status: persistedStatus, delta: persistedDelta };
   if (!shift.scheduled_start_at) return null;
+  const graceMinutes = Number(shift.attendanceGraceMinutes ?? shift.attendance_grace_minutes);
+  if (!Number.isSafeInteger(graceMinutes) || graceMinutes < 0) return null;
   const delta = attendanceDeltaMinutes(shift.started_at, shift.scheduled_start_at);
-  const status = attendanceStatusAt(shift.started_at, shift.scheduled_start_at);
+  const status = attendanceStatusAt(shift.started_at, shift.scheduled_start_at, graceMinutes);
   return delta === null || status === null ? null : { status, delta };
 };
 type ShiftDisplay = { id: string; title: string; start: string; end: string; tone: string; record?: BusinessRecord };
@@ -257,6 +260,580 @@ export function ReferenceEmployees({ store }: { store: ReferenceStore }) {
   const { employees, reload } = useEmployees(store.id);
   const [query, setQuery] = useState(""); const [tab, setTab] = useState("ALL");
   const [open, setOpen] = useState(false); const [editing, setEditing] = useState<Employee | null>(null);
-  con×ßzŞÚ$z{-®éÜj×Âö#ãÂ÷FCãÇFCçµ7G&–ær‡&V6÷&BæFFææ÷FRÇÂ.(	B"—ÓÂ÷FCãÇFCå^ª6âÌ;Ò>ºÖŒ:æsÂ÷FCãÇFCãÆ'WGFöâF—6&ÆVC×¶Æö6¶VBÇÂÆöF–ærÇÂf–æÆ—¦–ærÇÂFF—47W'&VçBÇÂFVÆWF–ætF§W7FÖVçD–BÓÒçVÆÇÒ6Æ74æÖSÒ&FævW"ÖÆ–æ²"öä6Æ–6³×²‚’Óâfö–B&VÖ÷fR‡&V6÷&Bæ–B—Óç¶FVÆWF–ætF§W7FÖVçD–BÓÓÒ&V6÷&Bæ–Bò,IærŒ;6(
-b"¢%Œ;6'ÓÂö'WGFöããÂ÷FCãÂ÷G#â’¢ÇG#ãÇFB6öÅ7ã×³wÒ6Æ74æÖSÒ&V×G’Ö6VÆÂ#ä6ŒkŒ:B6–æ‚ºR>ªW†ş«v2FŒk¹öærG&öær¾»2ãÂ÷FCãÂ÷G#çĞ¢Â÷F&öG“ãÂ÷F&ÆSãÂöF—cãÂ÷6V7F–öãàĞ Ğ¢ÆF—b6Æ74æÖSÒ'&VbÖ6†'B×&÷r#ãÆ'F–6ÆR6Æ74æÖSÒ&6†'BÖ6&BFöçWB×6ÖÆÂ#ãÆF—b6Æ74æÖSÒ'&VbÖFöçWB—&öÆÂ#ãÆ#ç¶ÖöæW’‡7VÖÖ'“òçF÷FÄf–Æ&ÆU’óò7VÖÖ'“òçF÷FÅ’óò—ÓÂö#ãÇ6ÖÆÃä<;&âª6’6†“Â÷6ÖÆÃãÂöF—cãÆF—cãÆ#ä<j>ªWR6†’G.ª3Âö#ãÇäÌkjærF†Vòv¹ÒF»2N«óÂ÷ãÇìI:2G.º²<:2¶†şª6âº–ærÌkjæsÂ÷ãÂöF—cãÂö'F–6ÆSãÆ'F–6ÆR6Æ74æÖSÒ&6†'BÖ6&B#ãÆƒ3åF¹ær¼:¢v¹ÒÌ:ÒF†Vòæ|:“Âöƒ3ãÄÖ–æ”&'2óãÂö'F–6ÆSãÆ'F–6ÆR6Æ74æÖSÒ&6†'BÖ6&BV–6²×F÷FÂ#ãÆƒ3åL;6ÒNª÷Bæ†æƒÂöƒ3ãÇãÇ7ãäÌkjærF»2æªÖãÂ÷7ããÆ#ç¶ÖöæW’‡7VÖÖ'“òçF÷FÄ&6U6Æ'’óò—ÓÂö#ãÂ÷ãÇãÇ7ãåºR>ªWÂ÷7ããÆ#ç¶ÖöæW’‡F÷FÄÆÆ÷væ6R—ÓÂö#ãÂ÷ãÇãÇ7ãåFŒk¹öær¶Œ:3Â÷7ããÆ#ç¶ÖöæW’‡7VÖÖ'“òçF÷FÄÖçVÄ&öçW2óò—ÓÂö#ãÂ÷ãÇãÇ7ãåFŒk¹öærµ“Â÷7ããÆ#ç¶ÖöæW’‡7VÖÖ'“òçF÷FÄ·”&öçW2óò—ÓÂö#ãÂ÷ãÇãÇ7ãìI:2º–ærò6¹Ò6†“Â÷7ããÆ#ç¶ÖöæW’‡7VÖÖ'“òçF÷FÅ6Æ'”Gfæ6U&W6W'fVBóò—ÓÂö#ãÂ÷ãÇãÇ7ãä<;&â¶ª2NºVæsÂ÷7ããÆ#ç¶ÖöæW’‡7VÖÖ'“òçF÷FÄf–Æ&ÆU’óò7VÖÖ'“òçF÷FÅ’óò—ÓÂö#ãÂ÷ãÇãÇ7ãåN¹VærFŒk¹öæsÂ÷7ããÆ#ç¶ÖöæW’‡F÷FÄ&öçW2—ÓÂö#ãÂ÷ãÂö'F–6ÆSãÂöF—cà Ğ¢¶÷VâbbF§W7FÖVçE66÷RbbF§W7FÖVçD—47W'&VçBbbÆF—b&Vc×·—&öÆÄ&6¶G&÷&VgÒ6Æ74æÖSÒ&ÖöFÂÖ&6¶G&÷#ãÆf÷&Ò&Vc×·—&öÆÄF–Æöu&VgÒ6Æ74æÖSÒ&ÖöFÂ—&öÆÂÖ7F–öâÖÖöFÂ"&öÆSÒ&F–Æör"&–ÖÖöFÃÒ'G'VR"&–ÖÆ&VÆÆVF'“Ò'—&öÆÂÖF§W7FÖVçBÖF–Æör×F—FÆR"&–Ö'W7“×·6f–ætF§W7FÖVçGÒF$–æFWƒ×²ÓÒöå7V&Ö—C×·6fWÓãÆF—b6Æ74æÖSÒ&ÖöFÂ×F—FÆR#ãÆF—cãÆƒ"–CÒ'—&öÆÂÖF§W7FÖVçBÖF–Æör×F—FÆR#ç¶¶–æBÓÓÒ$ÄÄõtä4R"ò%NªòºR>ªW"¢%NªòFŒk¹öær'ÓÂöƒ#ãÇä¶†şª6â6†’Ikº62v†’æªÖâI;¦æræŒ:&âfœ:¦âÂ>ºÖŒ:ærl:FŒ:ærÌkjæsÂ÷ãÂöF—cãÆ'WGFöâG—SÒ&'WGFöâ"&–ÖÆ&VÃÒ,I;6ær¹—F†şª’NªòºR>ªW†ş«v2FŒk¹öær"F—6&ÆVC×·6f–ætF§W7FÖVçGÒöä6Æ–6³×¶6Æ÷6TF§W7FÖVçDF–ÆöwÓãÅ‚6—¦S×³—ÒóãÂö'WGFöããÂöF—cãÆÆ&VÃäæŒ:&âfœ:¦âIkº62æªÖâ£Ç6VÆV7B&Vc×·—&öÆÄV×Æ÷–VU6VÆV7E&VgÒF—6&ÆVC×·6f–ætF§W7FÖVçGÒfÇVS×¶V×Æ÷–VT–GÒöä6†ævS×²†WfVçB’Óâ6WDV×Æ÷–VT–B†WfVçBçF&vWBçfÇVR—Óç¶V×Æ÷–VW2æÖ‚†V×Æ÷–VR’ÓâÆ÷F–öâ¶W“×¶V×Æ÷–VRæ–GÒfÇVS×¶V×Æ÷–VRæ–GÓç¶V×Æ÷–VRæ6öFWÒ+r¶V×Æ÷–VRææÖW×¶V×Æ÷–VU7FGW57Vff—‚†V×Æ÷–VRç7FGW2—ÓÂö÷F–öãâ—ÓÂ÷6VÆV7CãÂöÆ&VÃãÆÆ&VÃå>¹F¸â¶¶–æBÓÓÒ$ÄÄõtä4R"ò'ºR>ªW"¢'FŒk¹öær'Ò£Æ–çWB–çWDÖöFSÒ&çVÖW&–2"&WV—&VBF—6&ÆVC×·6f–ætF§W7FÖVçGÒfÇVS×¶Ö÷VçGÒöä6†ævS×²†WfVçB’Óâ6WDÖ÷VçB†f÷&ÖEfæD–çWB†WfVçBçF&vWBçfÇVR’—ÒÆ6V†öÆFW#Ò#"óãÇ6ÖÆÃäæª×F†VòdäBÂl:ÒNºS¢S>«Ò†¸6âF¸²RÃãÂ÷6ÖÆÃãÂöÆ&VÃãÆF—b6Æ74æÖSÒ&ÖFFR×–6¶W"Öf–VÆB#ãÇ7ãäæ|:’v†’æªÖãÂ÷7ããÄFFU–6¶W$6öçG&öÂ&–Æ&VÃÒ$æ|:’v†’æªÖâºR>ªW†ş«v2FŒk¹öær"Ö–ã×¶G¶F§W7FÖVçE66÷RçW&–öGÒÓÒÖƒ×¶G¶F§W7FÖVçE66÷RçW&–öGÒÓ3ÒF—6&ÆVC×·6f–ætF§W7FÖVçGÒfÇVS×¶FFWÒöä6†ævS×·6WDFFWÒóãÂöF—cãÆÆ&VÃäî¹–’GVær6†’£ÇFW‡F&V&WV—&VBF—6&ÆVC×·6f–ætF§W7FÖVçGÒfÇVS×¶æ÷FWÒöä6†ævS×²†WfVçB’Óâ6WDæ÷FR†WfVçBçF&vWBçfÇVR—ÒÆ6V†öÆFW#×¶¶–æBÓÓÒ$ÄÄõtä4R"ò%l:ÒNºS¢ºR>ªW6‡Wœ:¦â>ªvâ"¢%l:ÒNºS¢FŒk¹öær†ü:âFŒ:æ‚<;Færf¸v2'ÒóãÂöÆ&VÃç¶ÖW76vRbbÆF—b6Æ74æÖSÒ&f÷&ÒÖÖW76vR"&öÆSÒ&ÆW'B#ç¶ÖW76vWÓÂöF—cçÓÆF—b6Æ74æÖSÒ&ÖöFÂÖ7F–öç2#ãÆ'WGFöâG—SÒ&'WGFöâ"F—6&ÆVC×·6f–ætF§W7FÖVçGÒöä6Æ–6³×¶6Æ÷6TF§W7FÖVçDF–ÆöwÓäºw“Âö'WGFöããÆ'WGFöâ6Æ74æÖSÒ'&–Ö'’Ö'WGFöâ"F—6&ÆVC×·6f–ætF§W7FÖVçBÇÂV×Æ÷–VT–GÓç·6f–ætF§W7FÖVçBò,IærÌk^(
-b"¢ÌkRG¶¶–æBÓÓÒ$ÄÄõtä4R"ò'ºR>ªW"¢'FŒk¹öær'ÖÓÂö'WGFöããÂöF—cãÂöf÷&ÓãÂöF—cçĞ¢ÂöF—cã°Ğ§ĞĞ Ğ¦gVæ7F–öâ66†fÆ÷tÖævVÖVçB‡²7F÷&RÓ¢²7F÷&S¢&VfW&Væ6U7F÷&RÒ’°Ğ¢6öç7B·&V6÷&G2Ç&VÆöGÓ×W6U&V6÷&G2‚$DôäuõD”Tâ"Ç7F÷&Ræ–B“²6öç7B¶÷VâÇ6WD÷VåÓ×W6U7FFR†fÇ6R“²6öç7B¶VF—F–ærÇ6WDVF—F–æuÓ×W6U7FFSÄ'W6–æW75&V6÷&GÆçVÆÃâ†çVÆÂ“²6öç7B·G—RÇ6WEG—UÓ×W6U7FFR‚$Ö&¶WF–ær"“²6öç7B¶Ö÷VçBÇ6WDÖ÷VçEÓ×W6U7FFR‚""“²6öç7B¶FFRÇ6WDFFUÓ×W6U7FFR‡FöF’‚’“²6öç7B¶æ÷FRÇ6WDæ÷FUÓ×W6U7FFR‚""“²6öç7B¶ÖW76vRÇ6WDÖW76vUÓ×W6U7FFR‚""“°Ğ¢6öç7BW‡G&×&V6÷&G2ç&VGV6R‚‡2Ç"“Óç2´çVÖ&W"‡"æFFæÖ÷VçCóó’Ã“¶6öç7BW‡Vç6S×7F÷&RæW‡Vç6R¶W‡G&¶6öç7B&öf—C×7F÷&Rç&WfVçVRÖW‡Vç6S²6öç7BÖ&v–ã×7F÷&Rç&WfVçVS÷&öf—B÷7F÷&Rç&WfVçVR££°Ğ¢gVæ7F–öâ&Vv–â‡&V6÷&Có¤'W6–æW75&V6÷&B—·6WDVF—F–ær‡&V6÷&CóöçVÆÂ“·6WEG—R‡&V6÷&CòçF—FÆSóò$Ö&¶WF–ær"“·6WDÖ÷VçB…7G&–ær‡&V6÷&CòæFFæÖ÷VçCóò""’“·6WDFFR…7G&–ær‡&V6÷&CòæFFæFFSó÷FöF’‚’’“·6WDæ÷FR…7G&–ær‡&V6÷&CòæFFææ÷FSóò""’“·6WDÖW76vR‚""“·6WD÷Vâ‡G'VR“·ĞĞ¢7–æ2gVæ7F–öâ6fR†WfVçC¤f÷&ÔWfVçB—¶WfVçBç&WfVçDFVfVÇB‚“·G'—¶v—B6fU&V6÷&B‡¶–C¦VF—F–æsòæ–BÆ6FVv÷'“¢$DôäuõD”Tâ"Ç7F÷&T–C§7F÷&Ræ–BÇF—FÆS§G—RÆFF§¶Ö÷VçC¤çVÖ&W"†Ö÷VçB’ÆFFRÆæ÷FW×Ò“·6WD÷Vâ†fÇ6R“¶v—B&VÆöB‚“·Ö6F6‚†W'&÷"—·6WDÖW76vR‚†W'&÷"2W'&÷"’æÖW76vR“·×ĞĞ¢7–æ2gVæ7F–öâ&VÖ÷fR†–C§7G&–ær—¶–b†v—BFVÆWFU&V6÷&B†–B’–v—B&VÆöB‚“·ĞĞ¢&WGW&âÆF—b6Æ74æÖSÒ'&VfW&Væ6RÖÖöGVÆR66†fÆ÷r×vR#ãÆF—b6Æ74æÖSÒ'&Vb×FööÆ&"#ãÆF—cãÆƒ#äL;&ærF¸ãÂöƒ#ãÇåF†VòL;V’Föæ‚F‡RÂ6†’Œ:Òl:Îº6’æ‡^ªÖâ>ºÖŒ:æsÂ÷ãÂöF—cãÆF—b6Æ74æÖSÒ'&Vb×FööÆ&"Ö7F–öç2#ãÆ–çWBG—SÒ&FFR"FVfVÇEfÇVS×·FöF’‚—ÒóãÆ'WGFöâöä6Æ–6³×²‚“Óæ77b‚&Föær×F–VâÖ7VÖ†æræ77b"Åµ²$æ|:’"Â$Æşª’6†’Œ:Ò"Â%>¹F¸â"Â$v†’6Œ;¢%ÒÂââç&V6÷&G2æÖ‡#Óåµ7G&–ær‡"æFFæFFR’Ç"çF—FÆRÄçVÖ&W"‡"æFFæÖ÷VçB’Å7G&–ær‡"æFFææ÷FR•Ò•Ò—ÓãÄF÷væÆöB6—¦S×³gÒóâ‡^ªWBW†6VÃÂö'WGFöããÆ'WGFöâ6Æ74æÖSÒ'&–Ö'’Ö'WGFöâ"öä6Æ–6³×²‚“Óæ&Vv–â‚—ÓãÅÇW26—¦S×³wÒóâFŒ:¦Ò6†’Œ:ÓÂö'WGFöããÂöF—cãÂöF—càĞ¢ÆF—b6Æ74æÖSÒ'&VbÖÖWG&–72f÷W"#ãÄÖWG&–2–6öã×´&$6†'C7ÒÆ&VÃÒ$Dôä‚D…R"fÇVS×¶ÖöæW’‡7F÷&Rç&WfVçVR—Òæ÷FSÒ.(i"ÃRR6òn¹¶’¾»2G,k¹¶2"FöæSÒ&&ÇVR"óãÄÖWG&–2–6öã×µvÆÆWD6&G7ÒÆ&VÃÒ%N¹Där4„’Œ8Ò"fÇVS×¶ÖöæW’†W‡Vç6R—Òæ÷FSÒ.(i‚Ã2R6òn¹¶’¾»2G,k¹¶2"FöæSÒ&÷&ævR"óãÄÖWG&–2–6öã×´&$6†'C7ÒÆ&VÃÒ$Îº$’ä…^ªÄâ"fÇVS×¶ÖöæW’‡&öf—B—Òæ÷FSÒ.(i‚Ã’R6òn¹¶’¾»2G,k¹¶2"óãÄÖWG&–2–6öã×´&$6†'C7ÒÆ&VÃÒ$$œ8¤âÎº$’ä…^ªÄâ"fÇVS×¶Ö&v–âçFôf—†VBƒ"’²"R'ÒFöæSÒ'W'ÆR"óãÂöF—càĞ¢ÆF—b6Æ74æÖSÒ'&VbÖ6†'B×&÷rGvò#ãÆ'F–6ÆR6Æ74æÖSÒ&6†'BÖ6&B#ãÆF—b6Æ74æÖSÒ'æVÂ×F—FÆR#ãÆƒ#äFöæ‚F‡RF†Vòæ|:“Âöƒ#ãÇ6VÆV7CãÆ÷F–öãåF†Vòæ|:“Âö÷F–öããÆ÷F–öãåF†VòFŒ:æsÂö÷F–öããÂ÷6VÆV7CãÂöF—cãÄÖ–æ”&'2fÇVW3×µ³"Ã’Ã‚ÃbÃbÃ2Ã‚ÃrÃ2Ã’Ã#Ã"ÃU×ÒóãÂö'F–6ÆSãÆ'F–6ÆR6Æ74æÖSÒ&6†'BÖ6&B#ãÆF—b6Æ74æÖSÒ'æVÂ×F—FÆR#ãÆƒ#äFöæ‚F‡RbÎº6’æ‡^ªÖâF†Vòæ|:“Âöƒ#ãÇ6VÆV7CãÆ÷F–öãåF†Vòæ|:“Âö÷F–öããÆ÷F–öãåF†VòFŒ:æsÂö÷F–öããÂ÷6VÆV7CãÂöF—cãÄÖ–æ”Æ–æRFöæSÒ&&ÇVR"óãÂö'F–6ÆSãÂöF—càĞ¢ÆF—b6Æ74æÖSÒ'&VbÖ66‚Öw&–B#ãÆ'F–6ÆR6Æ74æÖSÒ'F&ÆRÖ6&B#ãÆF—b6Æ74æÖSÒ'F&ÆRÖ†VB#ãÆƒ#äFöæ‚F‡SÂöƒ#ãÆ'WGFöâ6Æ74æÖSÒ&Æ–æ²Ö'WGFöâ#å†VÒ6†’F«÷CÂö'WGFöããÂöF—cãÇF&ÆR6Æ74æÖSÒ&FF×F&ÆR#ãÇF&öG“çµ³ƒSÃc#Ã#ƒÃ3CÃcÒæÖ‚‡fÇVRÆ–æFW‚“ÓãÇG"¶W“×¶–æFW‡ÓãÇFCç³RÖ–æFW‡ÒóRó##SÂ÷FCãÇFB6Æ74æÖSÒ&ÖöæW’Öw&VVâ#ç¶ÖöæW’‡fÇVR—ÓÂ÷FCãÇFCäæŒ:&âfœ:¦â,:âŒ:æsÂ÷FCãÂ÷G#â—ÓÂ÷F&öG“ãÂ÷F&ÆSãÂö'F–6ÆSãÆ'F–6ÆR6Æ74æÖSÒ&6†'BÖ6&BW‡Vç6RÖÆ—7B#ãÆƒ#ä6†’Œ:ÓÂöƒ#ãÇãÇ7ãä6†’Œ:Ò>¹I¸¶æƒÇ6ÖÆÃå6WGWÂI¸vâÂìk¹¶2Âv–f’Â,:2ÂŞ«wB.«æsÂ÷6ÖÆÃãÂ÷7ããÆ#ç¶ÖöæW’‡7F÷&RæW‡Vç6R—ÓÂö#ãÂ÷ãÇãÇ7ãä6†’Œ:ÒÖ&¶WF–æsÇ6ÖÆÃå^ª6ær<:òl:G'W¸âFŒ;FæsÂ÷6ÖÆÃãÂ÷7ããÆ#ç¶ÖöæW’‡&V6÷&G2æf–ÇFW"‡#Óç"çF—FÆSÓÓÒ$Ö&¶WF–ær"’ç&VGV6R‚‡2Ç"“Óç2´çVÖ&W"‡"æFFæÖ÷VçB’Ã’—ÓÂö#ãÂ÷ãÇãÇ7ãä6†’Œ:ÒŒ:B6–æ‚I:2æª×Â÷7ããÆ#ç¶ÖöæW’†W‡G&—ÓÂö#ãÂ÷ãÇ6Æ74æÖSÒ&W‡Vç6R×F÷FÂ#ãÇ7ãåN¹Vær6†’Œ:ÓÂ÷7ããÆ#ç¶ÖöæW’†W‡Vç6R—ÓÂö#ãÂ÷ãÂö'F–6ÆSãÆ'F–6ÆR6Æ74æÖSÒ&6†'BÖ6&BFöçWB×6ÖÆÂfW'F–6Â#ãÆF—b6Æ74æÖSÒ'&VbÖFöçWB66‚#ãÆ#ç¶ÖöæW’‡&öf—B—ÓÂö#ãÇ6ÖÆÃäÎº6’æ‡^ªÖãÂ÷6ÖÆÃãÂöF—cãÇäÎº6’æ‡^ªÖâÒFöæ‚F‡R(‰"N¹Vær6†’Œ:ÓÂ÷ãÂö'F–6ÆSãÂöF—càĞ¢Ç6V7F–öâ6Æ74æÖSÒ'F&ÆRÖ6&B#ãÆF—b6Æ74æÖSÒ'F&ÆRÖ†VB#ãÆƒ#ä6†’Œ:Ò>¹I¸¶æ‚~ªvâI:'“Âöƒ#ãÇ7ãç·&V6÷&G2æÆVæwF‡Ò¶†şª6âŒ:B6–æƒÂ÷7ããÂöF—cãÆF—b6Æ74æÖSÒ&FF×F&ÆR×w&#ãÇF&ÆR6Æ74æÖSÒ&FF×F&ÆR#ãÇF†VCãÇG#ãÇFƒäæ|:“Â÷FƒãÇFƒäÆşª’6†’Œ:ÓÂ÷FƒãÇFƒå>¹F¸ãÂ÷FƒãÇFƒäv†’6Œ;£Â÷FƒãÇFƒäæ|k¹Ö’NªóÂ÷FƒãÇFƒåF†òL:3Â÷FƒãÂ÷G#ãÂ÷F†VCãÇF&öG“ç·&V6÷&G2æÆVæwFƒ÷&V6÷&G2æÖ‡&V6÷&CÓãÇG"¶W“×·&V6÷&Bæ–GÓãÇFCçµ7G&–ær‡&V6÷&BæFFæFFR—ÓÂ÷FCãÇFCãÆ#ç·&V6÷&BçF—FÆWÓÂö#ãÂ÷FCãÇFB6Æ74æÖSÒ&ÖöæW’Ö÷&ævR#ç¶ÖöæW’„çVÖ&W"‡&V6÷&BæFFæÖ÷VçB’—ÓÂ÷FCãÇFCçµ7G&–ær‡&V6÷&BæFFææ÷FWÇÂ.(	B"—ÓÂ÷FCãÇFCå^ª6âÌ;Ò>ºÖŒ:æsÂ÷FCãÇFCãÆF—b6Æ74æÖSÒ'&÷rÖ7F–öç2#ãÆ'WGFöâöä6Æ–6³×²‚“Óæ&Vv–â‡&V6÷&B—ÓãÄVF—C26—¦S×³WÒóãÂö'WGFöããÆ'WGFöâ6Æ74æÖSÒ&FævW""öä6Æ–6³×²‚“Óç&VÖ÷fR‡&V6÷&Bæ–B—ÓãÅG&6ƒ"6—¦S×³WÒóãÂö'WGFöããÂöF—cãÂ÷FCãÂ÷G#â“£ÇG#ãÇFB6öÅ7ã×³gÒ6Æ74æÖSÒ&V×G’Ö6VÆÂ#ä6Œkæª×6†’Œ:ÒŒ:B6–æ‚ãÂ÷FCãÂ÷G#çÓÂ÷F&öG“ãÂ÷F&ÆSãÂöF—cãÂ÷6V7F–öãàĞ¢¶÷VâbcÆF—b6Æ74æÖSÒ&ÖöFÂÖ&6¶G&÷#ãÆf÷&Ò6Æ74æÖSÒ&ÖöFÂ"öå7V&Ö—C×·6fWÓãÆF—b6Æ74æÖSÒ&ÖöFÂ×F—FÆR#ãÆF—cãÆƒ#ç¶VF—F–æsò$>ª×æª×B6†’Œ:Ò#¢%FŒ:¦Ò6†’Œ:Ò'ÓÂöƒ#ãÇäNºòÆ¸wRIkº62v†’&œ:¦ær6†ò·7F÷&RææÖWÓÂ÷ãÂöF—cãÆ'WGFöâG—SÒ&'WGFöâ"öä6Æ–6³×²‚“Óç6WD÷Vâ†fÇ6R—ÓãÅ‚6—¦S×³—ÒóãÂö'WGFöããÂöF—cãÆÆ&VÃäÆşª’6†’Œ:ÓÇ6VÆV7BfÇVS×·G—WÒöä6†ævS×²†R“Óç6WEG—R†RçF&vWBçfÇVR—ÓãÆ÷F–öãäÖ&¶WF–æsÂö÷F–öããÆ÷F–öãå6WGWÂö÷F–öããÆ÷F–öãäŞ«wB.«æsÂö÷F–öããÆ÷F–öãìI¸vãÂö÷F–öããÆ÷F–öãäìk¹¶3Âö÷F–öããÆ÷F–öãåv–f“Âö÷F–öããÆ÷F–öãå,:3Âö÷F–öããÆ÷F–öãä¶Œ:3Âö÷F–öããÂ÷6VÆV7CãÂöÆ&VÃãÆF—b6Æ74æÖSÒ&f÷&ÒÖw&–BGvò#ãÆÆ&VÃå>¹F¸â£Æ–çWBG—SÒ&çVÖ&W""Ö–ãÒ#"&WV—&VBfÇVS×¶Ö÷VçGÒöä6†ævS×²†R“Óç6WDÖ÷VçB†RçF&vWBçfÇVR—ÒóãÂöÆ&VÃãÆÆ&VÃäæ|:’6†“Æ–çWBG—SÒ&FFR"fÇVS×¶FFWÒöä6†ævS×²†R“Óç6WDFFR†RçF&vWBçfÇVR—ÒóãÂöÆ&VÃãÂöF—cãÆÆ&VÃäî¹–’GVær6†’£ÇFW‡F&V&WV—&VBfÇVS×¶æ÷FWÒöä6†ævS×²†R“Óç6WDæ÷FR†RçF&vWBçfÇVR—ÒóãÂöÆ&VÃç¶ÖW76vRbcÆF—b6Æ74æÖSÒ&f÷&ÒÖÖW76vR#ç¶ÖW76vWÓÂöF—cçÓÆF—b6Æ74æÖSÒ&ÖöFÂÖ7F–öç2#ãÆ'WGFöâG—SÒ&'WGFöâ"öä6Æ–6³×²‚“Óç6WD÷Vâ†fÇ6R—Óäºw“Âö'WGFöããÆ'WGFöâ6Æ74æÖSÒ'&–Ö'’Ö'WGFöâ#äÌkR6†’Œ:ÓÂö'WGFöããÂöF—cãÂöf÷&ÓãÂöF—cçĞĞ¢ÂöF—cã°Ğ§ĞĞ Ğ¦gVæ7F–öâ&W÷'DÖævVÖVçB‡²7F÷&RÓ¢²7F÷&S¢&VfW&Væ6U7F÷&RÒ’°Ğ¢6öç7B¶V×Æ÷–VW7Ó×W6TV×Æ÷–VW2‡7F÷&Ræ–B“²6öç7B·6†–gG7Ó×W6U6†–gE6W76–öç2‡7F÷&Ræ–B“²6öç7B—&öÆÃ×W6U&V6÷&G2‚$ÅTôäuõD…Tôär"Ç7F÷&Ræ–B’ç&V6÷&G3²6öç7B·F"Ç6WEF%Ó×W6U7FFR‚%N¹VærVâ"“²6öç7B¶g&öÒÇ6WDg&öÕÓ×W6U7FFR‡FöF’‚’ç6Æ–6RƒÃ‚’²#"“²6öç7B·FòÇ6WEFõÓ×W6U7FFR‡FöF’‚’“²6öç7B·W&–öE—&öÆÂÇ6WEW&–öE—&öÆÅÓ×W6U7FFSÅ—&öÆÅ7VÖÖ'—ÆçVÆÃâ†çVÆÂ“°Ğ¢W6TVffV7B‚‚“Óç¶6öç7BW&–öCÖg&öÒç6Æ–6RƒÃr“¶fWF6‚†ö’÷—&öÆÃ÷7F÷&T–CÒG¶Væ6öFUU$”6ö×öæVçB‡7F÷&Ræ–B—ÒgW&–öCÒG¶Væ6öFUU$”6ö×öæVçB‡W&–öB—Ö’çF†Vâ‡#Óç"æ§6öâ‚’’çF†Vâ†FFÓç6WEW&–öE—&öÆÂ†FFç7VÖÖ'“óöçVÆÂ’“·ÒÅ¶g&öÒÇ7F÷&Ræ–EÒ“°Ğ¢6öç7B6ö×ÆWFVC×6†–gG2æf–ÇFW"‡3Óç2æVæFVEöB“²6öç7B†÷W'3Ö6ö×ÆWFVBç&VGV6R‚‡7VÒÇ2“Óç7VÒ·6W76–öå6V6öæG2‡2’ó3cÃ“²6öç7B6†–gEvvW3Ö6ö×ÆWFVBç&VGV6R‚‡7VÒÇ2“Óç7VÒ²‡6W76–öå6V6öæG2‡2’ó3c’§6W76–öå&FR‡2’Ã“²6öç7BvvW3×W&–öE—&öÆÃòçF÷FÄ&6U6Æ'“ó÷6†–gEvvW3²6öç7B&V6÷&DW‡G&3×—&öÆÂç&VGV6R‚‡7VÒÇ"“Óç7VÒ´çVÖ&W"‡"æFFæÖ÷VçCóó’Ã“²6öç7BW‡G&3×W&–öE—&öÆÂòW&–öE—&öÆÂçF÷FÅF–µFö´ÆÆ÷væ6R·W&–öE—&öÆÂçF÷FÅ7W÷'DÆÆ÷væ6R·W&–öE—&öÆÂçF÷FÄÖçVÄÆÆ÷væ6R·W&–öE—&öÆÂçF÷FÄÖçVÄ&öçW2·W&–öE—&öÆÂçF÷FÄ·”&öçW2¢&V6÷&DW‡G&3°¢&WGW&âÆF—b6Æ74æÖSÒ'&VfW&Væ6RÖÖöGVÆR&W÷'B×vR#ãÆF—b6Æ74æÖSÒ'&Vb×FööÆ&"#ãÆF—cãÆƒ#ä,:ò<:òF¹ær¼:£Âöƒ#ãÇåN¹Værº7NºòÆ¸wR†şªBI¹–ær>ºv>ºÖŒ:æsÂ÷ãÂöF—cãÆF—b6Æ74æÖSÒ'&Vb×FööÆ&"Ö7F–öç2#ãÆ–çWBG—SÒ&FFR"fÇVS×¶g&ö×Òöä6†ævS×²†R“Óç6WDg&öÒ†RçF&vWBçfÇVR—ÒóãÇ7ãî(‰#Â÷7ããÆ–çWBG—SÒ&FFR"fÇVS×·F÷Òöä6†ævS×²†R“Óç6WEFò†RçF&vWBçfÇVR—ÒóãÆ'WGFöâ6Æ74æÖSÒ'&–Ö'’Ö'WGFöâ"öä6Æ–6³×²‚“Óæ77b‚&&òÖ6òÖ7VÖ†æræ77b"Åµ²$6¸’>¹"Â$vœ:G.¸²%ÒÅ²$æŒ:&âfœ:¦â"ÆV×Æ÷–VW2æÆVæwF…ÒÅ²%N¹Værv¹Ò"Æ†÷W'2çFôf—†VBƒ"•ÒÅ²$Ìkjær"ÄÖF‚ç&÷VæB‡vvW2•ÒÅ²%FŒk¹öær÷ºR>ªW"ÆW‡G&5ÒÅ²$Föæ‚F‡R"Ç7F÷&Rç&WfVçVUÕÒ—ÓãÄF÷væÆöB6—¦S×³gÒóâ‡^ªWB,:ò<:óÂö'WGFöããÂöF—cãÂöF—càĞ¢ÆF—b6Æ74æÖSÒ'&Vb×&W÷'B×F'2#çµ²%N¹VærVâ"Â$6ªVÒ<;Fær"Â$ÌkjærFŒk¹öær"Â$6Ì:Òf¸v2"Â$æŒ:&âfœ:¦â"Â$6†’F«÷B%ÒæÖ†—FVÓÓãÆ'WGFöâ¶W“×¶—FV×Ò6Æ74æÖS×·F#ÓÓÖ—FVÓò&7F—fR#¢"'Òöä6Æ–6³×²‚“Óç6WEF"†—FVÒ—Óç¶—FV×ÓÂö'WGFöãâ—ÓÂöF—càĞ¢ÆF—b6Æ74æÖSÒ'&VbÖÖWG&–72f—fR#ãÄÖWG&–2–6öã×µW6W'5&÷VæGÒÆ&VÃÒ%N¹VæræŒ:&âfœ:¦â"fÇVS×¶V×Æ÷–VW2æÆVæwF‚²"æ|k¹Ö’'Òæ÷FSÒ%F†VòNºòÆ¸wR†¸vâNª’"óãÄÖWG&–2–6öã×´6Æö6³7ÒÆ&VÃÒ%N¹Værv¹ÒÌ:Ò"fÇVS×¶†÷W'2çFôf—†VBƒ"’²"v¹Ò'Òæ÷FSÒ%F†Vò¾»2I:26¸Öâ"óãÄÖWG&–2–6öã×µvÆÆWD6&G7ÒÆ&VÃÒ%N¹VærÌkjær>º–ær"fÇVS×¶ÖöæW’‡vvW2—ÒóãÄÖWG&–2–6öã×´v–gGÒÆ&VÃÒ%N¹VærFŒk¹öær"fÇVS×¶ÖöæW’†W‡G&2—ÒóãÄÖWG&–2–6öã×µvÆÆWD6&G7ÒÆ&VÃÒ%N¹VærÌkjæræªÖâ"fÇVS×¶ÖöæW’‡vvW2¶W‡G&2—ÒóãÂöF—cà¢ÆF—b6Æ74æÖSÒ'&Vb×&W÷'BÖ6†'G2#ãÆ'F–6ÆR6Æ74æÖSÒ&6†'BÖ6&B#ãÆƒ#äv¹ÒÌ:Òf¸v2F†Vòæ|:“Âöƒ#ãÄÖ–æ”&'2óãÂö'F–6ÆSãÆ'F–6ÆR6Æ74æÖSÒ&6†'BÖ6&B#ãÆƒ#äFöæ‚F‡RF†Vòæ|:“Âöƒ#ãÄÖ–æ”Æ–æRóãÂö'F–6ÆSãÆ'F–6ÆR6Æ74æÖSÒ&6†'BÖ6&BFöçWB×6ÖÆÂfW'F–6Â#ãÆƒ#ä<j>ªWRÌkjæræªÖãÂöƒ#ãÆF—b6Æ74æÖSÒ'&VbÖFöçWB&W÷'B#ãÆ#ç¶ÖöæW’‡vvW2¶W‡G&2—ÓÂö#ãÇ6ÖÆÃåN¹VærÌkjæræªÖãÂ÷6ÖÆÃãÂöF—cãÂö'F–6ÆSãÂöF—cà¢ÆF—b6Æ74æÖSÒ'&Vb×&W÷'BÖ&÷GFöÒ#ãÇ6V7F–öâ6Æ74æÖSÒ'F&ÆRÖ6&B#ãÆF—b6Æ74æÖSÒ'F&ÆRÖ†VB#ãÆƒ#ç·F"ÓÓÒ%N¹VærVâ"ò%F¹ær¼:¢F†VòæŒ:&âfœ:¦â"¢$6†’F«÷B"²F"çFôÆö6ÆTÆ÷vW$66R‚'f’"—ÓÂöƒ#ãÂöF—cãÆF—b6Æ74æÖSÒ&FF×F&ÆR×w&#ãÇF&ÆR6Æ74æÖSÒ&FF×F&ÆR#ãÇF†VCãÇG#ãÇFƒäæŒ:&âfœ:¦ãÂ÷FƒãÇFƒåN¹Værv¹ÒÌ:ÓÂ÷FƒãÇFƒäÌkjær>º–æsÂ÷FƒãÇFƒåFŒk¹öæsÂ÷FƒãÇFƒåºR>ªWÂ÷FƒãÇFƒäÌkjæræªÖãÂ÷FƒãÂ÷G#ãÂ÷F†VCãÇF&öG“ç²†V×Æ÷–VW2æÆVæwFƒöV×Æ÷–VW3§6×ÆUV÷ÆRç6Æ–6RƒÃ2’æÖ‚‡Æ’“Óâ‡¶–C¢'2"¶’ÆæÖS§³ÒÇ÷6—F–öã§³ÒÆ†÷W&Ç•÷&FS£#Ò’’’æÖ‚†V×Æ÷–VRÆ–æFW‚“Óç¶6öç7BV×Æ÷–VT†÷W'3Õ³sRãRÃc‚ÃcbãUÕ¶–æFW‚S5Ó¶6öç7B&6SÖV×Æ÷–VT†÷W'2¦V×Æ÷–VRæ†÷W&Ç•÷&FS¶6öç7BW‡G&×—&öÆÂæf–ÇFW"‡#Óç"æFFæV×Æ÷–VT–CÓÓÖV×Æ÷–VRæ–B’ç&VGV6R‚‡2Ç"“Óç2´çVÖ&W"‡"æFFæÖ÷VçB’Ã“·&WGW&âÇG"¶W“×¶V×Æ÷–VRæ–GÓãÇFCãÅW'6öâæÖS×¶V×Æ÷–VRææÖWÒ÷6—F–öã×¶V×Æ÷–VRç÷6—F–öçÒóãÂ÷FCãÇFCç¶V×Æ÷–VT†÷W'2çFôf—†VBƒ"—ÓÂ÷FCãÇFCç¶ÖöæW’†&6R—ÓÂ÷FCãÇFB6Æ74æÖSÒ&ÖöæW’Öw&VVâ#ç¶ÖöæW’†W‡G&—ÓÂ÷FCãÇFCç¶ÖöæW’ƒ—ÓÂ÷FCãÇFB6Æ74æÖSÒ&ÖöæW’Öw&VVâ#ãÆ#ç¶ÖöæW’†&6R¶W‡G&³—ÓÂö#ãÂ÷FCãÂ÷G#çÒ—ÓÂ÷F&öG“ãÂ÷F&ÆSãÂöF—cãÂ÷6V7F–öããÆ6–FR6Æ74æÖSÒ&6†'BÖ6&B#ãÆƒ#åF¹ær¼:¢6Ì:Òf¸v3Âöƒ#çµ²$6+rc"ÃSv¹Ò"Â$6"+rsÃv¹Ò"Â$62+rsbÃSv¹Ò%ÒæÖ‚‡FW‡BÆ–æFW‚“ÓãÆF—b6Æ74æÖSÒ'&öw&W72×&÷r"¶W“×·FW‡GÓãÇ7ãç·FW‡GÓÂ÷7ããÆ“ãÆ"7G–ÆS×··v–GFƒ¥³3Ã3BÃ3eÕ¶–æFW…Ò²"R'×ÒóãÂö“ãÇ7G&öæsçµ³#’ã‚Ã32ã‚Ã3bãEÕ¶–æFW…×ÒSÂ÷7G&öæsãÂöF—câ—ÓÂö6–FSãÂöF—càĞ¢ÆF—b6Æ74æÖSÒ'&W÷'B×&öf—BÖæ÷FR#ãÄ6†V6´6—&6ÆS"6—¦S×³‡ÒóâNºòÆ¸wR·F"çFôÆö6ÆTÆ÷vW$66R‚'f’"—Ò>ºv·7F÷&RææÖWÒG&öær¾»2¶g&ö×Ò(i"·F÷Ò+rFöæ‚F‡RÆ#ç¶ÖöæW’‡7F÷&Rç&WfVçVR—ÓÂö#â+rÎº6’æ‡^ªÖâÆ#ç¶ÖöæW’‡7F÷&Rç&öf—B—ÓÂö#ãÂöF—càĞ¢ÂöF—cã°Ğ§ĞĞ 
+  const [message, setMessage] = useState("");
+  const [saving, setSaving] = useState(false);
+  const empty = { code: "", name: "", position: "NhÃ¢n viÃªn bÃ¡n hÃ ng", phone: "", hourlyRate: "20000", username: "", password: "", status: "ACTIVE" };
+  const [form, setForm] = useState(empty);
+  const filtered = employees.filter((employee) => {
+    const matches = (employee.code + " " + employee.name + " " + employee.phone).toLocaleLowerCase("vi").includes(query.toLocaleLowerCase("vi"));
+    return matches && (tab === "ALL" || employee.status === tab);
+  });
+  function begin(employee?: Employee) {
+    setEditing(employee ?? null);
+    setForm(employee ? { code: employee.code, name: employee.name, position: employee.position, phone: employee.phone, hourlyRate: String(employee.hourly_rate), username: employee.username ?? "", password: "", status: employee.status === "INACTIVE" ? "INACTIVE" : "ACTIVE" } : { ...empty, code: "NV" + String(employees.length + 1).padStart(3, "0") });
+    setMessage(""); setOpen(true);
+  }
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    setSaving(true); setMessage("");
+    try {
+      const response = await fetch("/api/employees", {
+        method: editing ? "PATCH" : "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: editing?.id, storeId: store.id, ...form, hourlyRate: Number(form.hourlyRate) }),
+      });
+      const result = await response.json() as { message?: string; storeId?: string };
+      if (!response.ok) return setMessage(result.message ?? "KhÃ´ng thá»ƒ lÆ°u nhÃ¢n viÃªn.");
+      if (!editing && result.storeId !== store.id) return setMessage("TÃ i khoáº£n chÆ°a Ä‘Æ°á»£c gáº¯n Ä‘Ãºng cá»­a hÃ ng. Vui lÃ²ng thá»­ láº¡i.");
+      setOpen(false); await reload();
+    } catch {
+      setMessage("KhÃ´ng thá»ƒ káº¿t ná»‘i há»‡ thá»‘ng. Vui lÃ²ng thá»­ láº¡i.");
+    } finally {
+      setSaving(false);
+    }
+  }
+  return <div className="reference-module">
+    <div className="ref-toolbar"><div><h2>Quáº£n lÃ½ nhÃ¢n viÃªn</h2><p>ThÃªm, sá»­a thÃ´ng tin vÃ  cáº­p nháº­t tráº¡ng thÃ¡i lÃ m viá»‡c</p></div><div className="ref-toolbar-actions"><label className="ref-search"><Search size={16}/><input placeholder="TÃ¬m kiáº¿m nhÃ¢n viÃªn..." value={query} onChange={(e) => setQuery(e.target.value)}/></label><button className="primary-button" onClick={() => begin()}><Plus size={17}/> ThÃªm nhÃ¢n viÃªn</button></div></div>
+    <div className="ref-metrics four"><Metric icon={UsersRound} label="Tá»•ng nhÃ¢n viÃªn" value={String(employees.length)} note="Táº¥t cáº£ nhÃ¢n viÃªn"/><Metric icon={UserRound} label="Äang lÃ m viá»‡c" value={String(employees.filter(e => e.status === "ACTIVE").length)} note="ÄÆ°á»£c phÃ©p Ä‘Äƒng nháº­p"/><Metric icon={Clock3} label="Nghá»‰ lÃ m" value={String(employees.filter(e => e.status === "INACTIVE").length)} note="ÄÃ£ thu há»“i phiÃªn Ä‘Äƒng nháº­p" tone="orange"/><Metric icon={UserRound} label="LÆ°Æ¡ng theo giá»" value="Quáº£n lÃ½ thiáº¿t láº­p" note="Ãp dá»¥ng theo ca thá»±c táº¿" tone="red"/></div>
+    <div className={"employee-ref-layout " + (open ? "with-drawer" : "")}><section className="table-card">
+      <div className="ref-tabs"><button className={tab === "ALL" ? "active" : ""} onClick={() => setTab("ALL")}>Táº¥t cáº£ ({employees.length})</button><button className={tab === "ACTIVE" ? "active" : ""} onClick={() => setTab("ACTIVE")}>Äang lÃ m viá»‡c ({employees.filter(e => e.status === "ACTIVE").length})</button><button className={tab === "INACTIVE" ? "active" : ""} onClick={() => setTab("INACTIVE")}>Nghá»‰ lÃ m ({employees.filter(e => e.status === "INACTIVE").length})</button></div>
+      <div className="data-table-wrap"><table className="data-table ref-employee-table"><thead><tr><th>MÃ£ nhÃ¢n viÃªn</th><th>Há» vÃ  tÃªn</th><th>SÄT</th><th>Chá»©c vá»¥</th><th>TÃªn Ä‘Äƒng nháº­p</th><th>Tráº¡ng thÃ¡i</th><th>Thao tÃ¡c</th></tr></thead><tbody>{filtered.length ? filtered.map((employee) => <tr key={employee.id}><td><b>{employee.code}</b></td><td><Person name={employee.name} position={employee.position}/></td><td>{employee.phone}</td><td>{employee.position}</td><td>{employee.username ?? "â€”"}</td><td><span className={`status-pill ${employee.status === "INACTIVE" ? "inactive" : ""}`}>â— {employee.status === "INACTIVE" ? "Nghá»‰ lÃ m" : "Äang lÃ m viá»‡c"}</span></td><td><div className="row-actions"><button onClick={() => begin(employee)} title="Sá»­a nhÃ¢n viÃªn"><Edit3 size={15}/></button></div></td></tr>) : <tr><td colSpan={7} className="empty-cell">KhÃ´ng cÃ³ nhÃ¢n viÃªn phÃ¹ há»£p.</td></tr>}</tbody></table></div>
+    </section>{open && <aside className="employee-drawer"><form onSubmit={save}><div className="drawer-title"><div><h2>{editing ? "Cáº­p nháº­t nhÃ¢n viÃªn" : "ThÃªm nhÃ¢n viÃªn"}</h2><span>ThÃ´ng tin nhÃ¢n viÃªn</span></div><button type="button" onClick={() => setOpen(false)}><X size={19}/></button></div>
+      <label>MÃ£ nhÃ¢n viÃªn *<input required value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })}/></label>
+      <label>TÃªn nhÃ¢n viÃªn *<input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}/></label>
+      <label>Sá»‘ Ä‘iá»‡n thoáº¡i *<input required value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })}/></label>
+      <label>Chá»©c vá»¥<select value={form.position} onChange={(e) => setForm({ ...form, position: e.target.value })}><option>NhÃ¢n viÃªn bÃ¡n hÃ ng</option><option>Thu ngÃ¢n</option><option>Kho</option></select></label>
+      <label>LÆ°Æ¡ng theo giá» *<input type="number" min="1" required value={form.hourlyRate} onChange={(e) => setForm({ ...form, hourlyRate: e.target.value })}/></label>
+      {editing && <label>Tráº¡ng thÃ¡i lÃ m viá»‡c<select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}><option value="ACTIVE">Äang lÃ m viá»‡c</option><option value="INACTIVE">Nghá»‰ lÃ m</option></select></label>}
+      <h3>TÃ i khoáº£n Ä‘Äƒng nháº­p</h3><label>TÃªn Ä‘Äƒng nháº­p *<input required value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })}/></label>
+      <label>{editing ? "Máº­t kháº©u má»›i (Ä‘á»ƒ trá»‘ng náº¿u giá»¯ nguyÃªn)" : "Máº­t kháº©u *"}<input type="password" required={!editing} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })}/></label>
+      {message && <div className="form-message">{message}</div>}<div className="drawer-actions"><button type="button" onClick={() => setOpen(false)} disabled={saving}>Há»§y bá»</button><button type="submit" className="primary-button" disabled={saving}>{saving ? "Äang lÆ°u..." : "LÆ°u nhÃ¢n viÃªn"}</button></div>
+    </form></aside>}</div>
+  </div>;
+}
+
+export function ReferenceStoreModule({ store, view }: { store: ReferenceStore; view: string }) {
+  if (view === "Ca lÃ m viá»‡c") return <ShiftManagement store={store}/>;
+  if (view === "Lá»‹ch phÃ¢n ca") return <ScheduleManagement store={store}/>;
+  if (view === "Nháº­p hÃ ng") return <GoodsManagement store={store}/>;
+  if (view === "Cháº¥m cÃ´ng") return <AttendanceManagement store={store}/>;
+  if (view === "LÆ°Æ¡ng thÆ°á»Ÿng") return <><PayrollManagement store={store}/><StorePayrollClosing store={store}/></>;
+  if (view === "DÃ²ng tiá»n") return <CashflowManagement store={store}/>;
+  return <ReportManagement store={store}/>;
+}
+
+function ShiftManagement({ store }: { store: ReferenceStore }) {
+  const { records, reload } = useRecords("CA_LAM_VIEC", store.id);
+  const schedule = useRecords("LICH_PHAN_CA", store.id).records;
+  const [mode, setMode] = useState<"day" | "week">("day"); const [date, setDate] = useState(today());
+  const [open, setOpen] = useState(false); const [editing, setEditing] = useState<BusinessRecord | null>(null);
+  const [name, setName] = useState(""); const [start, setStart] = useState("07:00"); const [end, setEnd] = useState("12:00"); const [message, setMessage] = useState("");
+  const shifts: ShiftDisplay[] = records.length ? records.map((record, index) => ({ id: record.id, title: record.title, start: String(record.data.start ?? "07:00"), end: String(record.data.end ?? "12:00"), tone: "s" + ((index % 3) + 1), record })) : defaultShifts;
+  function begin(record?: BusinessRecord) { setEditing(record ?? null); setName(record?.title ?? ""); setStart(String(record?.data.start ?? "07:00")); setEnd(String(record?.data.end ?? "12:00")); setMessage(""); setOpen(true); }
+  async function save(event: FormEvent) { event.preventDefault(); try { await saveRecord({ id: editing?.id, category: "CA_LAM_VIEC", storeId: store.id, title: name, data: { start, end } }); setOpen(false); await reload(); } catch (error) { setMessage((error as Error).message); } }
+  async function remove(record: BusinessRecord) { if (await deleteRecord(record.id)) await reload(); }
+  const weekDates = Array.from({ length: 7 }, (_, index) => { const d = new Date(date + "T12:00:00"); d.setDate(d.getDate() - d.getDay() + 1 + index); return new Intl.DateTimeFormat("en-CA").format(d); });
+  return <div className="reference-module">
+    <div className="ref-toolbar"><div><h2>Ca lÃ m viá»‡c</h2><p>Quáº£n lÃ½ tÃªn ca vÃ  thá»i gian lÃ m viá»‡c</p></div><div className="ref-toolbar-actions"><input type="date" value={date} onChange={(e) => setDate(e.target.value)}/><button onClick={() => csv("ca-lam-viec.csv", [["TÃªn ca","Báº¯t Ä‘áº§u","Káº¿t thÃºc"], ...shifts.map(s => [s.title,s.start,s.end])])}><Download size={16}/> Xuáº¥t Excel</button><button className="primary-button" onClick={() => begin()}><Plus size={17}/> Táº¡o ca lÃ m viá»‡c</button></div></div>
+    <div className="ref-shift-grid">{shifts.slice(0, 3).map((shift, index) => <article className={"ref-shift " + ["green","orange","purple"][index % 3]} key={shift.id}><span>{shift.title}</span><strong>{shift.start} - {shift.end}</strong><small><UsersRound size={15}/> {6 + index} nhÃ¢n viÃªn</small>{shift.record && <div className="shift-card-actions"><button onClick={() => begin(shift.record)}><Edit3 size={14}/></button><button onClick={() => remove(shift.record!)}><Trash2 size={14}/></button></div>}</article>)}<article className="ref-day-summary"><b>Tá»•ng quan ngÃ y {dateLabel(date)}</b><div><span><strong>{shifts.length}</strong> Tá»•ng ca</span><span><strong>18</strong> NhÃ¢n viÃªn</span><span><strong>{schedule.length || 32}</strong> LÆ°á»£t ca</span></div></article></div>
+    <section className="table-card"><div className="table-head"><div><h2>{mode === "day" ? "Lá»‹ch phÃ¢n ca ngÃ y " + dateLabel(date) : "Lá»‹ch lÃ m viá»‡c trong tuáº§n"}</h2><p>Chá»n cháº¿ Ä‘á»™ xem ngÃ y hoáº·c tuáº§n</p></div><div className="ref-tabs compact"><button className={mode === "day" ? "active" : ""} onClick={() => setMode("day")}>Lá»‹ch theo ngÃ y</button><button className={mode === "week" ? "active" : ""} onClick={() => setMode("week")}>Lá»‹ch theo tuáº§n</button></div></div>
+      {mode === "day" ? <DayScheduleGrid shifts={shifts}/> : <div className="data-table-wrap"><table className="data-table week-table"><thead><tr><th>Ca</th>{weekDates.map((item) => <th key={item}>{new Intl.DateTimeFormat("vi-VN",{weekday:"short",day:"2-digit",month:"2-digit"}).format(new Date(item+"T12:00:00"))}</th>)}</tr></thead><tbody>{shifts.map((shift,index)=><tr key={shift.id}><td><b className={"shift-text c"+((index%3)+1)}>{shift.title}<small>{shift.start} - {shift.end}</small></b></td>{weekDates.map((day,dayIndex)=><td key={day}><span className={"shift-pill "+shift.tone}>{Math.max(2, 4 + ((index + dayIndex) % 4))} nhÃ¢n viÃªn</span></td>)}</tr>)}</tbody></table></div>}
+    </section>
+    {open && <div className="modal-backdrop"><form className="modal shift-definition-modal" onSubmit={save}><div className="modal-title"><div><h2>{editing ? "Cáº­p nháº­t ca lÃ m viá»‡c" : "ThÃªm ca lÃ m viá»‡c"}</h2><p>Chá»‰ cáº§n nháº­p tÃªn ca vÃ  thá»i gian Ã¡p dá»¥ng</p></div><button type="button" onClick={() => setOpen(false)}><X size={19}/></button></div><label>TÃªn ca *<input required placeholder="VÃ­ dá»¥: Ca sÃ¡ng" value={name} onChange={(e) => setName(e.target.value)}/></label><div className="form-grid two"><label>Thá»i gian báº¯t Ä‘áº§u *<input type="time" required value={start} onChange={(e) => setStart(e.target.value)}/></label><label>Thá»i gian káº¿t thÃºc *<input type="time" required value={end} onChange={(e) => setEnd(e.target.value)}/></label></div>{message && <div className="form-message">{message}</div>}<div className="modal-actions"><button type="button" onClick={() => setOpen(false)}>Há»§y</button><button className="primary-button">LÆ°u ca lÃ m viá»‡c</button></div></form></div>}
+  </div>;
+}
+
+function DayScheduleGrid({ shifts }: { shifts: Array<{ id: string; title: string; start: string; end: string; tone: string }> }) {
+  return <div className="data-table-wrap"><table className="data-table schedule-table"><thead><tr><th>NhÃ¢n viÃªn</th>{shifts.slice(0,3).map((shift)=><th key={shift.id}>{shift.title} ({shift.start} - {shift.end})</th>)}</tr></thead><tbody>{samplePeople.map((person,index)=><tr key={person[0]}><td><Person name={person[0]} position={person[1]}/></td>{shifts.slice(0,3).map((shift,shiftIndex)=><td key={shift.id}>{(index + shiftIndex) % 3 !== 1 ? <span className={"shift-pill "+shift.tone}>{shift.title} Â· {shift.start} - {shift.end}</span> : "â€”"}</td>)}</tr>)}</tbody></table></div>;
+}
+
+function ScheduleManagement({ store }: { store: ReferenceStore }) {
+  const { records, reload } = useRecords("LICH_PHAN_CA", store.id); const shiftRecords = useRecords("CA_LAM_VIEC", store.id).records;
+  const { employees } = useEmployees(store.id); const [date, setDate] = useState(today()); const [viewMode, setViewMode] = useState<"shift"|"employee">("shift");
+  const [open, setOpen] = useState(false); const [editing, setEditing] = useState<BusinessRecord | null>(null);
+  const [shiftId, setShiftId] = useState(""); const [selected, setSelected] = useState<string[]>([]); const [note, setNote] = useState(""); const [message, setMessage] = useState("");
+  const shifts: ShiftDisplay[] = shiftRecords.length ? shiftRecords.map((r,index)=>({id:r.id,title:r.title,start:String(r.data.start??"07:00"),end:String(r.data.end??"12:00"),tone:"s"+((index%3)+1)})) : defaultShifts;
+  useEffect(() => { if (!shiftId && shifts[0]) setShiftId(shifts[0].id); }, [shiftId, shifts]);
+  const dayRecords = records.filter((record) => String(record.data.date ?? "") === date);
+  function begin(record?: BusinessRecord) { setEditing(record ?? null); setShiftId(String(record?.data.shiftId ?? shifts[0]?.id ?? "")); setSelected(Array.isArray(record?.data.employeeIds) ? record?.data.employeeIds as string[] : []); setNote(String(record?.data.note ?? "")); setOpen(true); setMessage(""); }
+  async function save(event: FormEvent) { event.preventDefault(); const shift = shifts.find((item) => item.id === shiftId); if (!shift || !selected.length) return setMessage("Vui lÃ²ng chá»n ca vÃ  Ã­t nháº¥t má»™t nhÃ¢n viÃªn."); const names = employees.filter(e=>selected.includes(e.id)).map(e=>e.name); try { await saveRecord({ id: editing?.id, category:"LICH_PHAN_CA", storeId:store.id, title:shift.title+" Â· "+date, data:{date,shiftId,shiftName:shift.title,start:shift.start,end:shift.end,employeeIds:selected,employeeNames:names,note} }); setOpen(false); await reload(); } catch(error){ setMessage((error as Error).message); } }
+  async function remove(id:string){if(await deleteRecord(id)) await reload();}
+  const employeeRows = employees.length ? employees.map(e=>[e.name,e.position,e.id]) : samplePeople.map((p,i)=>[p[0],p[1],"sample-"+i]);
+  return <div className="reference-module schedule-page">
+    <div className="ref-toolbar"><div><h2>Lá»‹ch phÃ¢n ca</h2><p>Táº¡o vÃ  quáº£n lÃ½ lá»‹ch phÃ¢n cÃ´ng ca lÃ m viá»‡c cho nhÃ¢n viÃªn</p></div><div className="ref-toolbar-actions"><button onClick={()=>setDate(new Date(new Date(date).getTime()-86400000).toISOString().slice(0,10))}><ChevronLeft size={17}/></button><input type="date" value={date} onChange={(e)=>setDate(e.target.value)}/><button onClick={()=>setDate(new Date(new Date(date).getTime()+86400000).toISOString().slice(0,10))}><ChevronRight size={17}/></button><button onClick={()=>csv("lich-phan-ca.csv",[["NgÃ y","Ca","NhÃ¢n viÃªn"],...records.map(r=>[String(r.data.date??""),String(r.data.shiftName??""),String((r.data.employeeNames as string[]|undefined)?.join(", ")??"")])])}><Download size={16}/> Xuáº¥t Excel</button><button className="primary-button" onClick={()=>begin()}><Plus size={17}/> Táº¡o lá»‹ch phÃ¢n ca</button></div></div>
+    <div className="ref-shift-grid schedule-summary">{shifts.slice(0,3).map((shift,index)=><article className={"ref-shift "+["green","orange","purple"][index]} key={shift.id}><span>{shift.title}</span><strong>{shift.start} - {shift.end}</strong><small>{dayRecords.filter(r=>r.data.shiftId===shift.id).reduce((sum,r)=>sum+((r.data.employeeIds as string[]|undefined)?.length??0),0)} nhÃ¢n viÃªn Ä‘Ã£ xáº¿p</small></article>)}<article className="ref-day-summary"><b>Tá»•ng quan ngÃ y {dateLabel(date)}</b><div><span><strong>{shifts.length}</strong> Tá»•ng ca</span><span><strong>{employees.length}</strong> NhÃ¢n viÃªn</span><span><strong>{dayRecords.length}</strong> Lá»‹ch Ä‘Ã£ táº¡o</span></div></article></div>
+    <section className="table-card"><div className="table-head"><div><h2>Danh sÃ¡ch lá»‹ch phÃ¢n ca</h2><p>{dayRecords.length ? "Dá»¯ liá»‡u Ä‘Ã£ lÆ°u cho ngÃ y Ä‘ang chá»n" : "ChÆ°a cÃ³ lá»‹ch Ä‘Ã£ lÆ°u; Ä‘ang hiá»ƒn thá»‹ bá»‘ cá»¥c máº«u"}</p></div><div className="ref-tabs compact"><button className={viewMode==="shift"?"active":""} onClick={()=>setViewMode("shift")}>Theo ca</button><button className={viewMode==="employee"?"active":""} onClick={()=>setViewMode("employee")}>Theo nhÃ¢n viÃªn</button></div></div>
+      {viewMode==="shift"?<DayScheduleGrid shifts={shifts}/>:<div className="data-table-wrap"><table className="data-table"><thead><tr><th>NhÃ¢n viÃªn</th><th>Ca Ä‘Æ°á»£c phÃ¢n</th><th>Thá»i gian</th><th>Ghi chÃº</th></tr></thead><tbody>{employeeRows.map((employee)=><tr key={employee[2]}><td><Person name={employee[0]} position={employee[1]}/></td><td>{dayRecords.filter(r=>(r.data.employeeIds as string[]|undefined)?.includes(employee[2])).map(r=>String(r.data.shiftName)).join(", ")||"ChÆ°a phÃ¢n ca"}</td><td>{dayRecords.filter(r=>(r.data.employeeIds as string[]|undefined)?.includes(employee[2])).map(r=>String(r.data.start)+" - "+String(r.data.end)).join(", ")||"â€”"}</td><td>â€”</td></tr>)}</tbody></table></div>}
+    </section>
+    {dayRecords.length>0&&<section className="table-card"><div className="table-head"><h2>Lá»‹ch Ä‘Ã£ táº¡o trong ngÃ y</h2></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>Ca</th><th>Thá»i gian</th><th>NhÃ¢n viÃªn</th><th>Ghi chÃº</th><th>Thao tÃ¡c</th></tr></thead><tbody>{dayRecords.map(record=><tr key={record.id}><td><b>{String(record.data.shiftName)}</b></td><td>{String(record.data.start)} - {String(record.data.end)}</td><td>{String((record.data.employeeNames as string[]|undefined)?.join(", ")??"")}</td><td>{String(record.data.note??"â€”")}</td><td><div className="row-actions"><button onClick={()=>begin(record)}><Edit3 size={15}/></button><button className="danger" onClick={()=>remove(record.id)}><Trash2 size={15}/></button></div></td></tr>)}</tbody></table></div></section>}
+    {open&&<div className="modal-backdrop"><form className="modal schedule-modal" onSubmit={save}><div className="modal-title"><div><h2>{editing?"Cáº­p nháº­t lá»‹ch phÃ¢n ca":"Táº¡o lá»‹ch phÃ¢n ca"}</h2><p>{store.name}</p></div><button type="button" onClick={()=>setOpen(false)}><X size={19}/></button></div><label>NgÃ y Ã¡p dá»¥ng<input type="date" required value={date} onChange={(e)=>setDate(e.target.value)}/></label><label>Chá»n ca<select value={shiftId} onChange={(e)=>setShiftId(e.target.value)}>{shifts.map(shift=><option key={shift.id} value={shift.id}>{shift.title} Â· {shift.start} - {shift.end}</option>)}</select></label><fieldset className="employee-check-list"><legend>Chá»n nhÃ¢n viÃªn ({selected.length})</legend>{employees.map(employee=><label key={employee.id}><input type="checkbox" checked={selected.includes(employee.id)} onChange={()=>setSelected(selected.includes(employee.id)?selected.filter(id=>id!==employee.id):[...selected,employee.id])}/><Person name={employee.name} position={employee.position}/></label>)}</fieldset><label>Ghi chÃº<textarea value={note} onChange={(e)=>setNote(e.target.value)} placeholder="Nháº­p ghi chÃº..."/></label>{message&&<div className="form-message">{message}</div>}<div className="modal-actions"><button type="button" onClick={()=>setOpen(false)}>Há»§y</button><button className="primary-button">LÆ°u lá»‹ch ca</button></div></form></div>}
+  </div>;
+}
+
+function GoodsManagement({ store }: { store: ReferenceStore }) {
+  const { records, reload } = useRecords("NHAP_HANG", store.id); const [query,setQuery]=useState(""); const [open,setOpen]=useState(false); const [editing,setEditing]=useState<BusinessRecord|null>(null); const [message,setMessage]=useState(""); const [hiddenSamples,setHiddenSamples]=useState<string[]>([]);
+  const empty={name:"",quantity:"1",unit:"Bao",weight:"",unitPrice:"",shipping:"0",date:today(),note:""}; const [form,setForm]=useState(empty);
+  const samples: BusinessRecord[]=sampleGoods.map((g,index)=>({id:"sample-"+index,title:g[0],status:"SAVED",updated_at:"",data:{quantity:g[1],unit:g[2],weight:g[3],unitPrice:g[4],shipping:g[5],amount:g[3]*g[4]+g[5],date:"2025-05-"+String(15-index).padStart(2,"0"),note:""}}));
+  const rows=(records.length?records:samples.filter(r=>!hiddenSamples.includes(r.id))).filter(r=>r.title.toLocaleLowerCase("vi").includes(query.toLocaleLowerCase("vi")));
+  const totalWeight=rows.reduce((s,r)=>s+Number(r.data.weight??0),0); const total=rows.reduce((s,r)=>s+Number(r.data.amount??0),0);
+  function begin(record?:BusinessRecord){setEditing(record?.id.startsWith("sample-")?null:record??null);setForm(record?{name:record.title,quantity:String(record.data.quantity??1),unit:String(record.data.unit??"Bao"),weight:String(record.data.weight??""),unitPrice:String(record.data.unitPrice??""),shipping:String(record.data.shipping??0),date:String(record.data.date??today()),note:String(record.data.note??"")}:{...empty});setMessage("");setOpen(true);}
+  async function save(event:FormEvent){event.preventDefault();const amount=Number(form.weight)*Number(form.unitPrice)+Number(form.shipping||0);try{await saveRecord({id:editing?.id,category:"NHAP_HANG",storeId:store.id,title:form.name,data:{...form,quantity:Number(form.quantity),weight:Number(form.weight),unitPrice:Number(form.unitPrice),shipping:Number(form.shipping),amount}});setOpen(false);await reload();}catch(error){setMessage((error as Error).message);}}
+  async function remove(record:BusinessRecord){if(!confirm(`XÃ³a máº·t hÃ ng ${record.title}?`))return; if(record.id.startsWith("sample-")){setHiddenSamples(current=>[...current,record.id]);return;} if(await deleteRecord(record.id))await reload();}
+  return <div className="reference-module goods-page"><div className="ref-toolbar"><div><h2>Nháº­p hÃ ng</h2><p>Quáº£n lÃ½ danh sÃ¡ch máº·t hÃ ng nháº­p kho</p></div><div className="ref-toolbar-actions"><button onClick={()=>csv("nhap-hang.csv",[["Máº·t hÃ ng","Sá»‘ lÆ°á»£ng","CÃ¢n náº·ng","ÄÆ¡n giÃ¡","ThÃ nh tiá»n"],...rows.map(r=>[r.title,Number(r.data.quantity),Number(r.data.weight),Number(r.data.unitPrice),Number(r.data.amount)])])}><Download size={16}/> Xuáº¥t Excel</button><button className="primary-button" onClick={()=>begin()}><Plus size={17}/> ThÃªm máº·t hÃ ng</button></div></div>
+    <div className="ref-metrics four"><Metric icon={PackageOpen} label="Tá»•ng máº·t hÃ ng" value={String(rows.length)} note="Danh sÃ¡ch hiá»‡n táº¡i"/><Metric icon={PackageOpen} label="Tá»•ng sá»‘ lÆ°á»£ng (bao)" value={String(rows.reduce((s,r)=>s+Number(r.data.quantity??0),0))} tone="blue"/><Metric icon={PackageOpen} label="Tá»•ng cÃ¢n náº·ng (kg)" value={new Intl.NumberFormat("vi-VN").format(totalWeight)} tone="purple"/><Metric icon={WalletCards} label="Tá»•ng chi phÃ­ nháº­p" value={money(total)} tone="orange"/></div>
+    <section className="table-card"><div className="table-head"><label className="ref-search"><Search size={16}/><input placeholder="TÃ¬m kiáº¿m máº·t hÃ ng..." value={query} onChange={(e)=>setQuery(e.target.value)}/></label><button>Táº¥t cáº£ danh má»¥c</button></div><div className="data-table-wrap"><table className="data-table goods-table"><thead><tr><th>STT</th><th>TÃªn máº·t hÃ ng</th><th>Sá»‘ lÆ°á»£ng</th><th>ÄÆ¡n vá»‹</th><th>CÃ¢n náº·ng (kg)</th><th>ÄÆ¡n giÃ¡ (Ä‘/kg)</th><th>PhÃ­ váº­n chuyá»ƒn</th><th>ThÃ nh tiá»n</th><th>HÃ nh Ä‘á»™ng</th></tr></thead><tbody>{rows.map((record,index)=><tr key={record.id}><td>{index+1}</td><td><b>{record.title}</b></td><td>{String(record.data.quantity)}</td><td>{String(record.data.unit)}</td><td>{String(record.data.weight)}</td><td>{money(Number(record.data.unitPrice))}</td><td>{money(Number(record.data.shipping))}</td><td className="money-green"><b>{money(Number(record.data.amount))}</b></td><td><div className="row-actions"><button onClick={()=>begin(record)}><Edit3 size={15}/></button><button className="danger" onClick={()=>remove(record)}><Trash2 size={15}/></button></div></td></tr>)}</tbody></table></div></section>
+    <section className="table-card"><div className="table-head"><h2>Lá»‹ch sá»­ nháº­p hÃ ng</h2><div className="ref-tabs compact"><button className="active">Táº¥t cáº£</button><button>HÃ´m nay</button><button>ThÃ¡ng nÃ y</button></div></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>NgÃ y nháº­p</th><th>Máº·t hÃ ng</th><th>Sá»‘ lÆ°á»£ng</th><th>CÃ¢n náº·ng</th><th>ThÃ nh tiá»n</th><th>NgÆ°á»i nháº­p</th></tr></thead><tbody>{rows.slice(0,5).map(r=><tr key={r.id}><td>{String(r.data.date)}</td><td>{r.title}</td><td>{String(r.data.quantity)} {String(r.data.unit)}</td><td>{String(r.data.weight)} kg</td><td><b>{money(Number(r.data.amount))}</b></td><td>Quáº£n lÃ½ cá»­a hÃ ng</td></tr>)}</tbody></table></div></section>
+    {open&&<div className="modal-backdrop"><form className="modal goods-modal" onSubmit={save}><div className="modal-title"><div><h2>{editing?"Cáº­p nháº­t máº·t hÃ ng":"ThÃªm máº·t hÃ ng"}</h2><p>ThÃ nh tiá»n tá»± Ä‘á»™ng theo cÃ¢n náº·ng Ã— Ä‘Æ¡n giÃ¡ + váº­n chuyá»ƒn</p></div><button type="button" onClick={()=>setOpen(false)}><X size={19}/></button></div><label>TÃªn máº·t hÃ ng *<input required value={form.name} onChange={(e)=>setForm({...form,name:e.target.value})}/></label><div className="form-grid two"><label>Sá»‘ lÆ°á»£ng (bao) *<input type="number" min="1" required value={form.quantity} onChange={(e)=>setForm({...form,quantity:e.target.value})}/></label><label>ÄÆ¡n vá»‹<select value={form.unit} onChange={(e)=>setForm({...form,unit:e.target.value})}><option>Bao</option><option>Kiá»‡n</option><option>ThÃ¹ng</option></select></label><label>CÃ¢n náº·ng (kg) *<input type="number" min="0.01" step="0.01" required value={form.weight} onChange={(e)=>setForm({...form,weight:e.target.value})}/></label><label>ÄÆ¡n giÃ¡ nháº­p (Ä‘/kg) *<input type="number" min="1" required value={form.unitPrice} onChange={(e)=>setForm({...form,unitPrice:e.target.value})}/></label><label>PhÃ­ váº­n chuyá»ƒn<input type="number" min="0" value={form.shipping} onChange={(e)=>setForm({...form,shipping:e.target.value})}/></label><label>NgÃ y nháº­p<input type="date" value={form.date} onChange={(e)=>setForm({...form,date:e.target.value})}/></label></div><div className="goods-total">ThÃ nh tiá»n <b>{money(Number(form.weight||0)*Number(form.unitPrice||0)+Number(form.shipping||0))}</b></div><label>Ghi chÃº<textarea value={form.note} onChange={(e)=>setForm({...form,note:e.target.value})}/></label>{message&&<div className="form-message">{message}</div>}<div className="modal-actions"><button type="button" onClick={()=>setOpen(false)}>Há»§y</button><button className="primary-button">LÆ°u máº·t hÃ ng</button></div></form></div>}
+  </div>;
+}
+
+function AttendanceManagement({ store }: { store: ReferenceStore }) {
+  type Mode = "shift" | "day" | "month";
+  type AttendanceRow = {
+    key: string; employeeCode: string; employeeName: string; workDate: string;
+    shiftNames: string[]; startedAt: string | null; endedAt: string | null;
+    durationSeconds: number; salary: number; rates: number[]; sessionCount: number;
+    active: boolean; supporting: boolean; sourceStoreNames: string[];
+    attendanceStatuses: Array<"EARLY" | "ON_TIME" | "LATE">; attendanceDeltas: number[];
+    locations: AttendanceLocation[];
+  };
+  const { shifts } = useShiftSessions(store.id);
+  const [mode, setMode] = useState<Mode>("shift");
+  const [query, setQuery] = useState("");
+  const [date, setDate] = useState(today());
+  const [month, setMonth] = useState(today().slice(0, 7));
+
+  const monthSessions = useMemo(() => shifts.filter((shift) => {
+    const matchesMonth = sessionDate(shift).slice(0, 7) === month;
+    const searchable = `${shift.employeeCode} ${shift.employeeName} ${shift.shiftName ?? shift.shift_code}`.toLocaleLowerCase("vi");
+    return matchesMonth && searchable.includes(query.toLocaleLowerCase("vi"));
+  }), [month, query, shifts]);
+
+  const aggregate = useCallback((sessions: ShiftSession[], keyOf: (shift: ShiftSession) => string): AttendanceRow[] => {
+    const groups = new Map<string, AttendanceRow>();
+    for (const shift of sessions) {
+      const seconds = sessionSeconds(shift);
+      const rate = sessionRate(shift);
+      const key = keyOf(shift);
+      const current = groups.get(key) ?? {
+        key, employeeCode: shift.employeeCode, employeeName: shift.employeeName, workDate: sessionDate(shift),
+        shiftNames: [], startedAt: null, endedAt: null, durationSeconds: 0, salary: 0, rates: [], sessionCount: 0,
+        active: false, supporting: false, sourceStoreNames: [], attendanceStatuses: [], attendanceDeltas: [], locations: [],
+      };
+      const attendance = sessionAttendance(shift);
+      const location = sessionLocation(shift);
+      current.shiftNames = [...new Set([...current.shiftNames, shift.shiftName ?? shift.shift_code])];
+      current.rates = [...new Set([...current.rates, rate])];
+      current.sourceStoreNames = [...new Set([...current.sourceStoreNames, ...(shift.sourceStoreName ? [shift.sourceStoreName] : [])])];
+      current.startedAt = !current.startedAt || new Date(shift.started_at) < new Date(current.startedAt) ? shift.started_at : current.startedAt;
+      current.endedAt = !shift.ended_at ? current.endedAt : !current.endedAt || new Date(shift.ended_at) > new Date(current.endedAt) ? shift.ended_at : current.endedAt;
+      current.durationSeconds += seconds;
+      current.salary += Math.round(seconds / 3_600 * rate);
+      current.sessionCount += 1;
+      current.active ||= !shift.ended_at || shift.status === "ACTIVE";
+      current.supporting ||= Boolean(shift.transfer_id);
+      if (attendance) {
+        current.attendanceStatuses.push(attendance.status);
+        current.attendanceDeltas.push(attendance.delta);
+      }
+      if (location) current.locations.push(location);
+      groups.set(key, current);
+    }
+    return [...groups.values()].sort((a, b) => b.workDate.localeCompare(a.workDate) || a.employeeCode.localeCompare(b.employeeCode, "vi"));
+  }, []);
+
+  const rows = useMemo(() => {
+    if (mode === "shift") return aggregate(monthSessions.filter((shift) => sessionDate(shift) === date), (shift) => shift.id);
+    if (mode === "day") return aggregate(monthSessions, (shift) => `${sessionDate(shift)}:${shift.employeeCode}`);
+    return aggregate(monthSessions, (shift) => shift.employeeCode);
+  }, [aggregate, date, mode, monthSessions]);
+  const totalSeconds = rows.reduce((sum, row) => sum + row.durationSeconds, 0);
+  const totalPay = rows.reduce((sum, row) => sum + row.salary, 0);
+  const employeeCount = new Set(rows.map((row) => row.employeeCode)).size;
+  const shiftSummary = useMemo(() => {
+    const totals = new Map<string, number>();
+    for (const shift of monthSessions) {
+      const name = shift.shiftName ?? shift.shift_code;
+      totals.set(name, (totals.get(name) ?? 0) + sessionSeconds(shift));
+    }
+    return [...totals.entries()].sort(([a], [b]) => a.localeCompare(b, "vi"));
+  }, [monthSessions]);
+  const rowRate = (row: AttendanceRow) => row.rates.length === 1
+    ? hourlyMoney(row.rates[0])
+    : row.rates.map((rate) => money(rate)).join(" Â· ") + "/giá»";
+  const attendanceLabel = (row: AttendanceRow) => {
+    if (row.attendanceStatuses.length === 0) return "ChÆ°a cÃ³ má»‘c lá»‹ch";
+    if (row.attendanceStatuses.length === 1) {
+      const status = row.attendanceStatuses[0];
+      const delta = row.attendanceDeltas[0] ?? 0;
+      if (status === "EARLY") return `Sá»›m ${Math.abs(delta)} phÃºt`;
+      if (status === "LATE") return `Trá»… ${Math.max(0, delta)} phÃºt`;
+      return delta > 0 ? `ÄÃºng giá» (+${delta} phÃºt)` : "ÄÃºng giá»";
+    }
+    const early = row.attendanceStatuses.filter((status) => status === "EARLY").length;
+    const onTime = row.attendanceStatuses.filter((status) => status === "ON_TIME").length;
+    const late = row.attendanceStatuses.filter((status) => status === "LATE").length;
+    return `Sá»›m ${early} Â· ÄÃºng ${onTime} Â· Trá»… ${late}`;
+  };
+  const attendanceTone = (row: AttendanceRow) => {
+    if (row.attendanceStatuses.includes("LATE")) return "attendance-status attendance-late";
+    if (row.attendanceStatuses.includes("EARLY")) return "attendance-status attendance-early";
+    if (row.attendanceStatuses.includes("ON_TIME")) return "attendance-status attendance-on-time";
+    return "attendance-status attendance-unknown";
+  };
+
+  return <div className="reference-module attendance-page">
+    <div className="ref-toolbar"><div><h2>Cháº¥m cÃ´ng</h2><p>Danh sÃ¡ch ca vÃ  thá»‘ng kÃª lÆ°Æ¡ng theo giá» lÃ m thá»±c táº¿</p></div><div className="ref-toolbar-actions">
+      {mode === "shift"
+        ? <DatePickerControl ariaLabel="NgÃ y cháº¥m cÃ´ng" hint="NgÃ y cháº¥m cÃ´ng" value={date} onChange={(value) => { setDate(value); setMonth(value.slice(0, 7)); }}/>
+        : <DatePickerControl ariaLabel="ThÃ¡ng cháº¥m cÃ´ng" hint="ThÃ¡ng cháº¥m cÃ´ng" type="month" value={month} onChange={setMonth}/>}
+      <button type="button" onClick={() => csv("cham-cong.csv", [["NgÃ y", "NhÃ¢n viÃªn", "Ca", "Äiá»ƒm danh", "Vá»‹ trÃ­ Ä‘iá»ƒm danh", "Sá»‘ giá»", "LÆ°Æ¡ng cá»©ng/giá»", "LÆ°Æ¡ng thá»±c nháº­n"], ...rows.map((row) => [row.workDate, row.employeeName, row.shiftNames.join(", "), attendanceLabel(row), locationExportLabel(row.locations), (row.durationSeconds / 3_600).toFixed(2), rowRate(row), row.salary])])}><Download size={16}/> Xuáº¥t Excel</button>
+    </div></div>
+    <div className="ref-metrics four"><Metric icon={UsersRound} label="NhÃ¢n viÃªn cÃ³ cháº¥m cÃ´ng" value={employeeCount + " ngÆ°á»i"}/><Metric icon={Clock3} label="Tá»•ng giá» lÃ m thá»±c táº¿" value={(totalSeconds / 3_600).toFixed(2) + " giá»"} note={`Tá»« ${rows.reduce((sum, row) => sum + row.sessionCount, 0)} ca lÃ m`} tone="blue"/><Metric icon={WalletCards} label="LÆ°Æ¡ng cá»©ng" value="Theo má»©c / giá»" note="Quáº£n lÃ½ thiáº¿t láº­p cho tá»«ng nhÃ¢n viÃªn" tone="purple"/><Metric icon={WalletCards} label="Tá»•ng lÆ°Æ¡ng thá»±c nháº­n" value={money(totalPay)} note="LÆ°Æ¡ng cá»©ng/giá» Ã— giá» thá»±c táº¿" tone="teal"/></div>
+    <section className="table-card attendance-records" aria-labelledby="attendance-records-title">
+      <div className="table-head attendance-table-head"><div className="attendance-table-controls"><h3 className="sr-only" id="attendance-records-title">Danh sÃ¡ch cháº¥m cÃ´ng</h3><div className="ref-tabs compact attendance-mode-tabs" role="group" aria-label="CÃ¡ch tá»•ng há»£p cháº¥m cÃ´ng"><button type="button" className={mode === "shift" ? "active" : ""} aria-pressed={mode === "shift"} onClick={() => setMode("shift")}>Theo ca</button><button type="button" className={mode === "day" ? "active" : ""} aria-pressed={mode === "day"} onClick={() => setMode("day")}>Theo ngÃ y</button><button type="button" className={mode === "month" ? "active" : ""} aria-pressed={mode === "month"} onClick={() => setMode("month")}>Theo thÃ¡ng Â· tá»«ng nhÃ¢n viÃªn</button></div><p className="attendance-guidance">Tráº¡ng thÃ¡i Ä‘i sá»›m, Ä‘Ãºng giá» hoáº·c Ä‘i trá»… dÃ¹ng áº£nh chá»¥p ngÆ°á»¡ng Ä‘Æ°á»£c lÆ°u táº¡i thá»i Ä‘iá»ƒm nhÃ¢n viÃªn Ä‘iá»ƒm danh. ChÃ­nh sÃ¡ch hiá»‡n hÃ nh vÃ  chÃº giáº£i Ä‘Ã¡nh giÃ¡ Ä‘Æ°á»£c hiá»ƒn thá»‹ trong báº£ng thá»‘ng kÃª bÃªn dÆ°á»›i. Vá»‹ trÃ­ lÃ  áº£nh chá»¥p Ä‘á»‹nh vá»‹ táº¡i thá»i Ä‘iá»ƒm nhÃ¢n viÃªn xÃ¡c nháº­n Ä‘iá»ƒm danh.</p></div><label className="ref-search"><Search size={16} aria-hidden="true"/><input aria-label="TÃ¬m nhÃ¢n viÃªn hoáº·c ca" placeholder="TÃ¬m nhÃ¢n viÃªn hoáº·c ca..." value={query} onChange={(event) => setQuery(event.target.value)}/></label></div>
+      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Keyboard focus lets users scroll the wide attendance table. */}
+      <div className="data-table-wrap attendance-desktop-table" role="region" tabIndex={0} aria-label="Báº£ng cháº¥m cÃ´ng, cuá»™n ngang Ä‘á»ƒ xem Ä‘áº§y Ä‘á»§"><table className="data-table attendance-table"><thead><tr><th>STT</th>{mode !== "month" ? <th>NgÃ y</th> : null}<th>NhÃ¢n viÃªn</th><th>Ca lÃ m viá»‡c</th>{mode === "shift" ? <><th>Giá» vÃ o</th><th>Giá» káº¿t ca</th></> : null}<th>Äiá»ƒm danh</th><th>Vá»‹ trÃ­ Ä‘iá»ƒm danh</th><th>Sá»‘ giá» thá»±c táº¿</th><th>LÆ°Æ¡ng cá»©ng</th><th>LÆ°Æ¡ng thá»±c nháº­n</th><th>Tráº¡ng thÃ¡i</th></tr></thead><tbody>
+        {rows.length === 0 ? <tr><td colSpan={mode === "shift" ? 12 : 10} className="empty-cell">ChÆ°a cÃ³ dá»¯ liá»‡u cháº¥m cÃ´ng thá»±c táº¿ trong thá»i gian Ä‘Ã£ chá»n.</td></tr> : rows.map((row, index) => <tr key={row.key}><td>{index + 1}</td>{mode !== "month" ? <td>{dateLabel(row.workDate)}</td> : null}<td><Person name={row.employeeName} position={row.supporting ? `${row.employeeCode} Â· Há»— trá»£ tá»« ${row.sourceStoreNames.join(", ") || "cá»­a hÃ ng khÃ¡c"}` : row.employeeCode}/></td><td><b className={`shift-text c${(index % 3) + 1}`}>{row.shiftNames.join(", ") || "â€”"}</b>{mode !== "shift" ? <small className="support-note">{row.sessionCount} ca</small> : null}</td>{mode === "shift" ? <><td>{timeLabel(row.startedAt)}</td><td>{row.active ? "Äang lÃ m" : timeLabel(row.endedAt)}</td></> : null}<td><span className={attendanceTone(row)}>{attendanceLabel(row)}</span></td><td className="attendance-location-cell"><AttendanceLocationView locations={row.locations} employeeName={row.employeeName}/></td><td>{(row.durationSeconds / 3_600).toFixed(2)} giá»</td><td>{rowRate(row)}</td><td className="money-green"><b>{money(row.salary)}</b></td><td><span className="status-pill">{row.active ? "Äang lÃ m" : row.supporting ? "Ca há»— trá»£" : "ÄÃ£ káº¿t ca"}</span></td></tr>)}
+      </tbody></table></div>
+      {rows.length === 0 ? <p className="attendance-mobile-empty">ChÆ°a cÃ³ dá»¯ liá»‡u cháº¥m cÃ´ng thá»±c táº¿ trong thá»i gian Ä‘Ã£ chá»n.</p> : <ol className="attendance-mobile-list" aria-label="Danh sÃ¡ch cháº¥m cÃ´ng">{rows.map((row, index) => <li className="attendance-mobile-card" key={row.key}><header><span className="attendance-mobile-index" aria-label={`DÃ²ng ${index + 1}`}>{index + 1}</span><Person name={row.employeeName} position={row.supporting ? `${row.employeeCode} Â· Há»— trá»£ tá»« ${row.sourceStoreNames.join(", ") || "cá»­a hÃ ng khÃ¡c"}` : row.employeeCode}/><span className="status-pill">{row.active ? "Äang lÃ m" : row.supporting ? "Ca há»— trá»£" : "ÄÃ£ káº¿t ca"}</span></header><dl>{mode !== "month" ? <div><dt>NgÃ y</dt><dd>{dateLabel(row.workDate)}</dd></div> : null}<div><dt>Ca lÃ m viá»‡c</dt><dd><b className={`shift-text c${(index % 3) + 1}`}>{row.shiftNames.join(", ") || "â€”"}</b>{mode !== "shift" ? <small className="support-note">{row.sessionCount} ca</small> : null}</dd></div>{mode === "shift" ? <><div><dt>Giá» vÃ o</dt><dd>{timeLabel(row.startedAt)}</dd></div><div><dt>Giá» káº¿t ca</dt><dd>{row.active ? "Äang lÃ m" : timeLabel(row.endedAt)}</dd></div></> : null}<div><dt>Äiá»ƒm danh</dt><dd><span className={attendanceTone(row)}>{attendanceLabel(row)}</span></dd></div><div className="attendance-mobile-location"><dt>Vá»‹ trÃ­</dt><dd><AttendanceLocationView locations={row.locations} employeeName={row.employeeName}/></dd></div><div><dt>Giá» thá»±c táº¿</dt><dd>{(row.durationSeconds / 3_600).toFixed(2)} giá»</dd></div><div><dt>LÆ°Æ¡ng cá»©ng</dt><dd>{rowRate(row)}</dd></div><div><dt>Thá»±c nháº­n</dt><dd className="money-green"><b>{money(row.salary)}</b></dd></div></dl></li>)}</ol>}
+    </section>
+    <AttendanceStatsPanel storeId={store.id}/>
+    <div className="ref-bottom-grid"><article className="chart-card"><h3>CÃ¡ch tÃ­nh lÆ°Æ¡ng</h3><p>â€¢ LÆ°Æ¡ng cá»©ng lÃ  má»©c lÆ°Æ¡ng quáº£n lÃ½ Ä‘áº·t theo giá» cho tá»«ng nhÃ¢n viÃªn.</p><p>â€¢ LÆ°Æ¡ng thá»±c nháº­n = LÆ°Æ¡ng cá»©ng/giá» Ã— sá»‘ giá» lÃ m thá»±c táº¿.</p></article><article className="chart-card"><h3>Tá»•ng há»£p theo ca Â· {month}</h3><div className="shift-info">{shiftSummary.length ? shiftSummary.map(([name, seconds]) => <span key={name}><b>{name}</b>{(seconds / 3_600).toFixed(2)} giá»</span>) : <p>ChÆ°a cÃ³ ca Ä‘Ã£ ghi nháº­n.</p>}</div></article><article className="chart-card donut-small"><div className="ref-donut attendance"><b>{employeeCount}</b><small>nhÃ¢n viÃªn</small></div><div><b>Thá»‘ng kÃª thÃ¡ng</b><p>{monthSessions.length} ca lÃ m thá»±c táº¿</p><p>{money(monthSessions.reduce((sum, shift) => sum + Math.round(sessionSeconds(shift) / 3_600 * sessionRate(shift)), 0))} tiá»n lÆ°Æ¡ng</p></div></article></div>
+  </div>;
+}
+
+function PayrollManagement({ store }: { store: ReferenceStore }) {
+  const { records, reload } = useRecords("LUONG_THUONG", store.id);
+  const [month, setMonth] = useState(today().slice(0, 7));
+  const { employees } = useEmployees(store.id, month);
+  const [loadedSummary, setLoadedSummary] = useState<PayrollSummary | null>(null);
+  const [loadedLocked, setLoadedLocked] = useState(false);
+  const [loadedScope, setLoadedScope] = useState<PayrollScope | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [finalizing, setFinalizing] = useState(false);
+  const [kind, setKind] = useState<"ALLOWANCE" | "BONUS">("ALLOWANCE");
+  const [open, setOpen] = useState(false);
+  const [adjustmentScope, setAdjustmentScope] = useState<PayrollScope | null>(null);
+  const [employeeId, setEmployeeId] = useState("");
+  const [amount, setAmount] = useState("");
+  const [note, setNote] = useState("");
+  const [date, setDate] = useState(today());
+  const [message, setMessage] = useState("");
+  const [savingAdjustment, setSavingAdjustment] = useState(false);
+  const [deletingAdjustmentId, setDeletingAdjustmentId] = useState<string | null>(null);
+  const savingAdjustmentRef = useRef(false);
+  const deletingAdjustmentRef = useRef<string | null>(null);
+  const payrollEmployeeSelectRef = useRef<HTMLSelectElement | null>(null);
+  const payrollBackdropRef = useRef<HTMLDivElement | null>(null);
+  const payrollDialogRef = useRef<HTMLFormElement | null>(null);
+  const payrollTriggerRef = useRef<HTMLElement | null>(null);
+  const loadRequest = useRef(0);
+  const loadController = useRef<AbortController | null>(null);
+  const selectedScopeRef = useRef<PayrollScope>({ storeId: store.id, period: month });
+
+  const loadPayroll = useCallback(async () => {
+    const requestedScope = { storeId: store.id, period: month };
+    const requestId = ++loadRequest.current;
+    loadController.current?.abort();
+    const controller = new AbortController();
+    loadController.current = controller;
+    setLoading(true);
+    setMessage("");
+    setLoadedSummary(null);
+    setLoadedLocked(false);
+    setLoadedScope(null);
+    try {
+      const query = new URLSearchParams(requestedScope);
+      const response = await fetch("/api/payroll?" + query, { cache: "no-store", signal: controller.signal });
+      const result = await response.json() as PayrollResponse;
+      if (!response.ok) throw new Error(result.message || "KhÃ´ng thá»ƒ táº£i ká»³ lÆ°Æ¡ng");
+      if (
+        result.period !== requestedScope.period
+        || !result.summary
+        || result.summary.period !== requestedScope.period
+        || result.summary.storeId !== requestedScope.storeId
+      ) {
+        throw new Error("Dá»¯ liá»‡u lÆ°Æ¡ng thÆ°á»Ÿng pháº£n há»“i khÃ´ng Ä‘Ãºng cá»­a hÃ ng hoáº·c ká»³ Ä‘Ã£ chá»n.");
+      }
+      if (requestId !== loadRequest.current || controller.signal.aborted) return;
+      setLoadedSummary(result.summary);
+      setLoadedLocked(Boolean(result.locked));
+      setLoadedScope(requestedScope);
+    } catch (cause) {
+      if (requestId !== loadRequest.current || controller.signal.aborted) return;
+      setLoadedSummary(null);
+      setLoadedLocked(false);
+      setLoadedScope(null);
+      setMessage(cause instanceof Error ? cause.message : "KhÃ´ng thá»ƒ táº£i ká»³ lÆ°Æ¡ng");
+    } finally {
+      if (loadController.current === controller) loadController.current = null;
+      if (requestId === loadRequest.current && !controller.signal.aborted) setLoading(false);
+    }
+  }, [month, store.id]);
+
+  useEffect(() => {
+    selectedScopeRef.current = { storeId: store.id, period: month };
+  }, [month, store.id]);
+  useEffect(() => {
+    void loadPayroll();
+    return () => loadController.current?.abort();
+  }, [loadPayroll]);
+  useEffect(() => {
+    const handlePayrollUpdate = (event: Event) => {
+      const detail = (event as CustomEvent<{ storeId?: string; period?: string; source?: string }>).detail;
+      if (detail?.source === "closing" && detail.storeId === store.id && detail.period === month) {
+        void loadPayroll();
+      }
+    };
+    window.addEventListener(PAYROLL_UPDATED_EVENT, handlePayrollUpdate);
+    return () => window.removeEventListener(PAYROLL_UPDATED_EVENT, handlePayrollUpdate);
+  }, [loadPayroll, month, store.id]);
+  useEffect(() => {
+    if (!employees.some((employee) => employee.id === employeeId)) {
+      setEmployeeId(employees[0]?.id ?? "");
+    }
+  }, [employeeId, employees]);
+  const dataIsCurrent = Boolean(
+    loadedScope
+    && loadedScope.storeId === store.id
+    && loadedScope.period === month
+    && loadedSummary
+    && loadedSummary.storeId === loadedScope.storeId
+    && loadedSummary.period === loadedScope.period,
+  );
+  const summary = dataIsCurrent ? loadedSummary : null;
+  const locked = dataIsCurrent ? loadedLocked : false;
+  const adjustmentIsCurrent = Boolean(
+    adjustmentScope
+    && loadedScope
+    && dataIsCurrent
+    && samePayrollScope(adjustmentScope, loadedScope),
+  );
+  useAccessibleModal({
+    open: Boolean(open && adjustmentScope && adjustmentIsCurrent),
+    rootRef: payrollBackdropRef,
+    dialogRef: payrollDialogRef,
+    initialFocusRef: payrollEmployeeSelectRef,
+    returnFocusRef: payrollTriggerRef,
+    dismissDisabled: savingAdjustment,
+    onDismiss: closeAdjustmentDialog,
+  });
+  const periodRecords = records.filter((record) => String(record.data.date ?? "").slice(0, 7) === month);
+
+  function selectMonth(value: string) {
+    selectedScopeRef.current = { storeId: store.id, period: value };
+    setOpen(false);
+    setAdjustmentScope(null);
+    setMonth(value);
+  }
+
+  function begin(type: "ALLOWANCE" | "BONUS") {
+    const actionScope = loadedScope;
+    if (!actionScope || !dataIsCurrent) {
+      setMessage("Dá»¯ liá»‡u ká»³ lÆ°Æ¡ng Ä‘ang táº£i hoáº·c chÆ°a khá»›p ká»³ Ä‘Ã£ chá»n. Vui lÃ²ng táº£i láº¡i trÆ°á»›c khi thao tÃ¡c.");
+      return;
+    }
+    if (locked) return setMessage("Ká»³ lÆ°Æ¡ng Ä‘Ã£ khÃ³a, khÃ´ng thá»ƒ thÃªm khoáº£n má»›i.");
+    payrollTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setAdjustmentScope(actionScope);
+    setKind(type);
+    setAmount("");
+    setNote("");
+    setDate(actionScope.period === today().slice(0, 7) ? today() : `${actionScope.period}-01`);
+    setMessage("");
+    setOpen(true);
+  }
+
+  function closeAdjustmentDialog() {
+    if (savingAdjustmentRef.current) return;
+    setOpen(false);
+    setAdjustmentScope(null);
+  }
+
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    if (savingAdjustmentRef.current) return;
+    const actionScope = adjustmentScope;
+    if (!actionScope || !adjustmentIsCurrent || date.slice(0, 7) !== actionScope.period) {
+      setMessage("Ká»³ lÆ°Æ¡ng Ä‘Ã£ thay Ä‘á»•i. Vui lÃ²ng Ä‘Ã³ng há»™p thoáº¡i vÃ  táº¡o láº¡i khoáº£n Ä‘iá»u chá»‰nh trong ká»³ Ä‘ang chá»n.");
+      return;
+    }
+    const employee = employees.find((item) => item.id === employeeId);
+    const parsedAmount = parseVndInput(amount);
+    if (!employee || !Number.isSafeInteger(parsedAmount) || parsedAmount <= 0) return setMessage("Vui lÃ²ng chá»n nhÃ¢n viÃªn vÃ  nháº­p sá»‘ tiá»n há»£p lá»‡.");
+    savingAdjustmentRef.current = true;
+    setSavingAdjustment(true);
+    setMessage("");
+    try {
+      await saveRecord({
+        category: "LUONG_THUONG", storeId: actionScope.storeId,
+        title: (kind === "ALLOWANCE" ? "Phá»¥ cáº¥p" : "ThÆ°á»Ÿng") + " Â· " + employee.name,
+        data: { kind, employeeId, employeeName: employee.name, amount: parsedAmount, note, date, period: actionScope.period },
+      });
+      setOpen(false);
+      setAdjustmentScope(null);
+      if (samePayrollScope(selectedScopeRef.current, actionScope)) {
+        await reload();
+        if (samePayrollScope(selectedScopeRef.current, actionScope)) await loadPayroll();
+      }
+      window.dispatchEvent(new CustomEvent(PAYROLL_UPDATED_EVENT, {
+        detail: { storeId: actionScope.storeId, period: actionScope.period, source: "management" },
+      }));
+    } catch (error) {
+      // Keep the dialog and every entered field intact so the manager can
+      // correct or retry the same adjustment.
+      setMessage((error as Error).message);
+    } finally {
+      savingAdjustmentRef.current = false;
+      setSavingAdjustment(false);
+    }
+  }
+
+  async function remove(id: string) {
+    const actionScope = loadedScope;
+    if (!actionScope || !dataIsCurrent || locked || deletingAdjustmentRef.current) {
+      if (locked) setMessage("Ká»³ lÆ°Æ¡ng Ä‘Ã£ khÃ³a, khÃ´ng thá»ƒ xÃ³a khoáº£n Ä‘Ã£ tá»•ng káº¿t.");
+      else if (!dataIsCurrent) setMessage("Dá»¯ liá»‡u ká»³ lÆ°Æ¡ng Ä‘ang táº£i hoáº·c chÆ°a khá»›p ká»³ Ä‘Ã£ chá»n. Vui lÃ²ng táº£i láº¡i trÆ°á»›c khi thao tÃ¡c.");
+      return;
+    }
+    deletingAdjustmentRef.current = id;
+    setDeletingAdjustmentId(id);
+    setMessage("");
+    try {
+      if (await deleteRecord(id, setMessage)) {
+        if (samePayrollScope(selectedScopeRef.current, actionScope)) {
+          await reload();
+          if (samePayrollScope(selectedScopeRef.current, actionScope)) await loadPayroll();
+        }
+        window.dispatchEvent(new CustomEvent(PAYROLL_UPDATED_EVENT, {
+          detail: { storeId: actionScope.storeId, period: actionScope.period, source: "management" },
+        }));
+      }
+    } finally {
+      deletingAdjustmentRef.current = null;
+      setDeletingAdjustmentId(null);
+    }
+  }
+
+  async function finalize() {
+    const actionScope = loadedScope;
+    if (!actionScope || !dataIsCurrent || locked || loading || finalizing) {
+      if (!dataIsCurrent) setMessage("Dá»¯ liá»‡u ká»³ lÆ°Æ¡ng Ä‘ang táº£i hoáº·c chÆ°a khá»›p ká»³ Ä‘Ã£ chá»n. Vui lÃ²ng táº£i láº¡i trÆ°á»›c khi thao tÃ¡c.");
+      return;
+    }
+    if (!confirm(`Tá»•ng káº¿t vÃ  khÃ³a lÆ°Æ¡ng thÆ°á»Ÿng thÃ¡ng ${actionScope.period}? Dá»¯ liá»‡u KPI sáº½ khÃ´ng tá»± thay Ä‘á»•i sau khi khÃ³a.`)) return;
+    setFinalizing(true);
+    setMessage("");
+    try {
+      const response = await fetch("/api/payroll", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ storeId: actionScope.storeId, period: actionScope.period }),
+      });
+      const result = await response.json() as PayrollResponse;
+      if (!response.ok) throw new Error(result.message || "KhÃ´ng thá»ƒ tá»•ng káº¿t ká»³ lÆ°Æ¡ng");
+      if (!result.summary || result.summary.storeId !== actionScope.storeId || result.summary.period !== actionScope.period) {
+        throw new Error("Dá»¯ liá»‡u tá»•ng káº¿t pháº£n há»“i khÃ´ng Ä‘Ãºng cá»­a hÃ ng hoáº·c ká»³ Ä‘Ã£ chá»n.");
+      }
+      window.dispatchEvent(new CustomEvent(PAYROLL_UPDATED_EVENT, {
+        detail: { storeId: actionScope.storeId, period: actionScope.period, source: "management" },
+      }));
+      if (!samePayrollScope(selectedScopeRef.current, actionScope)) return;
+      setLoadedSummary(result.summary);
+      setLoadedLocked(true);
+      setLoadedScope(actionScope);
+      setMessage("âœ“ ÄÃ£ tá»•ng káº¿t vÃ  khÃ³a ká»³ lÆ°Æ¡ng thÆ°á»Ÿng.");
+    } catch (cause) {
+      if (samePayrollScope(selectedScopeRef.current, actionScope)) {
+        setMessage(cause instanceof Error ? cause.message : "KhÃ´ng thá»ƒ tá»•ng káº¿t ká»³ lÆ°Æ¡ng");
+      }
+    } finally {
+      setFinalizing(false);
+    }
+  }
+
+  function exportPayroll() {
+    const actionScope = loadedScope;
+    if (!actionScope || !dataIsCurrent || !summary) return;
+    csv(`luong-thuong-${actionScope.storeId}-${actionScope.period}.csv`, [
+      ["NhÃ¢n viÃªn", "LÆ°Æ¡ng cá»©ng/giá»", "Giá» thá»±c táº¿", "LÆ°Æ¡ng thá»±c nháº­n", "Phá»¥ cáº¥p", "ThÆ°á»Ÿng khÃ¡c", "ThÆ°á»Ÿng KPI", "Tá»•ng nháº­n", "ÄÃ£ á»©ng", "CÃ²n kháº£ dá»¥ng"],
+      ...summary.items.map((item) => [item.employeeName, item.hourlyRate, item.hours.toFixed(2), item.baseSalary, item.tiktokAllowance + item.supportAllowance + item.manualAllowance, item.manualBonus, item.kpiBonus, item.totalPay, item.salaryAdvanceReserved ?? 0, item.availablePay ?? item.totalPay]),
+    ]);
+  }
+
+  const items = summary?.items ?? [];
+  const totalAllowance = (summary?.totalTikTokAllowance ?? 0) + (summary?.totalSupportAllowance ?? 0) + (summary?.totalManualAllowance ?? 0);
+  const totalBonus = (summary?.totalManualBonus ?? 0) + (summary?.totalKpiBonus ?? 0);
+  const rateLabel = `${Math.round((summary?.kpiRate ?? 0) * 100)}%`;
+  const managerFixedHours = summary?.managerFixedHours ?? 140;
+  const employeeKpiHours = summary?.kpiEligibleHours ?? summary?.totalHours ?? 0;
+  const totalKpiHours = summary?.totalKpiHours ?? (employeeKpiHours + managerFixedHours);
+  const profitPerKpiHour = summary?.profitPerKpiHour ?? summary?.profitPerHour ?? 0;
+  const allowanceNote = [
+    `Phá»¥ cáº¥p TikTok ${money(summary?.totalTikTokAllowance ?? 0)}`,
+    ...(summary?.totalSupportAllowance ? [`Phá»¥ cáº¥p há»— trá»£ ${money(summary.totalSupportAllowance)}`] : []),
+    `Phá»¥ cáº¥p khÃ¡c ${money(summary?.totalManualAllowance ?? 0)}`,
+  ].join("\n");
+
+  return <div className="reference-module payroll-page">
+    <div className="ref-toolbar"><div><h2>LÆ°Æ¡ng thÆ°á»Ÿng nhÃ¢n viÃªn</h2><p>Tá»•ng káº¿t lÆ°Æ¡ng vÃ  thÆ°á»Ÿng KPI theo giá» lÃ m thá»±c táº¿ cá»§a tá»«ng cá»­a hÃ ng</p></div><div className="ref-toolbar-actions payroll-compact-actions">
+      <DatePickerControl className="payroll-period-picker" ariaLabel="ThÃ¡ng tá»•ng káº¿t" hint="Ká»³ lÆ°Æ¡ng" type="month" value={month} onChange={selectMonth}/>
+      <button disabled={!dataIsCurrent} onClick={exportPayroll}><Download size={16}/> Xuáº¥t Excel</button>
+      <button disabled={locked || loading || finalizing || !dataIsCurrent} onClick={() => begin("ALLOWANCE")}><Plus size={16}/> Táº¡o phá»¥ cáº¥p</button>
+      <button disabled={locked || loading || finalizing || !dataIsCurrent} onClick={() => begin("BONUS")}><Gift size={16}/> Táº¡o thÆ°á»Ÿng</button>
+      <button className="primary-button" disabled={locked || loading || finalizing || !dataIsCurrent} onClick={finalize}><CheckCircle2 size={16}/>{locked ? "ÄÃ£ khÃ³a ká»³" : loading || finalizing ? "Äang tÃ­nh..." : "Tá»•ng káº¿t thÃ¡ng"}</button>
+    </div></div>
+
+    {message && <div className={message.startsWith("âœ“") ? "success-banner" : "form-message"}>{message}</div>}
+    <div className="report-profit-note"><CheckCircle2 size={18}/><span>Lá»£i nhuáº­n cÆ¡ sá»Ÿ trÆ°á»›c KPI <b>{money(summary?.profit ?? store.profit)}</b> Â· Tá»•ng giá» xÃ©t KPI <b>{totalKpiHours.toFixed(2)} giá»</b> ({employeeKpiHours.toFixed(2)} giá» nhÃ¢n viÃªn Ä‘á»§ Ä‘iá»u kiá»‡n + {managerFixedHours} giá» quáº£n lÃ½) Â· Lá»£i nhuáº­n cÆ¡ sá»Ÿ/giá» xÃ©t KPI <b>{money(profitPerKpiHour)}</b> Â· NgÆ°á»¡ng KPI <b>{rateLabel}</b>{typeof summary?.netProfit === "number" ? <> Â· Lá»£i nhuáº­n sau cÃ¹ng <b>{money(summary.netProfit)}</b></> : null}</span></div>
+    <div className="ref-metrics six">
+      <Metric icon={Clock3} label="Tá»•ng giá» lÃ m" value={(summary?.totalHours ?? 0).toFixed(2) + " giá»"} tone="blue"/>
+      <Metric icon={WalletCards} label="Tá»•ng lÆ°Æ¡ng thá»±c nháº­n" value={money(summary?.totalBaseSalary ?? 0)} note="LÆ°Æ¡ng cá»©ng/giá» Ã— giá» thá»±c táº¿"/>
+      <Metric icon={Gift} label="ThÆ°á»Ÿng KPI" value={money(summary?.totalKpiBonus ?? 0)} note={`Má»™t ngÆ°á»¡ng duy nháº¥t: ${rateLabel}`} tone="orange"/>
+      <Metric icon={WalletCards} label="Tá»•ng phá»¥ cáº¥p" value={money(totalAllowance)} note={allowanceNote} tone="purple"/>
+      <Metric icon={UsersRound} label="Tá»•ng chi tráº£" value={money(summary?.totalPay ?? 0)} tone="teal"/>
+      <Metric icon={UserRound} label="Tá»•ng nhÃ¢n viÃªn" value={items.length + " nhÃ¢n viÃªn"}/>
+    </div>
+
+    {dataIsCurrent ? <SalaryAdvancePanel storeId={store.id} period={month} disabled={locked || loading || finalizing} onUpdated={loadPayroll}/> : null}
+
+    <section className="table-card"><div className="table-head"><div><h2>Chi tiáº¿t lÆ°Æ¡ng thÆ°á»Ÿng Â· {formatMonthVn(month)}</h2><p>LÆ°Æ¡ng thá»±c nháº­n Ä‘Æ°á»£c tÃ­nh tá»« lÆ°Æ¡ng cá»©ng theo giá» vÃ  giá» lÃ m thá»±c táº¿.</p></div><span className={locked ? "status-pill" : "shift-pill s2"}>{locked ? "ÄÃ£ tá»•ng káº¿t Â· ÄÃ£ khÃ³a" : "Báº£n xem trÆ°á»›c"}</span></div><div className="data-table-wrap"><table className="data-table payroll-table"><thead><tr><th>NhÃ¢n viÃªn</th><th>LÆ°Æ¡ng cá»©ng</th><th>Giá» thá»±c táº¿</th><th>LÆ°Æ¡ng thá»±c nháº­n</th><th>Phá»¥ cáº¥p</th><th>ThÆ°á»Ÿng khÃ¡c</th><th>ThÆ°á»Ÿng KPI</th><th>Tá»•ng nháº­n</th><th>ÄÃ£ á»©ng</th><th>CÃ²n kháº£ dá»¥ng</th></tr></thead><tbody>
+      {items.length ? items.map((item) => <tr key={item.employeeId}><td><Person name={item.employeeName} position={`${item.employeeCode} Â· ${item.position}`}/></td><td>{hourlyMoney(item.hourlyRate)}</td><td>{item.hours.toFixed(2)} giá»</td><td><b>{money(item.baseSalary)}</b></td><td className="money-green">{money(item.tiktokAllowance + item.supportAllowance + item.manualAllowance)}</td><td>{money(item.manualBonus)}</td><td className="money-green"><b>{money(item.kpiBonus)}</b></td><td><b>{money(item.totalPay)}</b></td><td>{money(item.salaryAdvanceReserved ?? 0)}</td><td className="money-green"><b>{money(item.availablePay ?? item.totalPay)}</b></td></tr>) : <tr><td colSpan={10} className="empty-cell">{loading ? "Äang tá»•ng há»£p dá»¯ liá»‡u..." : "ChÆ°a cÃ³ nhÃ¢n viÃªn trong cá»­a hÃ ng."}</td></tr>}
+    </tbody></table></div></section>
+
+    <section className="table-card"><div className="table-head"><h2>Lá»‹ch sá»­ táº¡o phá»¥ cáº¥p vÃ  thÆ°á»Ÿng Â· {formatMonthVn(month)}</h2><span>{periodRecords.length} báº£n ghi</span></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>Thá»i gian</th><th>NhÃ¢n viÃªn</th><th>Loáº¡i</th><th>Sá»‘ tiá»n</th><th>Ná»™i dung chi</th><th>NgÆ°á»i táº¡o</th><th>Thao tÃ¡c</th></tr></thead><tbody>
+      {periodRecords.length ? periodRecords.map((record) => <tr key={record.id}><td>{dateLabel(String(record.data.date))}</td><td><b>{String(record.data.employeeName)}</b></td><td><span className={record.data.kind === "BONUS" ? "bonus-pill" : "allowance-pill"}>{record.data.kind === "BONUS" ? "ThÆ°á»Ÿng" : "Phá»¥ cáº¥p"}</span></td><td className="money-green"><b>{money(Number(record.data.amount))}</b></td><td>{String(record.data.note || "â€”")}</td><td>Quáº£n lÃ½ cá»­a hÃ ng</td><td><button disabled={locked || loading || finalizing || !dataIsCurrent || deletingAdjustmentId !== null} className="danger-link" onClick={() => void remove(record.id)}>{deletingAdjustmentId === record.id ? "Äang xÃ³aâ€¦" : "XÃ³a"}</button></td></tr>) : <tr><td colSpan={7} className="empty-cell">ChÆ°a phÃ¡t sinh phá»¥ cáº¥p hoáº·c thÆ°á»Ÿng trong ká»³.</td></tr>}
+    </tbody></table></div></section>
+
+    <div className="ref-chart-row"><article className="chart-card donut-small"><div className="ref-donut payroll"><b>{money(summary?.totalAvailablePay ?? summary?.totalPay ?? 0)}</b><small>CÃ²n pháº£i chi</small></div><div><b>CÆ¡ cáº¥u chi tráº£</b><p>LÆ°Æ¡ng theo giá» thá»±c táº¿</p><p>ÄÃ£ trá»« cÃ¡c khoáº£n á»©ng lÆ°Æ¡ng</p></div></article><article className="chart-card"><h3>Thá»‘ng kÃª giá» lÃ m theo ngÃ y</h3><MiniBars/></article><article className="chart-card quick-total"><h3>TÃ³m táº¯t nhanh</h3><p><span>LÆ°Æ¡ng thá»±c nháº­n</span><b>{money(summary?.totalBaseSalary ?? 0)}</b></p><p><span>Phá»¥ cáº¥p</span><b>{money(totalAllowance)}</b></p><p><span>ThÆ°á»Ÿng khÃ¡c</span><b>{money(summary?.totalManualBonus ?? 0)}</b></p><p><span>ThÆ°á»Ÿng KPI</span><b>{money(summary?.totalKpiBonus ?? 0)}</b></p><p><span>ÄÃ£ á»©ng / chá» chi</span><b>{money(summary?.totalSalaryAdvanceReserved ?? 0)}</b></p><p><span>CÃ²n kháº£ dá»¥ng</span><b>{money(summary?.totalAvailablePay ?? summary?.totalPay ?? 0)}</b></p><p><span>Tá»•ng thÆ°á»Ÿng</span><b>{money(totalBonus)}</b></p></article></div>
+
+    {open && adjustmentScope && adjustmentIsCurrent && <div ref={payrollBackdropRef} className="modal-backdrop"><form ref={payrollDialogRef} className="modal payroll-action-modal" role="dialog" aria-modal="true" aria-labelledby="payroll-adjustment-dialog-title" aria-busy={savingAdjustment} tabIndex={-1} onSubmit={save}><div className="modal-title"><div><h2 id="payroll-adjustment-dialog-title">{kind === "ALLOWANCE" ? "Táº¡o phá»¥ cáº¥p" : "Táº¡o thÆ°á»Ÿng"}</h2><p>Khoáº£n chi Ä‘Æ°á»£c ghi nháº­n Ä‘Ãºng nhÃ¢n viÃªn, cá»­a hÃ ng vÃ  thÃ¡ng lÆ°Æ¡ng</p></div><button type="button" aria-label="ÄÃ³ng há»™p thoáº¡i táº¡o phá»¥ cáº¥p hoáº·c thÆ°á»Ÿng" disabled={savingAdjustment} onClick={closeAdjustmentDialog}><X size={19}/></button></div><label>NhÃ¢n viÃªn Ä‘Æ°á»£c nháº­n *<select ref={payrollEmployeeSelectRef} disabled={savingAdjustment} value={employeeId} onChange={(event) => setEmployeeId(event.target.value)}>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.code} Â· {employee.name}{employeeStatusSuffix(employee.status)}</option>)}</select></label><label>Sá»‘ tiá»n {kind === "ALLOWANCE" ? "phá»¥ cáº¥p" : "thÆ°á»Ÿng"} *<input inputMode="numeric" required disabled={savingAdjustment} value={amount} onChange={(event) => setAmount(formatVndInput(event.target.value))} placeholder="0"/><small>Nháº­p theo VND, vÃ­ dá»¥: 15000 sáº½ hiá»ƒn thá»‹ 15,000.</small></label><div className="app-date-picker-field"><span>NgÃ y ghi nháº­n</span><DatePickerControl ariaLabel="NgÃ y ghi nháº­n phá»¥ cáº¥p hoáº·c thÆ°á»Ÿng" min={`${adjustmentScope.period}-01`} max={`${adjustmentScope.period}-31`} disabled={savingAdjustment} value={date} onChange={setDate}/></div><label>Ná»™i dung chi *<textarea required disabled={savingAdjustment} value={note} onChange={(event) => setNote(event.target.value)} placeholder={kind === "ALLOWANCE" ? "VÃ­ dá»¥: Phá»¥ cáº¥p chuyÃªn cáº§n" : "VÃ­ dá»¥: ThÆ°á»Ÿng hoÃ n thÃ nh cÃ´ng viá»‡c"}/></label>{message && <div className="form-message" role="alert">{message}</div>}<div className="modal-actions"><button type="button" disabled={savingAdjustment} onClick={closeAdjustmentDialog}>Há»§y</button><button className="primary-button" disabled={savingAdjustment || !employeeId}>{savingAdjustment ? "Äang lÆ°uâ€¦" : `LÆ°u ${kind === "ALLOWANCE" ? "phá»¥ cáº¥p" : "thÆ°á»Ÿng"}`}</button></div></form></div>}
+  </div>;
+}
+
+function CashflowManagement({ store }: { store: ReferenceStore }) {
+  const {records,reload}=useRecords("DONG_TIEN",store.id); const [open,setOpen]=useState(false); const [editing,setEditing]=useState<BusinessRecord|null>(null); const [type,setType]=useState("Marketing"); const [amount,setAmount]=useState(""); const [date,setDate]=useState(today()); const [note,setNote]=useState(""); const [message,setMessage]=useState("");
+  const extra=records.reduce((s,r)=>s+Number(r.data.amount??0),0);const expense=store.expense+extra;const profit=store.revenue-expense; const margin=store.revenue?profit/store.revenue*100:0;
+  function begin(record?:BusinessRecord){setEditing(record??null);setType(record?.title??"Marketing");setAmount(String(record?.data.amount??""));setDate(String(record?.data.date??today()));setNote(String(record?.data.note??""));setMessage("");setOpen(true);}
+  async function save(event:FormEvent){event.preventDefault();try{await saveRecord({id:editing?.id,category:"DONG_TIEN",storeId:store.id,title:type,data:{amount:Number(amount),date,note}});setOpen(false);await reload();}catch(error){setMessage((error as Error).message);}}
+  async function remove(id:string){if(await deleteRecord(id))await reload();}
+  return <div className="reference-module cashflow-page"><div className="ref-toolbar"><div><h2>DÃ²ng tiá»n</h2><p>Theo dÃµi doanh thu, chi phÃ­ vÃ  lá»£i nhuáº­n cá»­a hÃ ng</p></div><div className="ref-toolbar-actions"><input type="date" defaultValue={today()}/><button onClick={()=>csv("dong-tien-cua-hang.csv",[["NgÃ y","Loáº¡i chi phÃ­","Sá»‘ tiá»n","Ghi chÃº"],...records.map(r=>[String(r.data.date),r.title,Number(r.data.amount),String(r.data.note)])])}><Download size={16}/> Xuáº¥t Excel</button><button className="primary-button" onClick={()=>begin()}><Plus size={17}/> ThÃªm chi phÃ­</button></div></div>
+    <div className="ref-metrics four"><Metric icon={BarChart3} label="DOANH THU" value={money(store.revenue)} note="â†‘ 12,5% so vá»›i ká»³ trÆ°á»›c" tone="blue"/><Metric icon={WalletCards} label="Tá»”NG CHI PHÃ" value={money(expense)} note="â†‘ 8,3% so vá»›i ká»³ trÆ°á»›c" tone="orange"/><Metric icon={BarChart3} label="Lá»¢I NHUáº¬N" value={money(profit)} note="â†‘ 18,9% so vá»›i ká»³ trÆ°á»›c"/><Metric icon={BarChart3} label="BIÃŠN Lá»¢I NHUáº¬N" value={margin.toFixed(2)+"%"} tone="purple"/></div>
+    <div className="ref-chart-row two"><article className="chart-card"><div className="panel-title"><h2>Doanh thu theo ngÃ y</h2><select><option>Theo ngÃ y</option><option>Theo thÃ¡ng</option></select></div><MiniBars values={[12,9,8,16,16,13,18,17,13,19,21,12,15]}/></article><article className="chart-card"><div className="panel-title"><h2>Doanh thu & Lá»£i nhuáº­n theo ngÃ y</h2><select><option>Theo ngÃ y</option><option>Theo thÃ¡ng</option></select></div><MiniLine tone="blue"/></article></div>
+    <div className="ref-cash-grid"><article className="table-card"><div className="table-head"><h2>Doanh thu</h2><button className="link-button">Xem chi tiáº¿t</button></div><table className="data-table"><tbody>{[18500000,16200000,21800000,13400000,11600000].map((value,index)=><tr key={index}><td>{15-index}/05/2025</td><td className="money-green">{money(value)}</td><td>NhÃ¢n viÃªn bÃ¡n hÃ ng</td></tr>)}</tbody></table></article><article className="chart-card expense-list"><h2>Chi phÃ­</h2><p><span>Chi phÃ­ cá»‘ Ä‘á»‹nh<small>Setup, Ä‘iá»‡n, nÆ°á»›c, wifi, rÃ¡c, máº·t báº±ng</small></span><b>{money(store.expense)}</b></p><p><span>Chi phÃ­ marketing<small>Quáº£ng cÃ¡o vÃ  truyá»n thÃ´ng</small></span><b>{money(records.filter(r=>r.title==="Marketing").reduce((s,r)=>s+Number(r.data.amount),0))}</b></p><p><span>Chi phÃ­ phÃ¡t sinh Ä‘Ã£ nháº­p</span><b>{money(extra)}</b></p><p className="expense-total"><span>Tá»•ng chi phÃ­</span><b>{money(expense)}</b></p></article><article className="chart-card donut-small vertical"><div className="ref-donut cash"><b>{money(profit)}</b><small>Lá»£i nhuáº­n</small></div><p>Lá»£i nhuáº­n = Doanh thu âˆ’ Tá»•ng chi phÃ­</p></article></div>
+    <section className="table-card"><div className="table-head"><h2>Chi phÃ­ cá»‘ Ä‘á»‹nh gáº§n Ä‘Ã¢y</h2><span>{records.length} khoáº£n phÃ¡t sinh</span></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>NgÃ y</th><th>Loáº¡i chi phÃ­</th><th>Sá»‘ tiá»n</th><th>Ghi chÃº</th><th>NgÆ°á»i táº¡o</th><th>Thao tÃ¡c</th></tr></thead><tbody>{records.length?records.map(record=><tr key={record.id}><td>{String(record.data.date)}</td><td><b>{record.title}</b></td><td className="money-orange">{money(Number(record.data.amount))}</td><td>{String(record.data.note||"â€”")}</td><td>Quáº£n lÃ½ cá»­a hÃ ng</td><td><div className="row-actions"><button onClick={()=>begin(record)}><Edit3 size={15}/></button><button className="danger" onClick={()=>remove(record.id)}><Trash2 size={15}/></button></div></td></tr>):<tr><td colSpan={6} className="empty-cell">ChÆ°a nháº­p chi phÃ­ phÃ¡t sinh.</td></tr>}</tbody></table></div></section>
+    {open&&<div className="modal-backdrop"><form className="modal" onSubmit={save}><div className="modal-title"><div><h2>{editing?"Cáº­p nháº­t chi phÃ­":"ThÃªm chi phÃ­"}</h2><p>Dá»¯ liá»‡u Ä‘Æ°á»£c ghi riÃªng cho {store.name}</p></div><button type="button" onClick={()=>setOpen(false)}><X size={19}/></button></div><label>Loáº¡i chi phÃ­<select value={type} onChange={(e)=>setType(e.target.value)}><option>Marketing</option><option>Setup</option><option>Máº·t báº±ng</option><option>Äiá»‡n</option><option>NÆ°á»›c</option><option>Wifi</option><option>RÃ¡c</option><option>KhÃ¡c</option></select></label><div className="form-grid two"><label>Sá»‘ tiá»n *<input type="number" min="1" required value={amount} onChange={(e)=>setAmount(e.target.value)}/></label><label>NgÃ y chi<input type="date" value={date} onChange={(e)=>setDate(e.target.value)}/></label></div><label>Ná»™i dung chi *<textarea required value={note} onChange={(e)=>setNote(e.target.value)}/></label>{message&&<div className="form-message">{message}</div>}<div className="modal-actions"><button type="button" onClick={()=>setOpen(false)}>Há»§y</button><button className="primary-button">LÆ°u chi phÃ­</button></div></form></div>}
+  </div>;
+}
+
+function ReportManagement({ store }: { store: ReferenceStore }) {
+  const {employees}=useEmployees(store.id); const {shifts}=useShiftSessions(store.id); const payroll=useRecords("LUONG_THUONG",store.id).records; const [tab,setTab]=useState("Tá»•ng quan"); const [from,setFrom]=useState(today().slice(0,8)+"01"); const [to,setTo]=useState(today()); const [periodPayroll,setPeriodPayroll]=useState<PayrollSummary|null>(null);
+  useEffect(()=>{const period=from.slice(0,7);fetch(`/api/payroll?storeId=${encodeURIComponent(store.id)}&period=${encodeURIComponent(period)}`).then(r=>r.json()).then(data=>setPeriodPayroll(data.summary??null));},[from,store.id]);
+  const completed=shifts.filter(s=>s.ended_at); const hours=completed.reduce((sum,s)=>sum+sessionSeconds(s)/3600,0); const shiftWages=completed.reduce((sum,s)=>sum+(sessionSeconds(s)/3600)*sessionRate(s),0); const wages=periodPayroll?.totalBaseSalary??shiftWages; const recordExtras=payroll.reduce((sum,r)=>sum+Number(r.data.amount??0),0); const extras=periodPayroll ? periodPayroll.totalTikTokAllowance+periodPayroll.totalSupportAllowance+periodPayroll.totalManualAllowance+periodPayroll.totalManualBonus+periodPayroll.totalKpiBonus : recordExtras;
+  return <div className="reference-module report-page"><div className="ref-toolbar"><div><h2>BÃ¡o cÃ¡o thá»‘ng kÃª</h2><p>Tá»•ng há»£p dá»¯ liá»‡u hoáº¡t Ä‘á»™ng cá»§a cá»­a hÃ ng</p></div><div className="ref-toolbar-actions"><input type="date" value={from} onChange={(e)=>setFrom(e.target.value)}/><span>âˆ’</span><input type="date" value={to} onChange={(e)=>setTo(e.target.value)}/><button className="primary-button" onClick={()=>csv("bao-cao-cua-hang.csv",[["Chá»‰ sá»‘","GiÃ¡ trá»‹"],["NhÃ¢n viÃªn",employees.length],["Tá»•ng giá»",hours.toFixed(2)],["LÆ°Æ¡ng",Math.round(wages)],["ThÆ°á»Ÿng/phá»¥ cáº¥p",extras],["Doanh thu",store.revenue]])}><Download size={16}/> Xuáº¥t bÃ¡o cÃ¡o</button></div></div>
+    <div className="ref-report-tabs">{["Tá»•ng quan","Cháº¥m cÃ´ng","LÆ°Æ¡ng thÆ°á»Ÿng","Ca lÃ m viá»‡c","NhÃ¢n viÃªn","Chi tiáº¿t"].map(item=><button key={item} className={tab===item?"active":""} onClick={()=>setTab(item)}>{item}</button>)}</div>
+    <div className="ref-metrics five"><Metric icon={UsersRound} label="Tá»•ng nhÃ¢n viÃªn" value={employees.length+" ngÆ°á»i"} note="Theo dá»¯ liá»‡u hiá»‡n táº¡i"/><Metric icon={Clock3} label="Tá»•ng giá» lÃ m" value={hours.toFixed(2)+" giá»"} note="Theo ká»³ Ä‘Ã£ chá»n"/><Metric icon={WalletCards} label="Tá»•ng lÆ°Æ¡ng cá»©ng" value={money(wages)}/><Metric icon={Gift} label="Tá»•ng thÆ°á»Ÿng" value={money(extras)}/><Metric icon={WalletCards} label="Tá»•ng lÆ°Æ¡ng nháº­n" value={money(wages+extras)}/></div>
+    <div className="ref-report-charts"><article className="chart-card"><h2>Giá» lÃ m viá»‡c theo ngÃ y</h2><MiniBars/></article><article className="chart-card"><h2>Doanh thu theo ngÃ y</h2><MiniLine/></article><article className="chart-card donut-small vertical"><h2>CÆ¡ cáº¥u lÆ°Æ¡ng nháº­n</h2><div className="ref-donut report"><b>{money(wages+extras)}</b><small>Tá»•ng lÆ°Æ¡ng nháº­n</small></div></article></div>
+    <div className="ref-report-bottom"><section className="table-card"><div className="table-head"><h2>{tab === "Tá»•ng quan" ? "Thá»‘ng kÃª theo nhÃ¢n viÃªn" : "Chi tiáº¿t " + tab.toLocaleLowerCase("vi")}</h2></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>NhÃ¢n viÃªn</th><th>Tá»•ng giá» lÃ m</th><th>LÆ°Æ¡ng cá»©ng</th><th>ThÆ°á»Ÿng</th><th>Phá»¥ cáº¥p</th><th>LÆ°Æ¡ng nháº­n</th></tr></thead><tbody>{(employees.length?employees:samplePeople.slice(0,3).map((p,i)=>({id:"s"+i,name:p[0],position:p[1],hourly_rate:20000}))).map((employee,index)=>{const employeeHours=[75.5,68,66.5][index%3];const base=employeeHours*employee.hourly_rate;const extra=payroll.filter(r=>r.data.employeeId===employee.id).reduce((s,r)=>s+Number(r.data.amount),0);return <tr key={employee.id}><td><Person name={employee.name} position={employee.position}/></td><td>{employeeHours.toFixed(2)}</td><td>{money(base)}</td><td className="money-green">{money(extra)}</td><td>{money(100000)}</td><td className="money-green"><b>{money(base+extra+100000)}</b></td></tr>})}</tbody></table></div></section><aside className="chart-card"><h2>Thá»‘ng kÃª ca lÃ m viá»‡c</h2>{["Ca 1 Â· 62,50 giá»","Ca 2 Â· 71,00 giá»","Ca 3 Â· 76,50 giá»"].map((text,index)=><div className="progress-row" key={text}><span>{text}</span><i><b style={{width:[30,34,36][index]+"%"}}/></i><strong>{[29.8,33.8,36.4][index]}%</strong></div>)}</aside></div>
+    <div className="report-profit-note"><CheckCircle2 size={18}/> Dá»¯ liá»‡u {tab.toLocaleLowerCase("vi")} cá»§a {store.name} trong ká»³ {from} â†’ {to} Â· Doanh thu <b>{money(store.revenue)}</b> Â· Lá»£i nhuáº­n <b>{money(store.profit)}</b></div>
+  </div>;
+}

@@ -29,6 +29,7 @@ type LifecycleActiveShift = {
   scheduledEndAt: string | null;
   workDate: string | null;
   startedAt: string;
+  attendanceGraceMinutes: number;
   cashRevenue: number;
   transferRevenue: number;
   expenseAmount: number;
@@ -67,7 +68,8 @@ async function loadLifecycleActiveShifts(db: Database, employeeId: string) {
       s.shift_name AS shiftName, s.scheduled_start AS scheduledStart,
       s.scheduled_end AS scheduledEnd, s.scheduled_start_at AS scheduledStartAt,
       s.scheduled_end_at AS scheduledEndAt, s.work_date AS workDate,
-      s.started_at AS startedAt, s.cash_revenue AS cashRevenue,
+      s.started_at AS startedAt, s.attendance_grace_minutes AS attendanceGraceMinutes,
+      s.cash_revenue AS cashRevenue,
       s.transfer_revenue AS transferRevenue, s.expense_amount AS expenseAmount,
       s.close_status AS closeStatus,
       COALESCE((SELECT SUM(o.amount) FROM orders o
@@ -215,7 +217,9 @@ async function transitionInactiveEmployeeStatus(
       ...row,
       durationSeconds: durationSeconds(row.startedAt, transitionAt),
       attendanceDeltaMinutes: delta,
-      attendanceStatus: resolvedScheduledStartAt ? attendanceStatusAt(row.startedAt, resolvedScheduledStartAt) : null,
+      attendanceStatus: resolvedScheduledStartAt
+        ? attendanceStatusAt(row.startedAt, resolvedScheduledStartAt, row.attendanceGraceMinutes)
+        : null,
       resolvedScheduledStartAt,
       resolvedScheduledEndAt,
       closeToken: `EMPLOYEE_STATUS_CHANGE:${crypto.randomUUID()}`,
@@ -255,6 +259,7 @@ async function transitionInactiveEmployeeStatus(
         AND s.status = 'ACTIVE' AND s.ended_at IS NULL AND s.started_at = ?
         AND s.scheduled_start IS ? AND s.scheduled_end IS ?
         AND s.scheduled_start_at IS ? AND s.scheduled_end_at IS ? AND s.work_date IS ?
+        AND s.attendance_grace_minutes = ?
         AND s.cash_revenue = ? AND s.transfer_revenue = ? AND s.expense_amount = ?
         AND s.close_status = ?
         AND COALESCE((SELECT SUM(cash_order.amount) FROM orders cash_order
@@ -273,6 +278,7 @@ async function transitionInactiveEmployeeStatus(
     preconditionBindings.push(
       row.id, row.storeId, row.shiftCode, row.startedAt,
       row.scheduledStart, row.scheduledEnd, row.scheduledStartAt, row.scheduledEndAt, row.workDate,
+      row.attendanceGraceMinutes,
       row.cashRevenue, row.transferRevenue, row.expenseAmount, row.closeStatus,
       row.orderCashRevenue, row.orderTransferRevenue,
     );

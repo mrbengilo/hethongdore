@@ -58,6 +58,7 @@ type ActiveShiftCloseRow = {
   endedAt: string | null;
   attendanceStatus: string | null;
   attendanceDeltaMinutes: number | null;
+  attendanceGraceMinutes: number;
   durationSeconds: number;
   cashRevenue: number;
   transferRevenue: number;
@@ -103,6 +104,7 @@ const activeShiftSnapshotJsonSql = `json_object(
   'appliedHourlyRate', s.applied_hourly_rate, 'appliedTiktokAllowance', s.applied_tiktok_allowance,
   'startedAt', s.started_at, 'attendanceStatus', s.attendance_status,
   'attendanceDeltaMinutes', s.attendance_delta_minutes,
+  'attendanceGraceMinutes', s.attendance_grace_minutes,
   'endedAt', s.ended_at, 'durationSeconds', s.duration_seconds,
   'adminAdjustedDurationSeconds', s.admin_adjusted_duration_seconds,
   'tiktok', s.tiktok, 'tiktokAllowance', s.tiktok_allowance,
@@ -202,6 +204,7 @@ async function loadActiveShiftsForPurge(db: Database, employeeId: string) {
       s.work_date AS workDate, s.started_at AS startedAt, s.ended_at AS endedAt,
       s.attendance_status AS attendanceStatus,
       s.attendance_delta_minutes AS attendanceDeltaMinutes,
+      s.attendance_grace_minutes AS attendanceGraceMinutes,
       s.duration_seconds AS durationSeconds,
       s.cash_revenue AS cashRevenue, s.transfer_revenue AS transferRevenue,
       s.expense_amount AS expenseAmount, s.close_reason AS closeReason,
@@ -245,7 +248,7 @@ function deriveActiveShiftClosures(rows: ActiveShiftCloseRow[], endedAt: string)
       ? attendanceDeltaMinutes(row.startedAt, computedScheduledStartAt)
       : null;
     const computedAttendanceStatus = computedScheduledStartAt
-      ? attendanceStatusAt(row.startedAt, computedScheduledStartAt)
+      ? attendanceStatusAt(row.startedAt, computedScheduledStartAt, row.attendanceGraceMinutes)
       : null;
     requireSafeMoney(Number(row.cashRevenue), "Doanh thu tiền mặt đã lưu");
     requireSafeMoney(Number(row.transferRevenue), "Doanh thu chuyển khoản đã lưu");

@@ -25,6 +25,8 @@ import {
   incomingStorePeriodUnlockedSql,
   isStorePeriodLocked,
 } from "../_lib/store-period-lock";
+import { loadAttendancePolicy } from "../_lib/attendance-policy";
+import type { AttendancePolicySnapshot } from "../../lib/attendance-policy";
 
 type ScheduleSnapshot = {
   name: string;
@@ -40,6 +42,8 @@ type ResolvedScheduleCandidate = ScheduleSnapshot & {
   selectionKind: "CURRENT" | "UPCOMING";
   attendanceStatus: "EARLY" | "ON_TIME" | "LATE";
   attendanceDeltaMinutes: number;
+  attendanceGraceMinutes: number;
+  policyVersion: number;
 };
 
 type ScheduleData = {
@@ -67,6 +71,7 @@ type ActiveShiftSession = {
   startedAt: string;
   attendanceStatus: "EARLY" | "ON_TIME" | "LATE" | null;
   attendanceDeltaMinutes: number | null;
+  attendanceGraceMinutes: number;
 };
 
 type RolloverResult = {
@@ -83,6 +88,7 @@ type RolloverResult = {
   tiktokAllowance: number | null;
   attendanceStatus: "EARLY" | "ON_TIME" | "LATE" | null;
   attendanceDeltaMinutes: number | null;
+  attendanceGraceMinutes: number;
   rolloverBlocked?: boolean;
   message?: string;
   previousShiftCode?: string;
@@ -98,7 +104,7 @@ function localDate(now = new Date()) {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh" }).format(now);
 }
 
-function classifyScheduleCandidates(now: Date, candidates: ScheduleSnapshot[]) {
+function classifyScheduleCandidates(now: Date, candidates: ScheduleSnapshot[], graceMinutes: number) {
   const nowTime = now.getTime();
   const current = candidates
     .filter((item) => nowTime >= new Date(item.startAt).getTime() && nowTime < new Date(item.endAt).getTime())
@@ -112,7 +118,7 @@ function classifyScheduleCandidates(now: Date, candidates: ScheduleSnapshot[]) {
   return [current, upcoming].flatMap((schedule, index) => {
     if (!schedule || (index === 1 && current?.startAt === schedule.startAt && current.endAt === schedule.endAt)) return [];
     const attendanceDelta = attendanceDeltaMinutes(now, schedule.startAt);
-    const attendanceStatus = attendanceStatusAt(now, schedule.startAt);
+    const attendanceStatus = attendanceStatusAt(now, schedule.startAt, graceMinutes);
     if (attendanceDelta === null || attendanceStatus === null) return [];
     const selectionKind = index === 0 && current === schedule ? "CURRENT" as const : "UPCOMING" as const;
     return [{
@@ -128,10 +134,12 @@ async function scheduleCandidateId(
   storeId: string,
   employeeId: string,
   schedule: ScheduleSnapshot,
+  policy: AttendancePolicySnapshot,
 ) {
   const input = new TextEncoder().encode([
     "attendance", storeId, employeeId, schedule.workDate,
     schedule.name, schedule.start, schedule.end, schedule.startAt, schedule.endAt,
+    policy.version, policy.lateGraceMinutes,
   ].join("|"));
   const digest = await crypto.subtle.digest("SHA-256", input);
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -140,11 +148,14 @@ async function scheduleCandidateId(
 async function attachCandidateIds(
   storeId: string,
   employeeId: string,
-  candidates: Array<Omit<ResolvedScheduleCandidate, "candidateId">>,
+  candidates: Array<Omit<ResolvedScheduleCandidate, "candidateId" | "attendanceGraceMinutes" | "policyVersion">>,
+  policy: AttendancePolicySnapshot,
 ): Promise<ResolvedScheduleCandidate[]> {
   return Promise.all(candidates.map(async (candidate) => ({
     ...candidate,
-    candidateId: await scheduleCandidateId(storeId, employeeId, candidate),
+    candidateId: await scheduleCandidateId(storeId, employeeId, candidate, policy),
+    attendanceGraceMinutes: policy.lateGraceMinutes,
+    policyVersion: policy.version,
   })));
 }
 
@@ -161,6 +172,8 @@ function publicStartCandidate(candidate: ResolvedScheduleCandidate) {
     attendanceStatus: candidate.attendanceStatus,
     attendanceDeltaMinutes: candidate.attendanceDeltaMinutes,
     earlyMinutes: candidate.attendanceDeltaMinutes < 0 ? Math.abs(candidate.attendanceDeltaMinutes) : 0,
+    attendanceGraceMinutes: candidate.attendanceGraceMinutes,
+    policyVersion: candidate.policyVersion,
   };
 }
 
@@ -169,6 +182,7 @@ async function resolveScheduleCandidates(
   storeId: string,
   employeeId: string,
   now = new Date(),
+  policy: AttendancePolicySnapshot,
 ): Promise<ResolvedScheduleCandidate[]> {
   const workDate = localDate(now);
   const previousDate = addDays(workDate, -1);
@@ -197,8 +211,8 @@ async function resolveScheduleCandidates(
   const availableCandidates = candidates.filter((item) =>
     !completedOccurrences.has(`${item.workDate}|${item.start}|${item.end}`));
 
-  const assignedChoices = classifyScheduleCandidates(now, availableCandidates);
-  if (assignedChoices.length > 0) return attachCandidateIds(storeId, employeeId, assignedChoices);
+  const assignedChoices = classifyScheduleCandidates(now, availableCandidates, policy.lateGraceMinutes);
+  if (assignedChoices.length > 0) return attachCandidateIds(storeId, employeeId, assignedChoices, policy);
 
   // A schedule explicitly assigned for today is authoritative. Do not fall
   // back to another store clock before the assigned next shift begins.
@@ -215,8 +229,8 @@ async function resolveScheduleCandidates(
   // deleted), an empty date stays empty instead of reviving legacy templates.
   const dailyDefinitions = await loadDailyShiftOccurrences(db, storeId, [previousDate, workDate, nextDate]);
   if (dailyDefinitions.initialized) {
-    const dailyChoices = classifyScheduleCandidates(now, dailyDefinitions.occurrences);
-    if (dailyChoices.length > 0) return attachCandidateIds(storeId, employeeId, dailyChoices);
+    const dailyChoices = classifyScheduleCandidates(now, dailyDefinitions.occurrences, policy.lateGraceMinutes);
+    if (dailyChoices.length > 0) return attachCandidateIds(storeId, employeeId, dailyChoices, policy);
     const next = dailyDefinitions.occurrences
       .filter((item) => new Date(item.startAt).getTime() > nowTime)
       .sort((left, right) => new Date(left.startAt).getTime() - new Date(right.startAt).getTime())[0];
@@ -227,7 +241,7 @@ async function resolveScheduleCandidates(
   // Compatibility fallback only for a store that has never created or
   // migrated any daily shift.
   const definitions = await loadLegacyShiftDefinitions(db, storeId);
-  const fallback = attendanceCandidatesAt(now, definitions).map((candidate) => ({
+  const fallback = attendanceCandidatesAt(now, definitions, ATTENDANCE_EARLY_WINDOW_MINUTES, policy.lateGraceMinutes).map((candidate) => ({
     name: candidate.name,
     start: candidate.start,
     end: candidate.end,
@@ -238,7 +252,7 @@ async function resolveScheduleCandidates(
     attendanceStatus: candidate.attendanceStatus,
     attendanceDeltaMinutes: candidate.attendanceDeltaMinutes,
   }));
-  if (fallback.length > 0) return attachCandidateIds(storeId, employeeId, fallback);
+  if (fallback.length > 0) return attachCandidateIds(storeId, employeeId, fallback, policy);
   const next = nextShiftOccurrence(now.toISOString(), definitions);
   const suffix = next ? ` Ca tiếp theo bắt đầu lúc ${next.start}.` : "";
   throw new Error(`Chưa đến thời gian bắt đầu ca làm việc.${suffix}`);
@@ -339,6 +353,7 @@ function rolloverState(
     tiktokAllowance: session.appliedTikTokAllowance,
     attendanceStatus: session.attendanceStatus,
     attendanceDeltaMinutes: session.attendanceDeltaMinutes,
+    attendanceGraceMinutes: session.attendanceGraceMinutes,
     ...(previousShiftCode ? { previousShiftCode } : {}),
     ...(pending ? { nextShift: pending } : {}),
   };
@@ -366,6 +381,7 @@ async function reconcileActiveShift(
       started_at AS startedAt,
       attendance_status AS attendanceStatus,
       attendance_delta_minutes AS attendanceDeltaMinutes
+      , attendance_grace_minutes AS attendanceGraceMinutes
     FROM shift_sessions
     WHERE shift_code = ? AND employee_id = ? AND status = 'ACTIVE'
     LIMIT 1`)
@@ -388,6 +404,7 @@ async function reconcileActiveShift(
         s.started_at AS startedAt,
         s.attendance_status AS attendanceStatus,
         s.attendance_delta_minutes AS attendanceDeltaMinutes
+        , s.attendance_grace_minutes AS attendanceGraceMinutes
       FROM users u JOIN shift_sessions s ON s.shift_code = u.current_shift
       WHERE u.id = ? AND u.shift_active = 1 AND s.status = 'ACTIVE'
       LIMIT 1`).bind(user.id).first<ActiveShiftSession>();
@@ -413,6 +430,7 @@ export async function GET(request: Request) {
   const user = await getSessionUser(request);
   if (!user || user.role !== "EMPLOYEE") return json({ message: "Không có quyền" }, 403);
   const db = await initDb();
+  const currentPolicy = await loadAttendancePolicy(db);
   if (new URL(request.url).searchParams.get("preview") === "start") {
     if (!user.storeId || !user.employeeId) {
       return json({ message: "Tài khoản chưa được gắn với nhân viên và cửa hàng." }, 409);
@@ -420,7 +438,7 @@ export async function GET(request: Request) {
     if (user.shiftActive) return json({ message: "Bạn đã có một ca đang hoạt động." }, 409);
     if (!await isStoreActive(user.storeId)) return json({ message: INACTIVE_STORE_MESSAGE }, 409);
     try {
-      const candidates = await resolveScheduleCandidates(db, user.storeId, user.employeeId, new Date(requestReceivedAt));
+      const candidates = await resolveScheduleCandidates(db, user.storeId, user.employeeId, new Date(requestReceivedAt), currentPolicy);
       const startCandidates = candidates.map(publicStartCandidate);
       const mode = startCandidates.length > 1 ? "CURRENT_OR_NEXT"
         : startCandidates[0]?.selectionKind === "UPCOMING" ? "EARLY_CONFIRM" : "CURRENT_CONFIRM";
@@ -434,6 +452,11 @@ export async function GET(request: Request) {
         },
         startMode: mode,
         startCandidates,
+        attendancePolicy: {
+          currentGraceMinutes: currentPolicy.lateGraceMinutes,
+          version: currentPolicy.version,
+          rule: "LATE_WHEN_GREATER_THAN_GRACE",
+        },
         // Kept for older clients during a rolling deployment. New clients use
         // the candidate list and must POST the selected candidate identity.
         startPreview: startCandidates[0],
@@ -453,6 +476,11 @@ export async function GET(request: Request) {
     storeName: user.storeName,
     activeTransferId: user.activeTransferId,
     isSupporting: user.isSupporting,
+    attendancePolicy: {
+      currentGraceMinutes: currentPolicy.lateGraceMinutes,
+      version: currentPolicy.version,
+      rule: "LATE_WHEN_GREATER_THAN_GRACE",
+    },
   });
   return json({
     serverNow: utcTimestamp(),
@@ -468,11 +496,17 @@ export async function GET(request: Request) {
     scheduledEndAt: null,
     attendanceStatus: null,
     attendanceDeltaMinutes: null,
+    attendanceGraceMinutes: currentPolicy.lateGraceMinutes,
     tiktokAllowance: user.employeeTiktokAllowance ?? DEFAULT_EMPLOYEE_TIKTOK_ALLOWANCE,
     storeId: user.storeId,
     storeName: user.storeName,
     activeTransferId: user.activeTransferId,
     isSupporting: user.isSupporting,
+    attendancePolicy: {
+      currentGraceMinutes: currentPolicy.lateGraceMinutes,
+      version: currentPolicy.version,
+      rule: "LATE_WHEN_GREATER_THAN_GRACE",
+    },
   });
 }
 
@@ -522,8 +556,10 @@ export async function POST(request: Request) {
     if (!user.storeId || !user.employeeId) return json({ message: "Tài khoản chưa được gắn với nhân viên và cửa hàng." }, 409);
     if (user.shiftActive) return json({ message: "Bạn đã có một ca đang hoạt động." }, 409);
     let candidates: ResolvedScheduleCandidate[];
+    let policy: AttendancePolicySnapshot;
     try {
-      candidates = await resolveScheduleCandidates(db, user.storeId, user.employeeId, new Date(requestReceivedAt));
+      policy = await loadAttendancePolicy(db);
+      candidates = await resolveScheduleCandidates(db, user.storeId, user.employeeId, new Date(requestReceivedAt), policy);
     } catch (error) {
       return json({ message: error instanceof Error ? error.message : "Chưa đến thời gian bắt đầu ca làm việc." }, 409);
     }
@@ -587,6 +623,7 @@ export async function POST(request: Request) {
               AND transfer.status IN ('SCHEDULED', 'ACTIVE')
               AND transfer.start_date <= ? AND transfer.end_date >= ?
           ))
+          AND EXISTS (SELECT 1 FROM system_state WHERE key = ? AND value = ? AND updated_at = ?)
           AND ${incomingStorePeriodUnlockedSql}`)
         .bind(
           shiftCode, startedAt, user.id, user.homeStoreId,
@@ -595,9 +632,10 @@ export async function POST(request: Request) {
           user.activeTransferId, user.activeTransferId, user.employeeId, user.homeStoreId, user.storeId,
           transfer?.shiftsJson ?? null,
           schedule.workDate, schedule.workDate,
+          "attendance_late_grace_policy_v1", policy.rawValue, policy.updatedAt,
           user.storeId, shiftPeriod,
         ),
-      db.prepare(`INSERT INTO shift_sessions (id, shift_code, store_id, employee_id, shift_name, scheduled_start, scheduled_end, scheduled_start_at, scheduled_end_at, work_date, transfer_id, applied_hourly_rate, applied_tiktok_allowance, started_at, attendance_status, attendance_delta_minutes, clock_in_latitude, clock_in_longitude, clock_in_accuracy_meters, clock_in_location_captured_at, previous_session_id, close_reason, close_status, status)
+      db.prepare(`INSERT INTO shift_sessions (id, shift_code, store_id, employee_id, shift_name, scheduled_start, scheduled_end, scheduled_start_at, scheduled_end_at, work_date, transfer_id, applied_hourly_rate, applied_tiktok_allowance, started_at, attendance_status, attendance_delta_minutes, attendance_grace_minutes, clock_in_latitude, clock_in_longitude, clock_in_accuracy_meters, clock_in_location_captured_at, previous_session_id, close_reason, close_status, status)
         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
           COALESCE(
             (SELECT support_hourly_rate FROM employee_transfers
@@ -608,7 +646,7 @@ export async function POST(request: Request) {
             0
           ),
           COALESCE((SELECT tiktok_allowance FROM employees WHERE id = ?), ?),
-          ?, ?, ?, ?, ?, ?, ?, NULL, NULL, 'OPEN', 'ACTIVE'
+          ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, 'OPEN', 'ACTIVE'
         WHERE EXISTS (SELECT 1 FROM users WHERE id = ? AND store_id = ? AND shift_active = 1 AND current_shift = ?)
           AND EXISTS (SELECT 1 FROM employees WHERE id = ? AND store_id = ? AND status = 'ACTIVE')
           AND EXISTS (SELECT 1 FROM stores home_store WHERE home_store.id = ? AND home_store.status = 'ACTIVE')
@@ -627,24 +665,38 @@ export async function POST(request: Request) {
               AND transfer.status IN ('SCHEDULED', 'ACTIVE')
               AND transfer.start_date <= ? AND transfer.end_date >= ?
           ))
+          AND EXISTS (SELECT 1 FROM system_state WHERE key = ? AND value = ? AND updated_at = ?)
           AND ${incomingStorePeriodUnlockedSql}`)
         .bind(
           sessionId, shiftCode, user.storeId, user.employeeId, schedule.name, schedule.start, schedule.end,
           schedule.startAt, schedule.endAt, schedule.workDate, user.activeTransferId,
           user.activeTransferId, user.employeeId, user.storeId, schedule.workDate, schedule.workDate, user.employeeId,
           user.employeeId, DEFAULT_EMPLOYEE_TIKTOK_ALLOWANCE, startedAt, attendanceStatus, attendanceDelta,
+          policy.lateGraceMinutes,
           clockInLocation.latitude, clockInLocation.longitude, clockInLocation.accuracyMeters, clockInLocation.capturedAt,
           user.id, user.homeStoreId, shiftCode, user.employeeId, user.homeStoreId, user.homeStoreId, user.storeId,
           user.employeeId, schedule.workDate, schedule.start, schedule.end,
           user.activeTransferId, user.activeTransferId, user.employeeId, user.homeStoreId, user.storeId,
           transfer?.shiftsJson ?? null,
           schedule.workDate, schedule.workDate,
+          "attendance_late_grace_policy_v1", policy.rawValue, policy.updatedAt,
           user.storeId, shiftPeriod,
         ),
     ]);
     if (affectedRows(results[1]) === 0) {
       if (await isStorePeriodLocked(db, user.storeId, shiftPeriod)) {
         return json({ message: "Kỳ chấm công của cửa hàng đang được chốt hoặc đã khóa sổ. Bạn không thể bắt đầu ca mới trong kỳ này." }, 423);
+      }
+      const latestPolicy = await loadAttendancePolicy(db);
+      if (latestPolicy.version !== policy.version || latestPolicy.rawValue !== policy.rawValue) {
+        return json({
+          message: "Chính sách thời gian đi trễ vừa thay đổi. Vui lòng kiểm tra và điểm danh lại.",
+          attendancePolicy: {
+            currentGraceMinutes: latestPolicy.lateGraceMinutes,
+            version: latestPolicy.version,
+            rule: "LATE_WHEN_GREATER_THAN_GRACE",
+          },
+        }, 409);
       }
       const closedOccurrence = await db.prepare(`SELECT id FROM shift_sessions
         WHERE employee_id = ? AND status = 'COMPLETED'
@@ -668,6 +720,8 @@ export async function POST(request: Request) {
       appliedTikTokAllowance,
       attendanceStatus,
       attendanceDeltaMinutes: attendanceDelta,
+      attendanceGraceMinutes: policy.lateGraceMinutes,
+      attendancePolicyVersion: policy.version,
       locationCapturedAt: clockInLocation.capturedAt,
       locationAccuracyMeters: clockInLocation.accuracyMeters,
     }));
@@ -685,6 +739,8 @@ export async function POST(request: Request) {
       selectionKind: schedule.selectionKind,
       attendanceStatus,
       attendanceDeltaMinutes: attendanceDelta,
+      attendanceGraceMinutes: policy.lateGraceMinutes,
+      attendancePolicyVersion: policy.version,
       earlyMinutes: attendanceDelta < 0 ? Math.abs(attendanceDelta) : 0,
       locationCapturedAt: clockInLocation.capturedAt,
       locationAccuracyMeters: clockInLocation.accuracyMeters,

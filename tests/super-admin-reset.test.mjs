@@ -494,6 +494,7 @@ test("attendance timestamp edit recomputes duration and signed status while pres
     status: "COMPLETED",
     attendanceStatus: "EARLY",
     attendanceDeltaMinutes: -15,
+    attendanceGraceMinutes: 15,
   });
 
   const stale = await itemMutation("PATCH", {

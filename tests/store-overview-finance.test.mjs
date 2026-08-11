@@ -9,10 +9,11 @@ process.env.DORE_DB_PLATFORM = "sqlite";
 process.env.DORE_DATABASE_PATH = join(directory, "dore.sqlite");
 process.env.DORE_MANAGER_PASSWORD_HASH = "pbkdf2$100000$ZG9yZS1tYW5hZ2VyLTIwMjY=$d5VqMFL5PfeL24Iqy9+fDO394WhyMImlit02OntW4OM=";
 
-const [runtime, auth, storesRoute, finance, storeFinance] = await Promise.all([
+const [runtime, auth, storesRoute, reportsRoute, finance, storeFinance] = await Promise.all([
   import("../db/runtime.ts"),
   import("../app/api/_lib/auth.ts"),
   import("../app/api/stores/route.ts"),
+  import("../app/api/reports/route.ts"),
   import("../app/lib/finance.ts"),
   import("../app/api/_lib/store-finance.ts"),
 ]);
@@ -22,6 +23,7 @@ const token = "store-overview-finance-token";
 const storeId = "overview-fixed-cost-store";
 const secondStoreId = "overview-fixed-cost-second-store";
 const period = finance.localPeriod();
+const priorPeriod = storeFinance.previousPeriod(period);
 
 function request(path) {
   return new Request(`http://localhost${path}`, {
@@ -31,7 +33,7 @@ function request(path) {
 
 before(async () => {
   const now = new Date().toISOString();
-  const createdAt = new Date(`${period}-01T00:00:00+07:00`).toISOString();
+  const createdAt = new Date(`${priorPeriod}-01T00:00:00+07:00`).toISOString();
   await db.batch([
     db.prepare(`INSERT INTO stores (id, name, address, revenue, expense, status, created_at)
       VALUES (?, 'DORE KIỂM THỬ VĨNH LONG', 'Test', 0, 0, 'ACTIVE', ?)`)
@@ -52,6 +54,16 @@ before(async () => {
       VALUES ('overview-fixed-cost-second-record', 'CHI_PHI_CO_DINH', ?, 'overview-finance-manager',
         'Chi phí cố định', ?, 'ACTIVE', ?, ?)`)
       .bind(secondStoreId, JSON.stringify({ period, total: 3_250_000 }), now, now),
+    db.prepare(`INSERT INTO business_records
+        (id, category, store_id, owner_id, title, data_json, status, created_at, updated_at)
+      VALUES ('report-fixed-cost-prior-record', 'CHI_PHI_CO_DINH', ?, 'overview-finance-manager',
+        'Chi phí cố định kỳ trước', ?, 'ACTIVE', ?, ?)`)
+      .bind(storeId, JSON.stringify({ period: priorPeriod, total: 6_200_000 }), now, now),
+    db.prepare(`INSERT INTO business_records
+        (id, category, store_id, owner_id, title, data_json, status, created_at, updated_at)
+      VALUES ('report-fixed-cost-second-prior-record', 'CHI_PHI_CO_DINH', ?, 'overview-finance-manager',
+        'Chi phí cố định kỳ trước', ?, 'ACTIVE', ?, ?)`)
+      .bind(secondStoreId, JSON.stringify({ period: priorPeriod, total: 2_800_000 }), now, now),
   ]);
   await db.prepare(`INSERT INTO sessions (id, user_id, token_hash, expires_at, created_at)
     VALUES ('overview-finance-session', 'overview-finance-manager', ?, ?, ?)`)
@@ -113,7 +125,7 @@ test("overview reconciliation replaces a prorated fixed cost and keeps every tot
     settlementStatus: "OPEN",
   };
 
-  const reconciled = storeFinance.recognizeFullPeriodFixedCostsForOverview(range, monthly);
+  const reconciled = storeFinance.recognizeFullPeriodFixedCosts(range, monthly);
   assert.equal(reconciled.expenseBreakdown.fixedCosts, 7_400_000);
   assert.equal(reconciled.expense, 8_400_000);
   assert.equal(reconciled.profit, 1_600_000);
@@ -180,7 +192,7 @@ test("overview reconciliation preserves the other month's accrual when the compa
     settlementStatus: "OPEN",
   };
 
-  const reconciled = storeFinance.recognizeFullPeriodFixedCostsForOverview(range, monthly);
+  const reconciled = storeFinance.recognizeFullPeriodFixedCosts(range, monthly);
   const januaryAccrual = timeline
     .filter((day) => day.date.startsWith("2026-01"))
     .reduce((sum, day) => sum + day.expenseBreakdown.fixedCosts, 0);
@@ -212,4 +224,88 @@ test("store overview returns the full configured monthly fixed cost for every st
   assert.equal(secondStore.expense, 3_250_000);
   assert.equal(secondStore.profit, -3_250_000);
   assert.equal(secondStore.timeline.reduce((sum, day) => sum + day.expense, 0), secondStore.expense);
+});
+
+test("financial report recognizes full fixed costs for every store and the comparable prior period", async () => {
+  const response = await reportsRoute.GET(request(`/api/reports?period=${encodeURIComponent(period)}`));
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  const store = body.stores.find((item) => item.current.id === storeId);
+  const secondStore = body.stores.find((item) => item.current.id === secondStoreId);
+  assert.ok(store?.previous);
+  assert.ok(secondStore?.previous);
+
+  assert.equal(store.current.expenseBreakdown.fixedCosts, 7_400_000);
+  assert.equal(store.current.expense, 7_400_000);
+  assert.equal(store.current.profit, -7_400_000);
+  assert.equal(store.current.profitBeforePerformanceRewards, -7_400_000);
+  assert.equal(store.current.timeline.reduce((sum, day) => sum + day.expense, 0), store.current.expense);
+  assert.equal(store.previous.expenseBreakdown.fixedCosts, 6_200_000);
+  assert.equal(store.previous.expense, 6_200_000);
+  assert.equal(store.previous.profit, -6_200_000);
+  assert.equal(store.previous.profitBeforePerformanceRewards, -6_200_000);
+  assert.equal(store.previous.timeline.reduce((sum, day) => sum + day.expense, 0), store.previous.expense);
+
+  assert.equal(secondStore.current.expenseBreakdown.fixedCosts, 3_250_000);
+  assert.equal(secondStore.current.expense, 3_250_000);
+  assert.equal(secondStore.current.profit, -3_250_000);
+  assert.equal(secondStore.previous.expenseBreakdown.fixedCosts, 2_800_000);
+  assert.equal(secondStore.previous.expense, 2_800_000);
+  assert.equal(secondStore.previous.profit, -2_800_000);
+  assert.equal(secondStore.previous.timeline.reduce((sum, day) => sum + day.expense, 0), secondStore.previous.expense);
+
+  assert.deepEqual(body.totals, { revenue: 0, expense: 10_650_000, profit: -10_650_000 });
+  assert.deepEqual(body.previousTotals, { revenue: 0, expense: 9_000_000, profit: -9_000_000 });
+  assert.equal(body.timeline.reduce((sum, day) => sum + day.expense, 0), body.totals.expense);
+  assert.equal(body.timeline.reduce((sum, day) => sum + day.profit, 0), body.totals.profit);
+  assert.equal(body.byStore.reduce((sum, item) => sum + item.expense, 0), body.totals.expense);
+  assert.equal(body.profitSharingPreview.expense, body.totals.expense);
+  assert.equal(body.profitSharingPreview.finalProfit, body.totals.profit);
+  assert.equal(body.comparison.expenseChange, (10_650_000 - 9_000_000) / 9_000_000 * 100);
+  assert.equal(body.comparison.profitChange, (-10_650_000 + 9_000_000) / 9_000_000 * 100);
+  assert.match(body.recognitionPolicy.monthlyAccrual, /ghi nhận đủ một lần/u);
+});
+
+test("financial report keeps daily accrual semantics for an explicit custom date range", async () => {
+  const selectedDate = `${period}-01`;
+  const response = await reportsRoute.GET(request(
+    `/api/reports?period=${encodeURIComponent(period)}&from=${selectedDate}&to=${selectedDate}&granularity=day`,
+  ));
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  const store = body.stores.find((item) => item.current.id === storeId);
+  const secondStore = body.stores.find((item) => item.current.id === secondStoreId);
+  assert.ok(store?.previous);
+  assert.ok(secondStore?.previous);
+
+  const accruedForDate = (total, date) => {
+    const dates = finance.localDateRangeKeys(finance.localMonthRange(date.slice(0, 7)));
+    const index = dates.indexOf(date);
+    assert.notEqual(index, -1);
+    return Math.floor(total / dates.length) + (index < total % dates.length ? 1 : 0);
+  };
+  const expectedCurrent = accruedForDate(7_400_000, selectedDate);
+  const expectedSecondCurrent = accruedForDate(3_250_000, selectedDate);
+  const previousDate = body.previousRange.to;
+  const expectedPrevious = accruedForDate(6_200_000, previousDate);
+  const expectedSecondPrevious = accruedForDate(2_800_000, previousDate);
+
+  assert.equal(store.current.expenseBreakdown.fixedCosts, expectedCurrent);
+  assert.equal(secondStore.current.expenseBreakdown.fixedCosts, expectedSecondCurrent);
+  assert.equal(store.previous.expenseBreakdown.fixedCosts, expectedPrevious);
+  assert.equal(secondStore.previous.expenseBreakdown.fixedCosts, expectedSecondPrevious);
+  assert.ok(store.current.expenseBreakdown.fixedCosts < 7_400_000);
+  assert.ok(store.previous.expenseBreakdown.fixedCosts < 6_200_000);
+  assert.deepEqual(body.totals, {
+    revenue: 0,
+    expense: expectedCurrent + expectedSecondCurrent,
+    profit: -(expectedCurrent + expectedSecondCurrent),
+  });
+  assert.deepEqual(body.previousTotals, {
+    revenue: 0,
+    expense: expectedPrevious + expectedSecondPrevious,
+    profit: -(expectedPrevious + expectedSecondPrevious),
+  });
+  assert.equal(body.timeline.reduce((sum, day) => sum + day.expense, 0), body.totals.expense);
+  assert.match(body.recognitionPolicy.monthlyAccrual, /phân bổ theo ngày trong phạm vi tùy chọn/u);
 });

@@ -1,6 +1,6 @@
 import { initDb } from "../../../db/runtime";
 import { dateRangeBoundsUtc, periodBoundsUtc, shiftAccountingDate } from "../../lib/finance";
-import { ATTENDANCE_ON_TIME_GRACE_MINUTES } from "../../lib/scheduling";
+import { attendancePolicyPayload } from "../../lib/attendance-policy";
 import {
   buildMonthlyAttendanceStats,
   buildRevenueBreakdowns,
@@ -12,6 +12,7 @@ import {
 import { getSessionUser, json } from "../_lib/auth";
 import { MANAGER_STORE_SCOPE_MESSAGE, resolveManagerStoreScope } from "../_lib/manager-scope";
 import { storeDateRangeFinance } from "../_lib/store-finance";
+import { loadAttendancePolicy } from "../_lib/attendance-policy";
 
 type StoreRow = {
   id: string;
@@ -39,6 +40,7 @@ type CompletedShiftRow = {
   expenseNote: string | null;
   attendanceStatus: string | null;
   attendanceDeltaMinutes: number | null;
+  attendanceGraceMinutes: number;
 };
 
 type AttendanceRow = {
@@ -49,6 +51,7 @@ type AttendanceRow = {
   scheduledStartAt: string | null;
   attendanceStatus: string | null;
   attendanceDeltaMinutes: number | null;
+  attendanceGraceMinutes: number;
 };
 
 const modes = new Set<StoreCashflowMode>(["day", "week", "month"]);
@@ -83,7 +86,8 @@ async function completedShiftsInBounds(
       COALESCE(s.expense_amount, 0) AS expenseAmount,
       s.expense_note AS expenseNote,
       s.attendance_status AS attendanceStatus,
-      s.attendance_delta_minutes AS attendanceDeltaMinutes
+      s.attendance_delta_minutes AS attendanceDeltaMinutes,
+      s.attendance_grace_minutes AS attendanceGraceMinutes
     FROM shift_sessions s
     LEFT JOIN employees e ON e.id = s.employee_id
     WHERE s.store_id = ?
@@ -128,6 +132,7 @@ async function completedShiftsInBounds(
       expenseNote: row.expenseNote,
       attendanceStatus: attendance.status,
       attendanceDeltaMinutes: attendance.deltaMinutes,
+      attendanceGraceMinutes: row.attendanceGraceMinutes,
     };
   });
 }
@@ -165,6 +170,7 @@ export async function GET(request: Request) {
   `).bind(storeId).first<StoreRow>();
   if (!store) return json({ message: "Cửa hàng không tồn tại." }, 404);
 
+  const currentPolicy = await loadAttendancePolicy(db);
   const bounds = dateRangeBoundsUtc(range);
   const attendancePeriod = (mode === "month" ? anchor : anchor.slice(0, 7)).slice(0, 7);
   const attendanceBounds = periodBoundsUtc(attendancePeriod);
@@ -181,7 +187,8 @@ export async function GET(request: Request) {
         s.started_at AS startedAt,
         s.scheduled_start_at AS scheduledStartAt,
         s.attendance_status AS attendanceStatus,
-        s.attendance_delta_minutes AS attendanceDeltaMinutes
+        s.attendance_delta_minutes AS attendanceDeltaMinutes,
+        s.attendance_grace_minutes AS attendanceGraceMinutes
       FROM shift_sessions s
       LEFT JOIN employees e ON e.id = s.employee_id
       WHERE s.store_id = ? AND s.status IN ('ACTIVE', 'COMPLETED')
@@ -229,9 +236,10 @@ export async function GET(request: Request) {
       timeZone: "Asia/Ho_Chi_Minh",
       rule: {
         early: "Điểm danh trước giờ bắt đầu ca.",
-        onTime: `Điểm danh từ giờ bắt đầu ca đến đúng ${ATTENDANCE_ON_TIME_GRACE_MINUTES} phút sau.`,
-        late: `Điểm danh sau ${ATTENDANCE_ON_TIME_GRACE_MINUTES} phút kể từ giờ bắt đầu ca.`,
+        onTime: `Điểm danh từ giờ bắt đầu ca đến đúng ${currentPolicy.lateGraceMinutes} phút sau.`,
+        late: `Điểm danh sau ${currentPolicy.lateGraceMinutes} phút kể từ giờ bắt đầu ca.`,
       },
+      policy: attendancePolicyPayload(currentPolicy),
       totals: attendanceTotals,
       employees: attendanceEmployees,
     },

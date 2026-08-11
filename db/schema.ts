@@ -246,6 +246,7 @@ export const shiftSessions = sqliteTable("shift_sessions", {
   startedAt: text("started_at").notNull(),
   attendanceStatus: text("attendance_status"),
   attendanceDeltaMinutes: integer("attendance_delta_minutes"),
+  attendanceGraceMinutes: integer("attendance_grace_minutes").notNull().default(15),
   clockInLatitude: real("clock_in_latitude"),
   clockInLongitude: real("clock_in_longitude"),
   clockInAccuracyMeters: real("clock_in_accuracy_meters"),

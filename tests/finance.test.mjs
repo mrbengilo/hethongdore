@@ -200,7 +200,7 @@ test("report settlement status and legacy current-month ranges stay truthful", a
   assert.match(reports, /to: month\.to > today \? today : month\.to/u);
   assert.match(reports, /store\.settlementStatus === "LOCKED"/u);
   assert.match(reports, /for \(const store of report\.stores\)/u);
-  assert.match(reports, /reportRangeData\(db, range, previousRange, "month"/u);
+  assert.match(reports, /const report = await reportRangeData\([\s\S]{0,240}"month",[\s\S]{0,240}"FULL_ENDING_PERIOD"/u);
   assert.match(storeFinance, /category = 'PAYROLL_CLOSING'.*status != 'DELETED'/u);
   assert.match(storeFinance, /closingRow\?\.status === "LOCKED"/u);
   assert.match(storeFinance, /calculationStatus: snapshotRow \? "LOCKED" : "PROVISIONAL"/u);

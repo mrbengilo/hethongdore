@@ -192,7 +192,15 @@ async function reportData(db: Awaited<ReturnType<typeof initDb>>, period: string
   const storeOptions = onlyStoreId
     ? optionsResult.results.filter((store) => store.id === onlyStoreId)
     : optionsResult.results;
-  const report = await reportRangeData(db, range, previousRange, "month", onlyStoreId ?? null, storeOptions);
+  const report = await reportRangeData(
+    db,
+    range,
+    previousRange,
+    "month",
+    onlyStoreId ?? null,
+    storeOptions,
+    "FULL_ENDING_PERIOD",
+  );
   return {
     ...report,
     period,
@@ -203,6 +211,7 @@ async function reportData(db: Awaited<ReturnType<typeof initDb>>, period: string
 }
 
 type Granularity = "day" | "month";
+type FixedCostRecognition = "ACCRUAL" | "FULL_ENDING_PERIOD";
 type StoreOption = { id: string; name: string; status: string; createdAt: string };
 
 function reportRange(params: URLSearchParams, period: string, granularity: Granularity) {
@@ -252,12 +261,13 @@ async function reportRangeData(
   granularity: Granularity,
   storeId: string | null,
   storeOptions: StoreOption[],
+  fixedCostRecognition: FixedCostRecognition,
 ) {
   const ids = storeId ? [storeId] : storeOptions.map((store) => store.id);
   const rows = await Promise.all(ids.map(async (id) => {
     const [current, previous] = await Promise.all([
-      storeDateRangeFinance(db, id, range),
-      storeDateRangeFinance(db, id, previousRange),
+      storeDateRangeFinance(db, id, range, { fixedCostRecognition }),
+      storeDateRangeFinance(db, id, previousRange, { fixedCostRecognition }),
     ]);
     return { current, previous };
   }));
@@ -374,7 +384,19 @@ export async function GET(request: Request) {
   if (storeId && !storeOptions.some((store) => store.id === storeId)) {
     return json({ message: "Cửa hàng không tồn tại." }, 404);
   }
-  const data = await reportRangeData(db, range, previousRange, granularity, storeId, storeOptions);
+  const usesFullEndingPeriodFixedCosts = !params.has("from") && !params.has("to");
+  const fixedCostRecognition: FixedCostRecognition = usesFullEndingPeriodFixedCosts
+    ? "FULL_ENDING_PERIOD"
+    : "ACCRUAL";
+  const data = await reportRangeData(
+    db,
+    range,
+    previousRange,
+    granularity,
+    storeId,
+    storeOptions,
+    fixedCostRecognition,
+  );
   const historyRows = globalStoreAccess
     ? await db.prepare("SELECT data_json AS dataJson FROM business_records WHERE category = 'DIVIDEND' AND status = 'LOCKED' ORDER BY created_at DESC LIMIT 36")
       .all<{ dataJson: string }>()
@@ -401,7 +423,9 @@ export async function GET(request: Request) {
       timeZone: "Asia/Ho_Chi_Minh",
       endDateInclusive: true,
       directActivity: "Ca làm và chi phí có ngày được ghi nhận đúng ngày nghiệp vụ.",
-      monthlyAccrual: "Chi phí cố định được phân bổ theo ngày cửa hàng hoạt động; lương quản lý chỉ ghi nhận một lần vào ngày cuối kỳ sau khi xác nhận đã chi.",
+      monthlyAccrual: usesFullEndingPeriodFixedCosts
+        ? "Chi phí cố định của tháng kết thúc phạm vi được ghi nhận đủ một lần; phần thuộc tháng khác giữ phân bổ theo ngày. Lương quản lý chỉ ghi nhận vào ngày cuối kỳ sau khi xác nhận đã chi."
+        : "Chi phí cố định được phân bổ theo ngày trong phạm vi tùy chọn. Lương quản lý chỉ ghi nhận vào ngày cuối kỳ sau khi xác nhận đã chi.",
       performanceRewards: "KPI nhân viên và quản lý chỉ được ghi nhận từ ảnh chụp kỳ đã khóa; kỳ chưa khóa có trạng thái PROVISIONAL.",
     },
     profitSharingMembers: globalStoreAccess ? PROFIT_SHARING_MEMBERS : [],

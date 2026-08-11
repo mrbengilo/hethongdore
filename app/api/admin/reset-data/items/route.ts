@@ -70,6 +70,7 @@ type AttendanceItem = {
   status: string;
   attendanceStatus: string | null;
   attendanceDeltaMinutes: number | null;
+  attendanceGraceMinutes: number;
   scheduledStart: string | null;
   scheduledEnd: string | null;
   scheduledStartAt?: string | null;
@@ -111,6 +112,7 @@ const orderShiftSnapshotJsonSql = `json_object(
   'appliedHourlyRate', s.applied_hourly_rate, 'appliedTiktokAllowance', s.applied_tiktok_allowance,
   'startedAt', s.started_at, 'attendanceStatus', s.attendance_status,
   'attendanceDeltaMinutes', s.attendance_delta_minutes,
+  'attendanceGraceMinutes', s.attendance_grace_minutes,
   'clockInLatitude', s.clock_in_latitude, 'clockInLongitude', s.clock_in_longitude,
   'clockInAccuracyMeters', s.clock_in_accuracy_meters,
   'clockInLocationCapturedAt', s.clock_in_location_captured_at,
@@ -332,6 +334,7 @@ async function listAttendance(db: Database, filter: ListFilter) {
       ) AS durationSeconds,
       s.status, s.attendance_status AS attendanceStatus,
       s.attendance_delta_minutes AS attendanceDeltaMinutes,
+      s.attendance_grace_minutes AS attendanceGraceMinutes,
       s.scheduled_start AS scheduledStart, s.scheduled_end AS scheduledEnd,
       s.scheduled_start_at AS scheduledStartAt, s.scheduled_end_at AS scheduledEndAt,
       s.cash_revenue AS cashRevenue, s.transfer_revenue AS transferRevenue,
@@ -409,6 +412,7 @@ async function loadAttendance(db: Database, storeId: string, id: string) {
       ) AS durationSeconds,
       s.status, s.attendance_status AS attendanceStatus,
       s.attendance_delta_minutes AS attendanceDeltaMinutes,
+      s.attendance_grace_minutes AS attendanceGraceMinutes,
       s.scheduled_start AS scheduledStart, s.scheduled_end AS scheduledEnd,
       s.scheduled_start_at AS scheduledStartAt, s.scheduled_end_at AS scheduledEndAt,
       s.previous_session_id AS previousSessionId, s.transfer_id AS transferId,
@@ -558,7 +562,9 @@ function parseAttendanceEdit(body: Record<string, unknown>, previous: Attendance
     endedAt,
     durationSeconds,
     status: previous.status === "ACTIVE" ? "ACTIVE" : "COMPLETED",
-    attendanceStatus: scheduledStartAt ? attendanceStatusAt(startedAt, scheduledStartAt) : null,
+    attendanceStatus: scheduledStartAt
+      ? attendanceStatusAt(startedAt, scheduledStartAt, previous.attendanceGraceMinutes)
+      : null,
     attendanceDeltaMinutes: delta,
   };
 }
@@ -695,6 +701,7 @@ async function mutateAttendance(
         AND s.previous_session_id IS ? AND s.transfer_id IS ?
         AND s.applied_hourly_rate IS ? AND s.applied_tiktok_allowance IS ?
         AND s.started_at = ? AND s.attendance_status IS ? AND s.attendance_delta_minutes IS ?
+        AND s.attendance_grace_minutes = ?
         AND s.clock_in_latitude IS ? AND s.clock_in_longitude IS ?
         AND s.clock_in_accuracy_meters IS ? AND s.clock_in_location_captured_at IS ?
         AND s.ended_at IS ? AND s.duration_seconds = ?
@@ -723,6 +730,7 @@ async function mutateAttendance(
     previous.previousSessionId ?? null, previous.transferId ?? null,
     previous.appliedHourlyRate ?? null, previous.appliedTiktokAllowance ?? null,
     previous.startedAt, previous.attendanceStatus, previous.attendanceDeltaMinutes,
+    previous.attendanceGraceMinutes,
     previous.clockInLatitude ?? null, previous.clockInLongitude ?? null,
     previous.clockInAccuracyMeters ?? null, previous.clockInLocationCapturedAt ?? null,
     previous.endedAt, previous.recordedDurationSeconds,
@@ -740,6 +748,7 @@ async function mutateAttendance(
     status: edit.status,
     attendanceStatus: edit.attendanceStatus,
     attendanceDeltaMinutes: edit.attendanceDeltaMinutes,
+    attendanceGraceMinutes: previous.attendanceGraceMinutes,
   };
   const action = deleting ? "SUPER_ADMIN_ATTENDANCE_DELETE" : "SUPER_ADMIN_ATTENDANCE_UPDATE";
   const archive = archiveInsert(

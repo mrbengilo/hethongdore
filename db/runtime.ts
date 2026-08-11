@@ -5,7 +5,11 @@ import {
   prefixFromStoreOrderCode,
   storeOrderCodePrefix,
 } from "../app/lib/order-code";
-import { ATTENDANCE_ON_TIME_GRACE_MINUTES } from "../app/lib/scheduling";
+import {
+  ATTENDANCE_POLICY_STATE_KEY,
+  defaultAttendancePolicy,
+  DEFAULT_ATTENDANCE_GRACE_MINUTES,
+} from "../app/lib/attendance-policy";
 
 const LEGACY_RESET_COMPATIBILITY_KEY = "data_reset_2026_08_08_v2";
 const LEGACY_RESET_COMPLETE = "COMPLETE";
@@ -20,7 +24,7 @@ const attendanceDeltaMinutesSql = `CASE
 END`;
 const attendanceStatusSql = `CASE
   WHEN ${attendanceDeltaMillisecondsSql} < 0 THEN 'EARLY'
-  WHEN ${attendanceDeltaMillisecondsSql} <= ${ATTENDANCE_ON_TIME_GRACE_MINUTES * 60_000} THEN 'ON_TIME'
+  WHEN ${attendanceDeltaMillisecondsSql} <= COALESCE(attendance_grace_minutes, ${DEFAULT_ATTENDANCE_GRACE_MINUTES}) * 60000 THEN 'ON_TIME'
   ELSE 'LATE'
 END`;
 
@@ -41,7 +45,7 @@ const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS admin_reset_archives (id TEXT PRIMARY KEY, store_id TEXT NOT NULL, actor_user_id TEXT NOT NULL, kind TEXT NOT NULL, filter_json TEXT NOT NULL, summary_json TEXT NOT NULL, snapshot_json TEXT NOT NULL, created_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS business_records (id TEXT PRIMARY KEY, category TEXT NOT NULL, store_id TEXT, owner_id TEXT, title TEXT NOT NULL, data_json TEXT NOT NULL DEFAULT '{}', status TEXT NOT NULL DEFAULT 'ACTIVE', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS daily_shift_definitions (id TEXT PRIMARY KEY, store_id TEXT NOT NULL, work_date TEXT NOT NULL, name TEXT NOT NULL, name_key TEXT NOT NULL, start_time TEXT NOT NULL, end_time TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'DELETED')), version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1), client_request_id TEXT, payload_hash TEXT, created_by TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, deleted_at TEXT)`,
-  `CREATE TABLE IF NOT EXISTS shift_sessions (id TEXT PRIMARY KEY, shift_code TEXT NOT NULL UNIQUE, store_id TEXT NOT NULL, employee_id TEXT NOT NULL, shift_name TEXT, scheduled_start TEXT, scheduled_end TEXT, scheduled_start_at TEXT, scheduled_end_at TEXT, work_date TEXT, previous_session_id TEXT, transfer_id TEXT, applied_hourly_rate INTEGER, applied_tiktok_allowance INTEGER, started_at TEXT NOT NULL, attendance_status TEXT, attendance_delta_minutes INTEGER, clock_in_latitude REAL, clock_in_longitude REAL, clock_in_accuracy_meters REAL, clock_in_location_captured_at TEXT, ended_at TEXT, duration_seconds INTEGER NOT NULL DEFAULT 0, admin_adjusted_duration_seconds INTEGER, tiktok INTEGER NOT NULL DEFAULT 0, tiktok_allowance INTEGER NOT NULL DEFAULT 0, tasks_completed INTEGER NOT NULL DEFAULT 0, expense_amount INTEGER NOT NULL DEFAULT 0, expense_note TEXT, cash_revenue INTEGER NOT NULL DEFAULT 0, transfer_revenue INTEGER NOT NULL DEFAULT 0, close_reason TEXT, close_status TEXT NOT NULL DEFAULT 'PENDING', status TEXT NOT NULL DEFAULT 'ACTIVE')`,
+  `CREATE TABLE IF NOT EXISTS shift_sessions (id TEXT PRIMARY KEY, shift_code TEXT NOT NULL UNIQUE, store_id TEXT NOT NULL, employee_id TEXT NOT NULL, shift_name TEXT, scheduled_start TEXT, scheduled_end TEXT, scheduled_start_at TEXT, scheduled_end_at TEXT, work_date TEXT, previous_session_id TEXT, transfer_id TEXT, applied_hourly_rate INTEGER, applied_tiktok_allowance INTEGER, started_at TEXT NOT NULL, attendance_status TEXT, attendance_delta_minutes INTEGER, attendance_grace_minutes INTEGER NOT NULL DEFAULT 15 CHECK (attendance_grace_minutes BETWEEN 0 AND 120), clock_in_latitude REAL, clock_in_longitude REAL, clock_in_accuracy_meters REAL, clock_in_location_captured_at TEXT, ended_at TEXT, duration_seconds INTEGER NOT NULL DEFAULT 0, admin_adjusted_duration_seconds INTEGER, tiktok INTEGER NOT NULL DEFAULT 0, tiktok_allowance INTEGER NOT NULL DEFAULT 0, tasks_completed INTEGER NOT NULL DEFAULT 0, expense_amount INTEGER NOT NULL DEFAULT 0, expense_note TEXT, cash_revenue INTEGER NOT NULL DEFAULT 0, transfer_revenue INTEGER NOT NULL DEFAULT 0, close_reason TEXT, close_status TEXT NOT NULL DEFAULT 'PENDING', status TEXT NOT NULL DEFAULT 'ACTIVE')`,
   `CREATE TABLE IF NOT EXISTS employee_transfers (id TEXT PRIMARY KEY, employee_id TEXT NOT NULL, source_store_id TEXT NOT NULL, target_store_id TEXT NOT NULL, start_date TEXT NOT NULL, end_date TEXT NOT NULL, shifts_json TEXT NOT NULL DEFAULT '[]', support_hourly_rate INTEGER NOT NULL, support_allowance INTEGER NOT NULL DEFAULT 0, reason TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'SCHEDULED', created_by TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, ended_at TEXT)`,
   `CREATE TABLE IF NOT EXISTS employee_payroll_closings (id TEXT PRIMARY KEY, store_id TEXT NOT NULL, employee_id TEXT NOT NULL, period TEXT NOT NULL, snapshot_json TEXT NOT NULL, employee_status_at_lock TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'LOCKED', locked_at TEXT NOT NULL, locked_by TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS salary_advances (id TEXT PRIMARY KEY, store_id TEXT NOT NULL, employee_id TEXT NOT NULL, period TEXT NOT NULL CHECK (period GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]'), advance_date TEXT NOT NULL CHECK (advance_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'), amount INTEGER NOT NULL CHECK (amount > 0), gross_entitlement_snapshot INTEGER NOT NULL CHECK (gross_entitlement_snapshot >= 0), available_before_snapshot INTEGER NOT NULL CHECK (available_before_snapshot >= 0), remaining_after_snapshot INTEGER NOT NULL CHECK (remaining_after_snapshot >= 0), note TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'DRAFT' CHECK (status IN ('DRAFT', 'PAID')), version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1), client_request_id TEXT NOT NULL, payload_hash TEXT NOT NULL, mutation_token TEXT NOT NULL, created_by TEXT NOT NULL, created_at TEXT NOT NULL, updated_by TEXT NOT NULL, updated_at TEXT NOT NULL, paid_by TEXT, paid_at TEXT)`,
@@ -126,7 +130,14 @@ async function ensureStoreOrderCodePrefixes(db: D1Database) {
     const codePrefix = nextAvailableStoreOrderCodePrefix(basePrefix, unavailable);
     const lastValue = existing?.lastValue ?? historicalStats.get(store.id)?.get(codePrefix)?.max ?? 0;
     if (existing) {
-      ×½í¢G§²ÚîÆ­yÞow).run();
+      // A pre-index duplicate keeps its counter but receives a deterministic
+      // collision suffix. No historical order code is ever rewritten.
+      await db.prepare("UPDATE store_order_code_sequences SET code_prefix = ?, updated_at = ? WHERE store_id = ?")
+        .bind(codePrefix, now, store.id).run();
+    } else {
+      await db.prepare(`INSERT OR IGNORE INTO store_order_code_sequences
+        (store_id, code_prefix, last_value, updated_at) VALUES (?, ?, ?, ?)`)
+        .bind(store.id, codePrefix, lastValue, now).run();
     }
     occupied.add(codePrefix);
   }
@@ -164,6 +175,10 @@ async function initializeDb() {
     WHERE key = ? AND value = ?`)
     .bind(LEGACY_RESET_COMPLETE, new Date().toISOString(), LEGACY_RESET_COMPATIBILITY_KEY, LEGACY_RESET_UPLOADS_PENDING).run();
   await db.batch(schemaStatements.map((sql) => db.prepare(sql)));
+  const defaultPolicy = defaultAttendancePolicy(new Date().toISOString());
+  await db.prepare(`INSERT OR IGNORE INTO system_state (key, value, updated_at)
+    VALUES (?, ?, ?)`)
+    .bind(ATTENDANCE_POLICY_STATE_KEY, defaultPolicy.rawValue, defaultPolicy.updatedAt).run();
   const dailyShiftBackfill = await db.prepare("SELECT value FROM system_state WHERE key = ? LIMIT 1")
     .bind(DAILY_SHIFT_BACKFILL_KEY).first<{ value: string }>();
   if (!dailyShiftBackfill) {
@@ -258,6 +273,7 @@ async function initializeDb() {
     ["applied_tiktok_allowance", "ALTER TABLE shift_sessions ADD COLUMN applied_tiktok_allowance INTEGER"],
     ["attendance_status", "ALTER TABLE shift_sessions ADD COLUMN attendance_status TEXT"],
     ["attendance_delta_minutes", "ALTER TABLE shift_sessions ADD COLUMN attendance_delta_minutes INTEGER"],
+    ["attendance_grace_minutes", "ALTER TABLE shift_sessions ADD COLUMN attendance_grace_minutes INTEGER NOT NULL DEFAULT 15 CHECK (attendance_grace_minutes BETWEEN 0 AND 120)"],
     ["clock_in_latitude", "ALTER TABLE shift_sessions ADD COLUMN clock_in_latitude REAL"],
     ["clock_in_longitude", "ALTER TABLE shift_sessions ADD COLUMN clock_in_longitude REAL"],
     ["clock_in_accuracy_meters", "ALTER TABLE shift_sessions ADD COLUMN clock_in_accuracy_meters REAL"],
@@ -273,16 +289,16 @@ async function initializeDb() {
   // manager edits intentionally update ACTIVE sessions through the employee
   // API; completed sessions keep their recorded allowance untouched.
   await db.prepare("UPDATE shift_sessions SET applied_tiktok_allowance = 25000 WHERE status = 'ACTIVE' AND applied_tiktok_allowance IS NULL").run();
-  // Normalize every historical row, including values written by the former
-  // zero-grace rule. Rounding the timestamp difference to a millisecond before
-  // classifying keeps the exact +15:00 / +15:00.001 boundary deterministic.
-  // Re-running this statement is idempotent and also repairs stale fallbacks.
+  // Existing rows retain their recorded classification and their legacy
+  // 15-minute snapshot. Only incomplete legacy rows are hydrated; changing the
+  // global policy must never rewrite attendance history.
   await db.prepare(`UPDATE shift_sessions SET
       attendance_delta_minutes = ${attendanceDeltaMinutesSql},
       attendance_status = ${attendanceStatusSql}
     WHERE scheduled_start_at IS NOT NULL
       AND julianday(started_at) IS NOT NULL
-      AND julianday(scheduled_start_at) IS NOT NULL`).run();
+      AND julianday(scheduled_start_at) IS NOT NULL
+      AND (attendance_status IS NULL OR attendance_delta_minutes IS NULL)`).run();
   await db.prepare("CREATE INDEX IF NOT EXISTS idx_shift_sessions_store_work_date ON shift_sessions(store_id, work_date, status)").run();
   await db.prepare("CREATE INDEX IF NOT EXISTS idx_shift_sessions_store_work_date_started ON shift_sessions(store_id, work_date, started_at, id)").run();
   await db.prepare("CREATE INDEX IF NOT EXISTS idx_orders_store_created ON orders(store_id, created_at, id)").run();

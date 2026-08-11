@@ -145,7 +145,7 @@ test("reports compare periods and profit sharing requires every store ledger to 
   ]);
 
   assert.match(reportsApi, /const range = localMonthRange\(period\)/u);
-  assert.match(reportsApi, /reportRangeData\(db, range, previousRange, "month"/u);
+  assert.match(reportsApi, /const report = await reportRangeData\([\s\S]{0,240}"month",[\s\S]{0,240}"FULL_ENDING_PERIOD"/u);
   assert.match(reportsApi, /for \(const store of report\.stores\)/u);
   assert.match(reportsApi, /comparison:/u);
   assert.match(reportsApi, /category = 'PAYROLL_CLOSING'.*status = 'LOCKED'/su);
@@ -405,7 +405,7 @@ test("manager payroll uses only locked store ledgers and final profit includes e
   assert.doesNotMatch(aggregation, /allocateMonthlyExpense\(finance\.expenseBreakdown\.managerSalary/u);
 });
 
-test("overview and reports share accrual ranges while cashflow labels actual payments distinctly", async () => {
+test("overview and reports reconcile fixed costs while cashflow labels actual payments distinctly", async () => {
   const [storesApi, reportsApi, cashflowApi] = await sources([
     "../app/api/stores/route.ts",
     "../app/api/reports/route.ts",
@@ -415,8 +415,10 @@ test("overview and reports share accrual ranges while cashflow labels actual pay
   assert.match(storesApi, /storeDateRangeFinance\(db, id, currentRange\)/u);
   assert.match(storesApi, /to: fullCurrentRange\.to > today \? today : fullCurrentRange\.to/u);
   assert.match(storesApi, /previousComparableDateRange\(currentRange, "month"\)/u);
-  assert.match(reportsApi, /storeDateRangeFinance\(db, id, range\)/u);
-  assert.match(reportsApi, /monthlyAccrual:[\s\S]*lương quản lý chỉ ghi nhận một lần[\s\S]*xác nhận đã chi/u);
+  assert.match(reportsApi, /const usesFullEndingPeriodFixedCosts = !params\.has\("from"\) && !params\.has\("to"\)/u);
+  assert.match(reportsApi, /storeDateRangeFinance\(db, id, range, \{ fixedCostRecognition \}\)/u);
+  assert.match(reportsApi, /storeDateRangeFinance\(db, id, previousRange, \{ fixedCostRecognition \}\)/u);
+  assert.match(reportsApi, /monthlyAccrual:[\s\S]*Chi phí cố định của tháng kết thúc phạm vi được ghi nhận đủ một lần[\s\S]*phần thuộc tháng khác giữ phân bổ theo ngày[\s\S]*Lương quản lý chỉ ghi nhận[\s\S]*xác nhận đã chi/u);
   assert.match(cashflowApi, /financeStatus: "ACTUAL_CASH"/u);
   assert.match(cashflowApi, /outflow: "Tiền đã chi thực tế"/u);
   assert.match(cashflowApi, /accountingReconciliation/u);

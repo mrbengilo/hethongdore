@@ -105,18 +105,21 @@ test("store cash-flow API reads real completed shifts with Vietnam-local attribu
   assert.match(route, /timeZone: "Asia\/Ho_Chi_Minh"/u);
   assert.match(route, /buildRevenueBreakdowns\(shifts, yearShifts\)/u);
   assert.match(route, /buildMonthlyAttendanceStats\(attendanceResult\.results\)/u);
-  assert.match(route, /ATTENDANCE_ON_TIME_GRACE_MINUTES/u);
+  assert.match(route, /loadAttendancePolicy\(db\)/u);
+  assert.match(route, /attendancePolicyPayload\(currentPolicy\)/u);
   assert.match(route, /s\.attendance_status AS attendanceStatus/u);
   assert.match(route, /s\.attendance_delta_minutes AS attendanceDeltaMinutes/u);
   assert.match(route, /status IN \('ACTIVE', 'COMPLETED'\)/u);
   assert.doesNotMatch(route, /business_records|stores SET|UPDATE |INSERT /u);
 });
 
-test("manager attendance fallback and guidance share the central grace-period rule", async () => {
+test("manager attendance fallback uses the stored grace snapshot and dynamic guidance", async () => {
   const component = await source("app/components/ReferenceStoreModules.tsx");
   assert.match(component, /attendanceDeltaMinutes\(shift\.started_at, shift\.scheduled_start_at\)/u);
-  assert.match(component, /attendanceStatusAt\(shift\.started_at, shift\.scheduled_start_at\)/u);
-  assert.match(component, /đúng giờ: từ giờ bắt đầu đến đúng \{ATTENDANCE_ON_TIME_GRACE_MINUTES\} phút sau/u);
+  assert.match(component, /attendanceGraceMinutes\?: number \| null; attendance_grace_minutes\?: number \| null/u);
+  assert.match(component, /attendanceStatusAt\(shift\.started_at, shift\.scheduled_start_at, graceMinutes\)/u);
+  assert.match(component, /ảnh chụp ngưỡng được lưu tại thời điểm nhân viên điểm danh/u);
+  assert.doesNotMatch(component, /ATTENDANCE_ON_TIME_GRACE_MINUTES/u);
   assert.doesNotMatch(component, /actual === scheduled \? "ON_TIME"/u);
 });
 
@@ -140,7 +143,8 @@ test("store cash-flow UI exposes day-week-month controls and complete close deta
   assert.match(component, /Doanh thu theo nhân viên/u);
   assert.match(component, /Doanh thu theo ca/u);
   assert.match(component, /Điểm danh đúng giờ, sớm và trễ theo nhân viên/u);
-  assert.match(component, /ATTENDANCE_ON_TIME_GRACE_MINUTES/u);
+  assert.match(component, /attendance\.policy\.lateGraceMinutes/u);
+  assert.match(component, /DEFAULT_ATTENDANCE_GRACE_MINUTES/u);
   assert.doesNotMatch(component, /phút thứ 5|phút thứ 6/u);
   assert.match(component, /Tổng chi phí kế toán cùng phạm vi/u);
   assert.match(component, /useState<FilterState>\(\(\) => defaultFilter\(period\)\)/u);

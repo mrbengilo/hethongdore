@@ -342,21 +342,25 @@ export type StoreDateRangeFinance = Omit<StorePeriodFinance, "period"> & {
   }>;
 };
 
+type StoreDateRangeFinanceOptions = {
+  fixedCostRecognition?: "ACCRUAL" | "FULL_ENDING_PERIOD";
+};
+
 /**
- * The store overview is a month-to-date activity view, but a fixed-cost batch
- * belongs to the selected month in full as soon as it is recorded. The generic
- * date-range report intentionally accrues monthly costs day by day, so using it
- * directly on the current partial month would show only a fraction of the
- * configured fixed costs. Reconcile only that monthly category here and keep
- * the timeline/totals internally exact; other report ranges retain their
- * normal accrual behaviour.
+ * Replace the accrued fixed-cost portion for one month with that month's full
+ * configured amount. Any fixed-cost accrual from another month in the same
+ * date range is preserved, which is required when a comparable range crosses
+ * a month boundary. This is a replacement, not an addition: store totals,
+ * profit and the daily timeline are rebuilt from the reconciled breakdown.
  */
-export function recognizeFullPeriodFixedCostsForOverview(
+export function recognizeFullPeriodFixedCosts(
   rangeFinance: StoreDateRangeFinance,
   periodFinance: StorePeriodFinance,
 ): StoreDateRangeFinance {
   const periodFixedCosts = requireVnd(periodFinance.expenseBreakdown.fixedCosts, "Chi phí cố định theo tháng");
   const targetPeriod = periodFinance.period;
+  const targetPeriodDays = rangeFinance.timeline.filter((day) => day.date.slice(0, 7) === targetPeriod);
+  if (targetPeriodDays.length === 0) return rangeFinance;
   // A previous equal-length comparison can straddle two months (for example
   // 30/01–28/02). Only replace the portion belonging to the selected target
   // month; fixed costs already accrued for the other month remain part of the
@@ -379,7 +383,7 @@ export function recognizeFullPeriodFixedCostsForOverview(
   // example 30/01–28/02), so its already-accrued amount may be greater than
   // the single prior-period total. Delta-only adjustment could make the last
   // day negative. Reallocation keeps every daily value non-negative and the
-  // timeline sum equal to the overview total in both directions.
+  // timeline sum equal to the reconciled total in both directions.
   const fixedCostDayIndexes = rangeFinance.timeline.flatMap((day, index) => (
     day.date.slice(0, 7) === targetPeriod && day.expenseBreakdown.fixedCosts > 0 ? [index] : []
   ));
@@ -417,6 +421,14 @@ export function recognizeFullPeriodFixedCostsForOverview(
     profitBeforePerformanceRewards: rangeFinance.revenue - (expense - performanceRewards),
     timeline,
   };
+}
+
+/** Backward-compatible name for the store overview call site. */
+export function recognizeFullPeriodFixedCostsForOverview(
+  rangeFinance: StoreDateRangeFinance,
+  periodFinance: StorePeriodFinance,
+) {
+  return recognizeFullPeriodFixedCosts(rangeFinance, periodFinance);
 }
 
 function emptyExpenseBreakdown(): StoreExpenseBreakdown {
@@ -510,6 +522,7 @@ export async function storeDateRangeFinance(
   db: Db,
   storeId: string,
   range: LocalDateRange,
+  options: StoreDateRangeFinanceOptions = {},
 ): Promise<StoreDateRangeFinance | null> {
   const store = await db.prepare("SELECT id, name, address, status, created_at AS createdAt FROM stores WHERE id = ? AND status IN ('ACTIVE', 'INACTIVE') LIMIT 1")
     .bind(storeId).first<StoreRow>();
@@ -633,7 +646,7 @@ export async function storeDateRangeFinance(
   const revenue = sumVnd(timeline.map((day) => day.revenue));
   const expense = sumVnd(timeline.map((day) => day.expense));
   const performanceRewards = sumVnd([expenseBreakdown.employeeKpiBonus, expenseBreakdown.managerBonus]);
-  return {
+  const rangeFinance: StoreDateRangeFinance = {
     ...store,
     range,
     activeDayCount,
@@ -651,4 +664,10 @@ export async function storeDateRangeFinance(
     periodStatuses,
     timeline,
   };
+  if (options.fixedCostRecognition !== "FULL_ENDING_PERIOD") return rangeFinance;
+  const endingPeriodIndex = periods.indexOf(range.to.slice(0, 7));
+  const endingPeriodFinance = endingPeriodIndex >= 0 ? monthlyFinances[endingPeriodIndex] : null;
+  return endingPeriodFinance
+    ? recognizeFullPeriodFixedCosts(rangeFinance, endingPeriodFinance)
+    : rangeFinance;
 }

@@ -1,7 +1,7 @@
 "use client";
 /* eslint-disable @next/next/no-img-element -- Logo thÆ°Æ¡ng hiá»‡u tÄ©nh do ngÆ°á»i dÃ¹ng cung cáº¥p vÃ  dÃ¹ng Ä‘á»“ng nháº¥t trong toÃ n há»‡ thá»‘ng. */
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, BadgeDollarSign, Banknote, BarChart3, Bell, Calendar, CalendarDays, CalendarRange, CheckCircle2, ClipboardCheck, Clock3, DatabaseBackup, Download, Eye, Gift, History, Home, LayoutDashboard, LogOut, Menu, PackageOpen, Percent, PieChart, Plus, ReceiptText, RefreshCw, Settings, ShoppingBag, ShoppingCart, Store, TrendingUp, UserRound, UsersRound, WalletCards, X, type LucideIcon } from "lucide-react";
+import { ArrowLeft, BadgeDollarSign, Banknote, BarChart3, Bell, Calendar, CalendarDays, CalendarRange, CheckCircle2, ClipboardCheck, Clock3, DatabaseBackup, Download, Eye, Gift, History, Home, LayoutDashboard, LogOut, Menu, PackageOpen, Percent, PieChart, Plus, ReceiptText, RefreshCw, Settings, ShoppingBag, ShoppingCart, SlidersHorizontal, Store, TrendingUp, UserRound, UsersRound, WalletCards, X, type LucideIcon } from "lucide-react";
 import { FunctionalEmployeeTasks, FunctionalSettings, FunctionalTaskManager } from "./FunctionalModules";
 import { ReferenceManagerTransfer } from "./ReferenceManagerModules";
 import { ReferenceEmployeeCashflow, ReferenceEmployeePayroll, ReferenceEmployeeRevenue, ReferenceEmployeeShiftHistory } from "./ReferenceEmployeeModules";
@@ -17,6 +17,7 @@ import { StoreOperatingExpense } from "./StoreOperatingExpense";
 import { StoreShiftCashflow } from "./StoreCashflow";
 import { StoreOrdersManagement } from "./StoreOrdersManagement";
 import { SuperAdminReset } from "./SuperAdminReset";
+import { AttendancePolicySettings } from "./AttendancePolicySettings";
 import { useAccessibleModal } from "./useAccessibleModal";
 import { formatMonthVn, formatVndInput, parseVndInput } from "../lib/format";
 import { readNavigationSnapshot, writeNavigationSnapshot, type NavigationSnapshot } from "../lib/navigation-state";
@@ -115,6 +116,8 @@ type ShiftStartExpectation = {
         scheduledStart: string;
         scheduledEnd: string;
         workDate: string;
+        attendanceGraceMinutes?: number;
+        policyVersion?: number;
     };
     clockInLocation: ClockInLocation;
 };
@@ -148,11 +151,12 @@ export function calculateEmployeeBonus(profit: number, totalHours: number, emplo
     return Math.round((employeeHours / totalHours) * profit * rate);
 }
 const managerMenu = ["Tá»•ng quan", "Cá»­a hÃ ng", "Giao viá»‡c", "DÃ²ng tiá»n", "LÆ°Æ¡ng thÆ°á»Ÿng quáº£n lÃ½", "BÃ¡o cÃ¡o", "Chia lá»£i nhuáº­n", "Äiá»u chuyá»ƒn nhÃ¢n sá»±", "CÃ i Ä‘áº·t"];
+const superAdminManagerMenu = [...managerMenu.slice(0, -1), "CÃ i Äáº·t ChÃ­nh SÃ¡ch", managerMenu.at(-1) ?? "CÃ i Ä‘áº·t"];
 const storeMenu = ["Tá»•ng quan", "Lá»‹ch phÃ¢n ca", "NhÃ¢n viÃªn", "Nháº­p hÃ ng", "Chi phÃ­ cá»‘ Ä‘á»‹nh", "Cháº¥m cÃ´ng", "LÆ°Æ¡ng thÆ°á»Ÿng", "ÄÆ¡n hÃ ng", "DÃ²ng tiá»n", "BÃ¡o cÃ¡o", "CÃ i Ä‘áº·t"];
 const superAdminStoreMenu = [...storeMenu.slice(0, -1), "Reset Dá»¯ Liá»‡u", storeMenu.at(-1) ?? "CÃ i Ä‘áº·t"];
 const employeeMenu = ["Trang chá»§", "ÄÆ¡n hÃ ng", "Doanh thu", "Báº£ng lÆ°Æ¡ng", "DÃ²ng tiá»n", "Lá»‹ch sá»­ ca lÃ m"];
 const navigationMenus = { manager: managerMenu, store: storeMenu, employee: employeeMenu };
-const menuIcons: Record<string, LucideIcon> = { "Tá»•ng quan": LayoutDashboard, "Cá»­a hÃ ng": Store, "Giao viá»‡c": ClipboardCheck, "DÃ²ng tiá»n": WalletCards, "LÆ°Æ¡ng thÆ°á»Ÿng quáº£n lÃ½": BadgeDollarSign, "BÃ¡o cÃ¡o": BarChart3, "Äiá»u chuyá»ƒn nhÃ¢n sá»±": UsersRound, "Chia lá»£i nhuáº­n": PieChart, "CÃ i Ä‘áº·t": Settings, "Ca lÃ m viá»‡c": CalendarDays, "Lá»‹ch phÃ¢n ca": CalendarRange, "NhÃ¢n viÃªn": UserRound, "Nháº­p hÃ ng": PackageOpen, "Chi phÃ­ cá»‘ Ä‘á»‹nh": ReceiptText, "Cháº¥m cÃ´ng": Clock3, "LÆ°Æ¡ng thÆ°á»Ÿng": BadgeDollarSign, "ÄÆ¡n hÃ ng": ShoppingCart, "Reset Dá»¯ Liá»‡u": DatabaseBackup, "Trang chá»§": Home, "Doanh thu": TrendingUp, "Báº£ng lÆ°Æ¡ng": BadgeDollarSign, "Lá»‹ch sá»­ ca lÃ m": History };
+const menuIcons: Record<string, LucideIcon> = { "Tá»•ng quan": LayoutDashboard, "Cá»­a hÃ ng": Store, "Giao viá»‡c": ClipboardCheck, "DÃ²ng tiá»n": WalletCards, "LÆ°Æ¡ng thÆ°á»Ÿng quáº£n lÃ½": BadgeDollarSign, "BÃ¡o cÃ¡o": BarChart3, "Äiá»u chuyá»ƒn nhÃ¢n sá»±": UsersRound, "Chia lá»£i nhuáº­n": PieChart, "CÃ i Ä‘áº·t": Settings, "CÃ i Äáº·t ChÃ­nh SÃ¡ch": SlidersHorizontal, "Ca lÃ m viá»‡c": CalendarDays, "Lá»‹ch phÃ¢n ca": CalendarRange, "NhÃ¢n viÃªn": UserRound, "Nháº­p hÃ ng": PackageOpen, "Chi phÃ­ cá»‘ Ä‘á»‹nh": ReceiptText, "Cháº¥m cÃ´ng": Clock3, "LÆ°Æ¡ng thÆ°á»Ÿng": BadgeDollarSign, "ÄÆ¡n hÃ ng": ShoppingCart, "Reset Dá»¯ Liá»‡u": DatabaseBackup, "Trang chá»§": Home, "Doanh thu": TrendingUp, "Báº£ng lÆ°Æ¡ng": BadgeDollarSign, "Lá»‹ch sá»­ ca lÃ m": History };
 const statIcons: Record<string, LucideIcon> = { "â‚«": Banknote, "â–¤": ReceiptText, "â–¥": BarChart3, "%": Percent, "â™•": BadgeDollarSign, "âœ¦": Gift, "âœ“": CheckCircle2, "â–§": ShoppingBag, "â†“": ReceiptText, "â†—": TrendingUp };
 export default function Portal({ expectedRole }: {
     expectedRole: Role;
@@ -202,8 +206,9 @@ function ManagerPortal({ user }: {
     user: User;
 }) {
     const navigationIdentity = useMemo(() => ({ userId: user.id, role: "MANAGER" as const }), [user.id]);
+    const activeManagerMenu = useMemo(() => Number(user.isSuperAdmin) === 1 ? superAdminManagerMenu : managerMenu, [user.isSuperAdmin]);
     const activeStoreMenu = useMemo(() => Number(user.isSuperAdmin) === 1 ? superAdminStoreMenu : storeMenu, [user.isSuperAdmin]);
-    const managerNavigationMenus = useMemo(() => ({ manager: managerMenu, store: activeStoreMenu, employee: employeeMenu }), [activeStoreMenu]);
+    const managerNavigationMenus = useMemo(() => ({ manager: activeManagerMenu, store: activeStoreMenu, employee: employeeMenu }), [activeManagerMenu, activeStoreMenu]);
     const [navigationReady, setNavigationReady] = useState(false);
     const [view, setView] = useState(managerMenu[0]);
     const [storeView, setStoreView] = useState(storeMenu[0]);
@@ -233,4 +238,877 @@ function ManagerPortal({ user }: {
             setNotificationError("");
         } catch (error) {
             if (requestId !== notificationRequest.current) return;
-            setNotificationError(error instanceof Error ? error.message : "KhÃ´ng thá»ƒ táºÛuîÚ$z{-®éÜj×’â–bF†R6W'fW"6öÖÖ—GFVB&Vf÷&RF†P¢òò6öææV7F–öâG&÷VBÂ&W76–ær6fRv–â&WGW&ç2F†B6ÖR÷&FW"à¢6WDÖW76vR‚$ŞªWB¾«÷Bî¹’¶†’ÌkRIjââgV’Ì;&ærFºÒÎª’Â¸rF¹ær>«Ò¶Œ;FærNªòIjâG,;–ærâ"“°¢Òf–æÆÇ’°¢6WE6f–ær†fÇ6R“°¢Ğ¢ĞĞ¢gVæ7F–öâ&W6WDf–ÇFW'2‚’°Ğ¢6WE6V&6‚‚""“°Ğ¢6WDg&öÔFFR‚""“°Ğ¢6WEFôFFR‚""“°Ğ¢6WE–ÖVçB‚$ÄÂ"“°Ğ¢6WEvRƒ“°Ğ¢&VÆöB‚“°Ğ¢ĞĞ¢gVæ7F–öâW‡÷'D77b‚’°Ğ¢6öç7B77d6VÆÂÒ‡fÇVS¢7G&–ærÂçVÖ&W"ÂçVÆÂ’Óâ°Ğ¢6öç7B&rÒ7G&–ær‡fÇVRóò""“°Ğ¢6öç7B6fRÒõå³ÒµÂÔÒòçFW7B‡&r’òrG·&wÖ¢&s°Ğ¢&WGW&â"G·6fRç&WÆ6TÆÂ‚r"rÂr""r—Ò&°Ğ¢Ó°Ğ¢6öç7B&÷w2Ò°Ğ¢²%5EB"Â$Ü:2IjâŒ:ær"Â%L:¦â¶Œ:6‚Œ:ær"Â%<IB"Â%G^¹V’"Â$åb,:âŒ:ær"Â$6"Â$vœ:G.¸²IjâŒ:ær"Â$Œ:Ææ‚Fº–2F†æ‚Fü:â"Â%F¹Ö’v–âNªò"Â%G.ªærFŒ:’%ÒÀĞ¢ââæf–ÇFW&VBæÖ‚†÷&FW"Â–æFW‚’Óâ¶–æFW‚²Â÷&FW"æ6öFRÂ÷&FW"æ7W7FöÖW%öæÖRóò""Â÷&FW"ç†öæRóò""Â÷&FW"ævRóò""Â÷&FW"æV×Æ÷–VTæÖRÂ6†–gBç6†–gD6öFRóò""Â÷&FW"æÖ÷VçBÂ÷&FW"ç–ÖVçEöÖWF†öBÓÓÒ$44‚"ò%F¸âŞ«wB"¢$6‡W¸6â¶†şª6â"ÂFFUF–ÖR†÷&FW"æ7&VFVEöB’Â÷&FW"ç7FGW2ÓÓÒ$4ôÕÄUDTB"ò$†ü:âNªWB"¢,I:2ºw’%Ò’ÀĞ¢Ó°Ğ¢6öç7B&Æö"ÒæWr&Æö"…²%ÇTdTdb"²&÷w2æÖ‡&÷rÓâ&÷ræÖ†77d6VÆÂ’æ¦ö–â‚"Â"’’æ¦ö–â‚%Ç%Æâ"•ÒÂ²G—S¢'FW‡Bö77c¶6†'6WC×WFbÓ‚"Ò“°Ğ¢6öç7BW&ÂÒU$Âæ7&VFTö&¦V7EU$Â†&Æö"“°Ğ¢6öç7BÆ–æ²ÒFö7VÖVçBæ7&VFTVÆVÖVçB‚&"“°Ğ¢Æ–æ²æ‡&VbÒW&Ã°Ğ¢Æ–æ²æF÷væÆöBÒFöâÖ†ærÒG·6†–gBç6†–gD6öFRóò&6Ö†–Vâ×F’'Òæ77f°Ğ¢Æ–æ²æ6Æ–6²‚“°Ğ¢U$Âç&Wfö¶Tö&¦V7EU$Â‡W&Â“°Ğ¢ĞĞ¢gVæ7F–öâWFFTf÷&Ò†f–VÆC¢¶W–öbG—Vöbf÷&ÒÂfÇVS¢7G&–ær’°Ğ¢6WDf÷&Ò†7W'&VçBÓâ‡²ââæ7W'&VçBÂ¶f–VÆEÓ¢fÇVRÒ’“°Ğ¢ĞĞ Ğ¢&WGW&âÇ6V7F–öâ6Æ74æÖSÒ&V×Æ÷–VRÖ÷&FW'2×67&VVâ#àĞ¢²6†–gBæ7F—fRbbÆF—b6Æ74æÖSÒ&Æö6¶VBÖ&ææW"#ï	ùI"Æ#ä.ªâ6Œk.ª÷BIªwR6Ì:Òf¸v3Âö#ãÇ7ãäŒ:7’I¸6ÒFæ‚Nª’G&ær6ºrI¸2Ş¹ò6º–2ìH6ærFŒ:¦ÒIjâŒ:ærãÂ÷7ããÂöF—cçĞĞ¢ÆF—b6Æ74æÖSÒ&÷&FW'2×æVÂ#àĞ¢ÆF—b6Æ74æÖSÒ&÷&FW'2×æVÂÖ†VB#àĞ¢ÆF—b6Æ74æÖSÒ&÷&FW'2Ö†VF–ær#ãÇ7â6Æ74æÖSÒ&÷&FW'2Ö†VF–ærÖ–6öâ#ãÅ6†÷–æt6'B6—¦S×³#7ÒóãÂ÷7ããÆF—cãÆƒ#ìIjâŒ8äsÂöƒ#ãÇåNªòIjâŞ¹¶’l:†VÒÎ¸¶6‚>ºÒI:2v†’æªÖãÂ÷ãÇ6ÖÆÂ6Æ74æÖSÒ&÷&FW'2×&VFöæÇ’Öæ÷FR#ìIjâI:2ÌkR6¸’Ikº62†VÓ²6¸–æ‚>ºÖ†ş«v2ºw’Fò^ª6âÌ;ÒF»2†¸vâãÂ÷6ÖÆÃãÂöF—cãÂöF—cà¢ÆF—b6Æ74æÖSÒ&÷&FW'2Ö7F–öç2#ãÆ'WGFöâ6Æ74æÖSÒ'6V6öæF'’Ö'WGFöâ"öä6Æ–6³×¶W‡÷'D77gÒF—6&ÆVC×¶f–ÇFW&VBæÆVæwF‚ÓÓÒÓãÄF÷væÆöB6—¦S×³wÒóâ‡^ªWBW†6VÃÂö'WGFöããÆ'WGFöâ6Æ74æÖSÒ'&–Ö'’Ö'WGFöâ"F—6&ÆVC×²6†–gBæ7F—fWÒöä6Æ–6³×¶&Vv–äFGÓãÅÇW26—¦S×³‡ÒóâFŒ:¦ÒIjâŒ:æsÂö'WGFöããÂöF—càĞ¢ÂöF—càĞ¢ÆF—b6Æ74æÖSÒ&÷&FW"×7FG2#àĞ¢ÆF—b6Æ74æÖSÒ&÷&FW"×7FBÖ6&B#ãÆ“ãÅ6†÷–æt&r6—¦S×³#gÒóãÂö“ãÇ7ãåN¹Vær>¹IjãÇ7G&öæsç¶6ö×ÆWFVBæÆVæwF‡ÓÂ÷7G&öæsãÂ÷7ããÂöF—càĞ¢ÆF—b6Æ74æÖSÒ&÷&FW"×7FBÖ6&B#ãÆ“ãÄ&FvTFöÆÆ%6–vâ6—¦S×³#gÒóãÂö“ãÇ7ãåN¹VærF¸â4³Ç7G&öæsç¶ÖöæW’†&æ²—ÓÂ÷7G&öæsãÂ÷7ããÂöF—càĞ¢ÆF—b6Æ74æÖSÒ&÷&FW"×7FBÖ6&B#ãÆ“ãÄ&æ¶æ÷FR6—¦S×³#gÒóãÂö“ãÇ7ãåN¹VærF¸âDÓÇ7G&öæsç¶ÖöæW’†66‚—ÓÂ÷7G&öæsãÂ÷7ããÂöF—càĞ¢ÆF—b6Æ74æÖSÒ&÷&FW"×7FBÖ6&B#ãÆ“ãÅvÆÆWD6&G26—¦S×³#gÒóãÂö“ãÇ7ãåN¹VærF¸ãÇ7G&öæsç¶ÖöæW’†66‚²&æ²—ÓÂ÷7G&öæsãÂ÷7ããÂöF—càĞ¢ÂöF—càĞ¢ÆF—b6Æ74æÖSÒ&÷&FW"Öf–ÇFW'2#àĞ¢ÆÆ&VÂ6Æ74æÖSÒ&÷&FW"×6V&6‚#ãÇ7â6Æ74æÖSÒ'7"ÖöæÇ’#åL:ÆÒ¶«öÒIjâŒ:æsÂ÷7ããÆ–çWBfÇVS×·6V&6‡Òöä6†ævS×¶WfVçBÓâ²6WE6V&6‚†WfVçBçF&vWBçfÇVR“²6WEvRƒ“²×ÒÆ6V†öÆFW#Ò%L:ÆÒ¶«öÒÜ:2IjâŒ:ærÂL:¦â¶Œ:6‚Œ:ærÂ<IBâââ"óãÂöÆ&VÃàĞ¢ÆÆ&VÃãÇ7â6Æ74æÖSÒ'7"ÖöæÇ’#åNº²æ|:“Â÷7ããÆ–çWBG—SÒ&FFR"fÇVS×¶g&öÔFFWÒöä6†ævS×¶WfVçBÓâ²6WDg&öÔFFR†WfVçBçF&vWBçfÇVR“²6WEvRƒ“²×ÒóãÂöÆ&VÃàĞ¢ÆÆ&VÃãÇ7â6Æ74æÖSÒ'7"ÖöæÇ’#ìI«öâæ|:“Â÷7ããÆ–çWBG—SÒ&FFR"fÇVS×·FôFFWÒöä6†ævS×¶WfVçBÓâ²6WEFôFFR†WfVçBçF&vWBçfÇVR“²6WEvRƒ“²×ÒóãÂöÆ&VÃàĞ¢ÆÆ&VÃãÇ7ãäŒ:Ææ‚Fº–2F†æ‚Fü:ãÂ÷7ããÇ6VÆV7BfÇVS×·–ÖVçGÒöä6†ævS×¶WfVçBÓâ²6WE–ÖVçB†WfVçBçF&vWBçfÇVR“²6WEvRƒ“²×ÓãÆ÷F–öâfÇVSÒ$ÄÂ#åNªWB>ª3Âö÷F–öããÆ÷F–öâfÇVSÒ$44‚#åF¸âŞ«wCÂö÷F–öããÆ÷F–öâfÇVSÒ$$äµõE$å4dU"#ä6‡W¸6â¶†şª6ãÂö÷F–öããÂ÷6VÆV7CãÂöÆ&VÃàĞ¢Æ'WGFöâ6Æ74æÖSÒ'&Vg&W6‚Ö'WGFöâ"öä6Æ–6³×·&W6WDf–ÇFW'7ÓãÅ&Vg&W6„7r6—¦S×³wÒóâÌ:ÒŞ¹¶“Âö'WGFöãàĞ¢ÂöF—càĞ¢ÆF—b6Æ74æÖSÒ&FF×F&ÆR×w&#àĞ¢ÇF&ÆR6Æ74æÖSÒ&÷&FW"×F&ÆR#ãÇF†VCãÇG#ãÇFƒå5ECÂ÷FƒãÇFƒäÜ:2IjâŒ:æsÂ÷FƒãÇFƒåL:¦â¶Œ:6‚Œ:æsÂ÷FƒãÇFƒå<ICÂ÷FƒãÇFƒåG^¹V“Â÷FƒãÇFƒäåb,:âŒ:æsÂ÷FƒãÇFƒävœ:G.¸²IjâŒ:æsÂ÷FƒãÇFƒäŒ:Ææ‚Fº–2F†æ‚Fü:ãÂ÷FƒãÇFƒåF¹Ö’v–âNªóÂ÷FƒãÇFƒä6†’F«÷CÂ÷FƒãÂ÷G#ãÂ÷F†VCà¢ÇF&öG“ç·vVBæÆVæwF‚ÓÓÒòÇG#ãÇFB6öÅ7ã×³Ò6Æ74æÖSÒ&V×G’Ö6VÆÂ#ç·6†–gBæ7F—fRò$6Œk<;2IjâŒ:ærŒ;’º7G&öær6†¸vâNª’â"¢$.ªâ6Œk.ª÷BIªwR6Ì:Òf¸v2'ÓÂ÷FCãÂ÷G#â¢vVBæÖ‚†÷&FW"Â–æFW‚’ÓâÇG"¶W“×¶÷&FW"æ–GÒ6Æ74æÖS×¶÷&FW"ç7FGW2ÓÓÒ%dô”B"ò'fö–BÖ÷&FW""¢"'ÓãÇFBFFÖÆ&VÃÒ%5EB#ç²„ÖF‚æÖ–â‡vRÂvW2’Ò’¢vU6—¦R²–æFW‚²ÓÂ÷FCãÇFBFFÖÆ&VÃÒ$Ü:2Ijâ#ãÆ"6Æ74æÖSÒ&÷&FW"Ö6öFR#ç¶÷&FW"æ6öFWÓÂö#ãÂ÷FCãÇFBFFÖÆ&VÃÒ$¶Œ:6‚Œ:ær#ç¶÷&FW"æ7W7FöÖW%öæÖRÇÂ.(	B'ÓÂ÷FCãÇFBFFÖÆ&VÃÒ%<IB#ç¶÷&FW"ç†öæRÇÂ.(	B'ÓÂ÷FCãÇFBFFÖÆ&VÃÒ%G^¹V’#ç¶÷&FW"ævRóò.(	B'ÓÂ÷FCãÇFBFFÖÆ&VÃÒ$æŒ:&âfœ:¦âò6#ãÆ#ç¶÷&FW"æV×Æ÷–VTæÖWÓÂö#ãÇ6ÖÆÃç·6†–gBç6†–gD6öFRò‚G·6†–gBç6†–gD6öFWÒ–¢"'ÓÂ÷6ÖÆÃãÂ÷FCãÇFBFFÖÆ&VÃÒ$vœ:G.¸²#ãÆ#ç¶ÖöæW’†÷&FW"æÖ÷VçB—ÓÂö#ãÂ÷FCãÇFBFFÖÆ&VÃÒ%F†æ‚Fü:â#ãÇ7â6Æ74æÖS×¶÷&FW"×–ÖVçBG¶÷&FW"ç–ÖVçEöÖWF†öBÓÓÒ$44‚"ò&66‚"¢&&æ²'ÖÓç¶÷&FW"ç–ÖVçEöÖWF†öBÓÓÒ$44‚"ò%F¸âŞ«wB"¢$6‡W¸6â¶†şª6â'ÓÂ÷7ããÂ÷FCãÇFBFFÖÆ&VÃÒ%NªòÌ;¦2#ç¶FFUF–ÖR†÷&FW"æ7&VFVEöB—ÓÂ÷FCãÇFBFFÖÆ&VÃÒ$6†’F«÷B#ãÆF—b6Æ74æÖSÒ&÷&FW"×&÷rÖ7F–öç2#ãÆ'WGFöâG—SÒ&'WGFöâ"&–ÖÆ&VÃ×¶†VÒ6†’F«÷BIjâG¶÷&FW"æ6öFWÖÒF—FÆSÒ%†VÒ6†’F«÷B"öä6Æ–6³×²‚’Óâ6WDFWF–Â†÷&FW"—ÓãÄW–R6—¦S×³WÒóãÂö'WGFöããÂöF—cãÂ÷FCãÂ÷G#â—ÓÂ÷F&öG“à¢Â÷F&ÆSàĞ¢ÂöF—càĞ¢ÆF—b6Æ74æÖSÒ&÷&FW"×v–æF–öâ#ãÇ7ãä†¸6âF¸²¶f–ÇFW&VBæÆVæwF‚ÓÓÒò¢„ÖF‚æÖ–â‡vRÂvW2’Ò’¢vU6—¦R²ÒÒ´ÖF‚æÖ–â„ÖF‚æÖ–â‡vRÂvW2’¢vU6—¦RÂf–ÇFW&VBæÆVæwF‚—Ò>ºv¶f–ÇFW&VBæÆVæwF‡ÒIjâŒ:æsÂ÷7ããÆF—cãÆ'WGFöâF—6&ÆVC×·vRÃÒÒöä6Æ–6³×²‚’Óâ6WEvR†7W'&VçBÓâÖF‚æÖ‚ƒÂ7W'&VçBÒ’—Óî(“Âö'WGFöãç´'&’æg&öÒ‡²ÆVæwFƒ¢vW2ÒÂ…òÂ–æFW‚’Óâ–æFW‚²’ç6Æ–6RƒÂR’æÖ†çVÖ&W"ÓâÆ'WGFöâ¶W“×¶çVÖ&W'Ò6Æ74æÖS×´ÖF‚æÖ–â‡vRÂvW2’ÓÓÒçVÖ&W"ò&7F—fR"¢"'Òöä6Æ–6³×²‚’Óâ6WEvR†çVÖ&W"—Óç¶çVÖ&W'ÓÂö'WGFöãâ—ÓÆ'WGFöâF—6&ÆVC×·vRãÒvW7Òöä6Æ–6³×²‚’Óâ6WEvR†7W'&VçBÓâÖF‚æÖ–â‡vW2Â7W'&VçB²’—Óî(£Âö'WGFöããÂöF—cãÂöF—càĞ¢ÂöF—càĞ¢ÆF—b6Æ74æÖSÒ&÷&FW"Öf÷&ÒÖ6&B"&Vc×¶f÷&Õ&VgÓàĞ¢ÆF—b6Æ74æÖSÒ&÷&FW"Öf÷&Ò×F—FÆR#ãÅ6†÷–æt6'B6—¦S×³#ÒóãÆƒ#åDŒ8¤ÒIjâŒ8ärŞ¹¤“Âöƒ#ãÂöF—cà¢Æf÷&Òöå7V&Ö—C×·6fWÓàĞ¢Æf–VÆG6WBF—6&ÆVC×²6†–gBæ7F—fWÓàĞ¢ÆF—b6Æ74æÖSÒ&÷&FW"Öf÷&ÒÖw&–B#àĞ¢ÆÆ&VÃäÜ:2IjâŒ:æsÆ–çWBfÇVSÒ%N»I¹–ær¶†’ÌkR"F—6&ÆVBóãÇ6ÖÆÃäÜ:2IjâŒ:ærIkº62NªòN»I¹–æsÂ÷6ÖÆÃãÂöÆ&VÃà¢ÆÆ&VÃåL:¦â¶Œ:6‚Œ:ærÇ6ÖÆÃâ†¶Œ;Fær.ª÷B'^¹–2“Â÷6ÖÆÃãÆ–çWBfÇVS×¶f÷&Òæ7W7FöÖW$æÖWÒöä6†ævS×¶WfVçBÓâWFFTf÷&Ò‚&7W7FöÖW$æÖR"ÂWfVçBçF&vWBçfÇVR—ÒÆ6V†öÆFW#Ò$æª×L:¦â¶Œ:6‚Œ:ær"Ö„ÆVæwFƒ×³ÒóãÂöÆ&VÃàĞ¢ÆÆ&VÃå<IBÇ6ÖÆÃâ†¶Œ;Fær.ª÷B'^¹–2“Â÷6ÖÆÃãÆ–çWBfÇVS×¶f÷&Òç†öæWÒöä6†ævS×¶WfVçBÓâWFFTf÷&Ò‚'†öæR"ÂWfVçBçF&vWBçfÇVR—ÒÆ6V†öÆFW#Ò$æª×>¹I¸vâF†şª’"–çWDÖöFSÒ'FVÂ"Ö„ÆVæwFƒ×³#ÒóãÂöÆ&VÃàĞ¢ÆÆ&VÃåG^¹V’Ç6ÖÆÃâ†¶Œ;Fær.ª÷B'^¹–2“Â÷6ÖÆÃãÆ–çWBfÇVS×¶f÷&ÒævWÒöä6†ævS×¶WfVçBÓâWFFTf÷&Ò‚&vR"ÂWfVçBçF&vWBçfÇVR—ÒÆ6V†öÆFW#Ò$æª×G^¹V’"G—SÒ&çVÖ&W""Ö–ãÒ#"ÖƒÒ##"óãÂöÆ&VÃàĞ¢ÆÆ&VÃäåb,:âŒ:æsÆ–çWBfÇVS×¶G·W6W"ææÖWÒG·6†–gBç6†–gDæÖRò‚G·6†–gBç6†–gDæÖWÒ–¢6†–gBç6†–gD6öFRò‚G·6†–gBç6†–gD6öFWÒ–¢"'ÖÒF—6&ÆVBóãÇ6ÖÆÃåN»I¹–ær~ªöâF†VòL:’¶†şª6âl:6†¸vâNª“Â÷6ÖÆÃãÂöÆ&VÃàĞ¢ÆÆ&VÃävœ:G.¸²IjâŒ:æsÆ–çWBfÇVS×¶f÷&ÒæÖ÷VçGÒöä6†ævS×¶WfVçBÓâWFFTf÷&Ò‚&Ö÷VçB"Âf÷&ÖEfæD–çWB†WfVçBçF&vWBçfÇVR’—ÒÆ6V†öÆFW#Ò$æª×vœ:G.¸²IjâŒ:ær"–çWDÖöFSÒ&çVÖW&–2"&WV—&VBóãÇ6ÖÆÃål:ÒNºS¢S>«Ò†¸6âF¸²RÃãÂ÷6ÖÆÃãÂöÆ&VÃà¢ÆÆ&VÃäŒ:Ææ‚Fº–2F†æ‚Fü:ãÇ6VÆV7BfÇVS×¶f÷&Òç–ÖVçDÖWF†öGÒöä6†ævS×¶WfVçBÓâWFFTf÷&Ò‚'–ÖVçDÖWF†öB"ÂWfVçBçF&vWBçfÇVR—Ò&WV—&VCãÆ÷F–öâfÇVSÒ$44‚#åF¸âŞ«wCÂö÷F–öããÆ÷F–öâfÇVSÒ$$äµõE$å4dU"#ä6‡W¸6â¶†şª6ãÂö÷F–öããÂ÷6VÆV7CãÂöÆ&VÃàĞ¢ÂöF—càĞ¢Âöf–VÆG6WCàĞ¢¶ÖW76vRbbÆF—b6Æ74æÖSÒ&f÷&ÒÖÖW76vR#ç¶ÖW76vWÓÂöF—cçĞĞ¢·7V66W72bbÆF—b6Æ74æÖSÒ&÷&FW"×7V66W72#î)É2·7V66W77ÓÂöF—cçĞĞ¢ÆF—b6Æ74æÖSÒ&÷&FW"Öf÷&ÒÖ7F–öç2#ãÆ'WGFöâG—SÒ&'WGFöâ"6Æ74æÖSÒ'6V6öæF'’Ö'WGFöâ"öä6Æ–6³×·&W6WDf÷&×ÒF—6&ÆVC×·6f–æwÓäºw“Âö'WGFöããÆ'WGFöâ6Æ74æÖSÒ'&–Ö'’Ö'WGFöâ"F—6&ÆVC×²6†–gBæ7F—fRÇÂ6f–æwÓç·6f–ærò,IærÌkRâââ"¢$ÌkRIjâŒ:ær'ÓÂö'WGFöããÂöF—cà¢Âöf÷&ÓàĞ¢ÂöF—càĞ¢¶FWF–ÂbbÆF—b6Æ74æÖSÒ&ÖöFÂÖ&6¶G&÷#ãÆF—b6Æ74æÖSÒ&ÖöFÂ÷&FW"ÖFWF–ÂÖÖöFÂ#ãÆF—b6Æ74æÖSÒ&ÖöFÂ×F—FÆR#ãÆƒ#ä6†’F«÷BIjâ¶FWF–Âæ6öFWÓÂöƒ#ãÆ'WGFöâöä6Æ–6³×²‚’Óâ6WDFWF–Â†çVÆÂ—Óì9sÂö'WGFöããÂöF—cãÆFÃãÆF—cãÆGCä¶Œ:6‚Œ:æsÂöGCãÆFCç¶FWF–Âæ7W7FöÖW%öæÖRÇÂ$¶Œ:6‚Î«²'ÓÂöFCãÂöF—cãÆF—cãÆGCå>¹I¸vâF†şª“ÂöGCãÆFCç¶FWF–Âç†öæRÇÂ$¶Œ;Fær7Vær>ªW'ÓÂöFCãÂöF—cãÆF—cãÆGCåG^¹V“ÂöGCãÆFCç¶FWF–ÂævRóò$¶Œ;Fær7Vær>ªW'ÓÂöFCãÂöF—cãÆF—cãÆGCäæŒ:&âfœ:¦âò6ÂöGCãÆFCç¶FWF–ÂæV×Æ÷–VTæÖWÒ+r·6†–gBç6†–gD6öFWÓÂöFCãÂöF—cãÆF—cãÆGCåF†æ‚Fü:ãÂöGCãÆFCç¶FWF–Âç–ÖVçEöÖWF†öBÓÓÒ$44‚"ò%F¸âŞ«wB"¢$6‡W¸6â¶†şª6â'ÓÂöFCãÂöF—cãÆF—cãÆGCävœ:G.¸³ÂöGCãÆFCç¶ÖöæW’†FWF–ÂæÖ÷VçB—ÓÂöFCãÂöF—cãÆF—cãÆGCåF¹Ö’v–âNªóÂöGCãÆFCç¶FFUF–ÖR†FWF–Âæ7&VFVEöB—ÓÂöFCãÂöF—cãÆF—cãÆGCåG.ªærFŒ:“ÂöGCãÆFCç¶FWF–Âç7FGW2ÓÓÒ$4ôÕÄUDTB"ò$†ü:âNªWB"¢,I:2ºw’'ÓÂöFCãÂöF—cãÂöFÃãÂöF—cãÂöF—cçĞĞ¢Â÷6V7F–öãã°Ğ§ĞĞ¦gVæ7F–öâV×Æ÷–VU—&öÆÂ‚’²&WGW&âÃãÆF—b6Æ74æÖSÒ&f–ÇFW"Ö6&B#ãÆÆ&VÃåFŒ:æsÆ–çWBG—SÒ&ÖöçF‚"FVfVÇEfÇVSÒ###bÓ‚"óãÂöÆ&VÃãÆÆ&VÃìI«öâæ|:“Æ–çWBG—SÒ&FFR"FVfVÇEfÇVSÒ###bÓ‚Ób"óãÂöÆ&VÃãÆ'WGFöâ6Æ74æÖSÒ'&–Ö'’Ö'WGFöâ#å†VÒF¹ær¼:£Âö'WGFöããÂöF—cãÆF—b6Æ74æÖSÒ'7FG2Öw&–Bf÷W"#ãÅ7FD6&BÆ&VÃÒ%N¹DärD…RäªÅ"fÇVSÒ#Rã#SãI"óãÅ7FD6&BÆ&VÃÒ%N¹DärÌjüjär"fÇVSÒ#BãƒãI"FöæSÒ&&ÇVR"óãÅ7FD6&BÆ&VÃÒ%N¹DärDŒjş¹äär"fÇVSÒ#CSãI"FöæSÒ&÷&ævR"óãÅ7FD6&BÆ&VÃÒ$„ü8âDŒ8ä‚4"fÇVSÒ#R"–6öãÒ.)É2"óãÂöF—cãÆF—b6Æ74æÖSÒ'F&ÆRÖ6&B#ãÆF—b6Æ74æÖSÒ'F&ÆRÖ†VB#ãÆƒ#ä6†’F«÷BÌkjærF†Vò6Âöƒ#ãÇ7ãìIjâvœ:#ãIöv¹ÓÂ÷7ããÂöF—cãÇF&ÆR6Æ74æÖSÒ&FF×F&ÆR#ãÇF†VCãÇG#ãÇFƒäæ|:’Ì:ÓÂ÷FƒãÇFƒä6Â÷FƒãÇFƒäv¹Òl:óÂ÷FƒãÇFƒäv¹Ò¾«÷CÂ÷FƒãÇFƒå>¹v¹ÓÂ÷FƒãÇFƒäÌkjær>º–æsÂ÷FƒãÇFƒåFŒk¹öæsÂ÷FƒãÇFƒåFŒ:æ‚F¸ãÂ÷FƒãÂ÷G#ãÂ÷F†VCãÇF&öG“çµµ²#Ró‚ó##b"Â$6"Â#s£""Â##£R"Â#RÃR"Â#ãI"Â#SãI"Â#SãI%ÒÂ²#Bó‚ó##b"Â$6""Â##£"Â#s£2"Â#RÃ2"Â#ãcI"Â#I"Â#ãcI%ÒÂ²#2ó‚ó##b"Â$62"Â#s£"Â##3£2"Â#bÃR"Â##ãI"Â#ƒãI"Â##ãI%ÕÒæÖ‚‡"Â’’ÓâÇG"¶W“×¶—Óç·"æÖ‚‡‚Â¢’ÓâÇFB¶W“×¶§Ò6Æ74æÖS×¶¢ÓÓÒrò&ÖöæW’Öw&VVâ"¢"'Óç·‡ÓÂ÷FCâ—ÓÂ÷G#â—ÓÂ÷F&öG“ãÂ÷F&ÆSãÂöF—cãÂóã²ĞĞ¦W‡÷'BgVæ7F–öâV×Æ÷–VT66†fÆ÷r‡²6†–gBÂ÷&FW'2Ó¢°Ğ¢6†–gC¢°Ğ¢7F—fS¢&ööÆVã°Ğ¢Ó°Ğ¢÷&FW'3¢÷&FW%µÓ°Ğ§Ò’²6öç7B7F—fRÒ÷&FW'2æf–ÇFW"†òÓâòç7FGW2ÓÓÒ$4ôÕÄUDTB"“²6öç7B&WfVçVRÒ7F—fRç&VGV6R‚†Âò’Óâ²òæÖ÷VçBÂ“²6öç7B6÷7BÒ6†–gBæ7F—fRò3S¢²&WGW&âÃç²6†–gBæ7F—fRbbÆF—b6Æ74æÖSÒ&Æö6¶VBÖ&ææW"#ãÆ#ä.ªâ6Œk.ª÷BIªwR6Ì:Òf¸v3Âö#ãÇ7ãå>¹Æ¸wRL;&ærF¸â>«Ò‡^ªWB†¸vâ¶†’6Ikº62¼:Ö6‚†şªBãÂ÷7ããÂöF—cçÓÆF—b6Æ74æÖSÒ'7FG2Öw&–BF‡&VR#ãÅ7FD6&BÆ&VÃÒ$Dôä‚D…R4"fÇVS×¶ÖöæW’‡&WfVçVR—Òæ÷FS×¶G¶7F—fRæÆVæwF‡ÒIjâŒ:ævÒóãÅ7FD6&BÆ&VÃÒ$4„’Œ8Ò4"fÇVS×¶ÖöæW’†6÷7B—ÒFöæSÒ&÷&ævR"æ÷FSÒ$6†’Œ:ÒŒ:B6–æ‚"óãÅ7FD6&BÆ&VÃÒ$Îº$’ä…^ªÄâNªÒL8Ôä‚"fÇVS×¶ÖöæW’„ÖF‚æÖ‚ƒÂ&WfVçVRÒ6÷7B’—ÒFöæSÒ&&ÇVR"æ÷FSÒ$Föæ‚F‡RÒ6†’Œ:Ò"óãÂöF—cãÆF—b6Æ74æÖSÒ'F&ÆRÖ6&B#ãÆF—b6Æ74æÖSÒ'F&ÆRÖ†VB#ãÆƒ#äÎ¸¶6‚>ºÒL;&ærF¸â<:26Âöƒ#ãÆ'WGFöãå‡^ªWBW†6VÂ(i3Âö'WGFöããÂöF—cãÇF&ÆR6Æ74æÖSÒ&FF×F&ÆR#ãÇF†VCãÇG#ãÇFƒäæ|:“Â÷FƒãÇFƒä6Â÷FƒãÇFƒå>¹IjãÂ÷FƒãÇFƒäFöæ‚F‡SÂ÷FƒãÇFƒä6†’Œ:ÓÂ÷FƒãÇFƒäÎº6’æ‡^ªÖãÂ÷FƒãÇFƒåG.ªærFŒ:“Â÷FƒãÂ÷G#ãÂ÷F†VCãÇF&öG“ãÇG#ãÇFCãRó‚ó##cÂ÷FCãÇFCä6Â÷FCãÇFCãScÂ÷FCãÇFCã"ã3SãIÂ÷FCãÇFCã3#ãIÂ÷FCãÇFB6Æ74æÖSÒ&ÖöæW’Öw&VVâ#ã"ã3ãIÂ÷FCãÇFCãÇ7â6Æ74æÖSÒ'7FGW2×–ÆÂ#ìI:2¾«÷B6Â÷7ããÂ÷FCãÂ÷G#ãÇG#ãÇFCãBó‚ó##cÂ÷FCãÇFCä6#Â÷FCãÇFCãC“Â÷FCãÇFCã"ããIÂ÷FCãÇFCã3ãIÂ÷FCãÇFB6Æ74æÖSÒ&ÖöæW’Öw&VVâ#ããs“ãIÂ÷FCãÇFCãÇ7â6Æ74æÖSÒ'7FGW2×–ÆÂ#ìI:2¾«÷B6Â÷7ããÂ÷FCãÂ÷G#ãÂ÷F&öG“ãÂ÷F&ÆSãÂöF—cãÂóã²ĞĞ¦gVæ7F–öâV×Æ÷–VT†—7F÷'’‚’²&WGW&âÃãÆF—b6Æ74æÖSÒ&f–ÇFW"Ö6&B#ãÆÆ&VÃåNº²æ|:“Æ–çWBG—SÒ&FFR"FVfVÇEfÇVSÒ###bÓ‚Ó"óãÂöÆ&VÃãÆÆ&VÃìI«öâæ|:“Æ–çWBG—SÒ&FFR"FVfVÇEfÇVSÒ###bÓ‚Ó3"óãÂöÆ&VÃãÆÆ&VÃä6Ì:ÓÇ6VÆV7CãÆ÷F–öãåNªWB>ª3Âö÷F–öããÆ÷F–öãä6Âö÷F–öããÆ÷F–öãä6#Âö÷F–öããÂ÷6VÆV7CãÂöÆ&VÃãÆ'WGFöâ6Æ74æÖSÒ'&–Ö'’Ö'WGFöâ#åL:ÆÒ¶«öÓÂö'WGFöããÂöF—cãÆF—b6Æ74æÖSÒ'F&ÆRÖ6&B#ãÆF—b6Æ74æÖSÒ'F&ÆRÖ†VB#ãÆƒ#äÎ¸¶6‚>ºÒ6Ì:ÓÂöƒ#ãÆ'WGFöãå‡^ªWBW†6VÂ(i3Âö'WGFöããÂöF—cãÇF&ÆR6Æ74æÖSÒ&FF×F&ÆR#ãÇF†VCãÇG#ãÇFƒäæ|:’Ì:ÓÂ÷FƒãÇFƒäÜ:2æŒ:&âfœ:¦ãÂ÷FƒãÇFƒä6Â÷FƒãÇFƒäv¹Òl:óÂ÷FƒãÇFƒäv¹Ò¾«÷CÂ÷FƒãÇFƒå>¹v¹ÓÂ÷FƒãÇFƒäÌkjærv¹ÓÂ÷FƒãÇFƒäÌkjærN»L:ÖæƒÂ÷FƒãÂ÷G#ãÂ÷F†VCãÇF&öG“çµµ²#Ró‚ó##b"Â$åc"Â$6"Â#s£""Â##£R"Â#RÃRv¹Ò"Â##ãI"Â#ãI%ÒÂ²#Bó‚ó##b"Â$åc"Â$6""Â##£"Â#s£2"Â#RÃ2v¹Ò"Â##ãI"Â#ãcI%ÒÂ²#2ó‚ó##b"Â$åc"Â$62"Â#s£"Â##3£2"Â#bÃRv¹Ò"Â##ãI"Â##ãI%ÒÂ²#"ó‚ó##b"Â$åc"Â$6"Â#s£"Â##£"Â#RÃv¹Ò"Â##ãI"Â#ãI%ÕÒæÖ‚‡"Â’’ÓâÇG"¶W“×¶—Óç·"æÖ‚‡‚Â¢’ÓâÇFB¶W“×¶§Ò6Æ74æÖS×¶¢ÓÓÒrò&ÖöæW’Öw&VVâ"¢"'Óç·‡ÓÂ÷FCâ—ÓÂ÷G#â—ÓÂ÷F&öG“ãÂ÷F&ÆSãÂöF—cãÂóã²ĞĞ Ğ¢òò¶WB2f—7VÂfÆÆ&6·2v†–ÆRF†RgVæ7F–öæÂÖöGVÆW2&÷fR†æFÆRÆÂ7F—fR&÷WFW2àĞ§fö–BµF6·5f–WrÂÖævW%—&öÆÂÂG&ç6fW%f–WrÂF—f–FVæEf–WrÂV×Æ÷–VT†öÖRÂV×Æ÷–VU—&öÆÂÂV×Æ÷–VT†—7F÷'•Ó°Ğ 
+            setNotificationError(error instanceof Error ? error.message : "KhÃ´ng thá»ƒ táº£i thÃ´ng bÃ¡o.");
+        }
+    }, []);
+    const loadNotifications = useCallback(() => loadNotificationsForStore(selectedStoreId), [loadNotificationsForStore, selectedStoreId]);
+    const loadStores = useCallback(async () => {
+        const requestId = ++loadRequest.current;
+        setLoading(true);
+        setStoreLoadError("");
+        try {
+            const response = await fetch(`/api/stores?period=${encodeURIComponent(period)}`, { cache: "no-store" });
+            const data = await response.json();
+            if (!response.ok || !Array.isArray(data.stores)) throw new Error(data.error ?? "KhÃ´ng thá»ƒ táº£i danh sÃ¡ch cá»­a hÃ ng.");
+            if (requestId !== loadRequest.current) return;
+            setStores(data.stores);
+            setStoreListResolved(true);
+        } catch (error) {
+            if (requestId !== loadRequest.current) return;
+            setStoreLoadError(error instanceof Error ? error.message : "KhÃ´ng thá»ƒ táº£i danh sÃ¡ch cá»­a hÃ ng.");
+        } finally {
+            if (requestId === loadRequest.current) setLoading(false);
+        }
+    }, [period]);
+    useEffect(() => {
+        void loadNotifications();
+        const refresh = () => { if (document.visibilityState === "visible") void loadNotifications(); };
+        const interval = window.setInterval(refresh, 20_000);
+        window.addEventListener("focus", refresh);
+        document.addEventListener("visibilitychange", refresh);
+        return () => {
+            window.clearInterval(interval);
+            window.removeEventListener("focus", refresh);
+            document.removeEventListener("visibilitychange", refresh);
+        };
+    }, [loadNotifications]);
+    useEffect(() => { if (navigationReady) void loadStores(); }, [loadStores, navigationReady]);
+    const selectedStore = useMemo(() => stores.find((store) => store.id === selectedStoreId) ?? null, [selectedStoreId, stores]);
+    useEffect(() => {
+        const restored = readNavigationSnapshot(navigationIdentity, managerNavigationMenus);
+        setView(restored.managerView);
+        setStoreView(restored.storeView);
+        setSelectedStoreId(restored.storeId);
+        if (restored.managerPeriod) setPeriod(restored.managerPeriod);
+        setNavigationReady(true);
+    }, [managerNavigationMenus, navigationIdentity]);
+    useEffect(() => {
+        if (!navigationReady) return;
+        writeNavigationSnapshot(navigationIdentity, managerNavigationMenus, {
+            managerView: view,
+            storeId: selectedStoreId,
+            storeView,
+            employeeView: employeeMenu[0],
+            managerPeriod: period,
+        });
+    }, [managerNavigationMenus, navigationIdentity, navigationReady, period, selectedStoreId, storeView, view]);
+    useEffect(() => {
+        if (navigationReady && storeListResolved && !loading && !storeLoadError && selectedStoreId && !selectedStore) setSelectedStoreId(null);
+    }, [loading, navigationReady, selectedStore, selectedStoreId, storeListResolved, storeLoadError]);
+    function returnToSystemOverview() {
+        const overview: NavigationSnapshot = {
+            managerView: managerMenu[0],
+            storeId: null,
+            storeView: storeMenu[0],
+            employeeView: employeeMenu[0],
+            managerPeriod: period,
+        };
+        writeNavigationSnapshot(navigationIdentity, managerNavigationMenus, overview);
+        setView(overview.managerView);
+        setStoreView(overview.storeView);
+        setSelectedStoreId(null);
+        setFocusedOrderId(null);
+        window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+    function openNotification(notification: ManagerNotification) {
+        if (!notification.readAt) {
+            const nextNotificationScope = notification.type === "NEW_ORDER" && notification.entityType === "ORDER"
+                ? notification.storeId
+                : selectedStoreId;
+            notificationRequest.current += 1;
+            setNotifications((current) => current.filter((item) => item.id !== notification.id));
+            setUnreadCount((current) => Math.max(0, current - 1));
+            void fetch("/api/notifications", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ id: notification.id, ...(nextNotificationScope ? { storeId: nextNotificationScope } : {}) }),
+            }).then(
+                () => loadNotificationsForStore(nextNotificationScope),
+                () => loadNotificationsForStore(nextNotificationScope),
+            );
+        }
+        if (notification.type === "NEW_ORDER" && notification.entityType === "ORDER") {
+            setFocusedOrderId(notification.entityId);
+            setFocusedOrderRequest((current) => current + 1);
+            setStoreView("ÄÆ¡n hÃ ng");
+            setSelectedStoreId(notification.storeId);
+            window.scrollTo({ top: 0, behavior: "auto" });
+        }
+    }
+    const notificationCenter = <ManagerNotificationCenter notifications={notifications} unreadCount={unreadCount} error={notificationError} onRefresh={loadNotifications} onOpen={openNotification}/>;
+    if (!navigationReady || (selectedStoreId && loading && !selectedStore))
+        return <div className="app-loading"><div className="pulse-logo"><img className="brand-logo-image" src="/logo.jpg" alt="Logo DORE Quáº£n LÃ½" width={1254} height={1254}/></div><p>Äang má»Ÿ láº¡i mÃ n hÃ¬nh gáº§n nháº¥t...</p></div>;
+    if (selectedStoreId && !selectedStore && storeLoadError)
+        return <div className="app-loading"><div className="pulse-logo"><img className="brand-logo-image" src="/logo.jpg" alt="Logo DORE Quáº£n LÃ½" width={1254} height={1254}/></div><p>{storeLoadError}</p><button type="button" className="primary-button" onClick={() => void loadStores()}>Thá»­ táº£i láº¡i</button></div>;
+    if (selectedStore)
+        return <AppShell brand={selectedStore.name} subtitle={Number(user.isSuperAdmin) === 1 ? "Quáº£n trá»‹ cáº¥p cao" : "Quáº£n lÃ½ cá»­a hÃ ng"} menu={activeStoreMenu} active={storeView} onActive={(item) => { setStoreView(item); if (item !== "ÄÆ¡n hÃ ng") setFocusedOrderId(null); }} user={user} onBack={returnToSystemOverview} shellAction={notificationCenter} accent="light"><StoreWorkspace store={selectedStore} view={storeView} period={period} onPeriodChange={setPeriod} onReload={loadStores} focusedOrderId={focusedOrderId} focusedOrderRequest={focusedOrderRequest} isSuperAdmin={Number(user.isSuperAdmin) === 1}/></AppShell>;
+    const financeOwnsHeader = view === "BÃ¡o cÃ¡o" || view === "DÃ²ng tiá»n" || view === "CÃ i Äáº·t ChÃ­nh SÃ¡ch";
+    return <AppShell brand="DORE" subtitle="Quáº£n lÃ½ toÃ n há»‡ thá»‘ng" menu={activeManagerMenu} active={view} onActive={setView} user={user} shellAction={notificationCenter}>{financeOwnsHeader ? null : <ManagerHeader view={view} period={period} onPeriodChange={setPeriod}/>}<ManagerView view={view} stores={stores} loading={loading} reload={loadStores} openStore={(store) => { setFocusedOrderId(null); setStoreView(storeMenu[0]); setSelectedStoreId(store.id); }} isSuperAdmin={Number(user.isSuperAdmin) === 1}/></AppShell>;
+}
+function ManagerNotificationCenter({ notifications, unreadCount, error, onRefresh, onOpen }: {
+    notifications: ManagerNotification[];
+    unreadCount: number;
+    error: string;
+    onRefresh: () => Promise<void>;
+    onOpen: (notification: ManagerNotification) => void;
+}) {
+    const [open, setOpen] = useState(false);
+    const centerRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        if (!open) return;
+        const closeOutside = (event: PointerEvent) => {
+            if (!centerRef.current?.contains(event.target as Node)) setOpen(false);
+        };
+        const closeEscape = (event: KeyboardEvent) => { if (event.key === "Escape") setOpen(false); };
+        document.addEventListener("pointerdown", closeOutside);
+        document.addEventListener("keydown", closeEscape);
+        return () => {
+            document.removeEventListener("pointerdown", closeOutside);
+            document.removeEventListener("keydown", closeEscape);
+        };
+    }, [open]);
+    return <div className="manager-notification-center" ref={centerRef}>
+        <button type="button" className="bell manager-notification-button" aria-label={`ThÃ´ng bÃ¡o Ä‘Æ¡n hÃ ng${unreadCount ? `, ${unreadCount} chÆ°a Ä‘á»c` : ""}`} aria-expanded={open} aria-controls="manager-notification-panel" onClick={() => setOpen((current) => !current)}>
+            <Bell size={20}/>{unreadCount > 0 && <span className="notification-count">{unreadCount > 99 ? "99+" : unreadCount}</span>}
+        </button>
+        {open && <section className="manager-notification-panel" id="manager-notification-panel" aria-label="ThÃ´ng bÃ¡o má»›i">
+            <div className="notification-panel-head"><div><h2>ThÃ´ng bÃ¡o</h2><p>{unreadCount ? `${unreadCount} thÃ´ng bÃ¡o chÆ°a Ä‘á»c` : "ÄÃ£ Ä‘á»c táº¥t cáº£ thÃ´ng bÃ¡o"}</p></div><button type="button" aria-label="Táº£i láº¡i thÃ´ng bÃ¡o" onClick={() => void onRefresh()}><RefreshCw size={17}/></button></div>
+            {error && <div className="notification-error" role="status">{error}<button type="button" onClick={() => void onRefresh()}>Thá»­ láº¡i</button></div>}
+            <div className="notification-list">{notifications.length === 0 && !error ? <p className="notification-empty">ChÆ°a cÃ³ thÃ´ng bÃ¡o Ä‘Æ¡n hÃ ng.</p> : notifications.map((notification) => <button type="button" key={notification.id} className={`notification-item ${notification.readAt ? "" : "unread"}`} onClick={() => { setOpen(false); onOpen(notification); }}>
+                <span className="notification-item-icon"><ShoppingCart size={17}/></span><span><b>{notification.title}</b><small>{notification.storeName ?? "Cá»­a hÃ ng"} Â· {dateTime(notification.createdAt)}</small><em>{notification.message}</em></span>{!notification.readAt && <i aria-label="ChÆ°a Ä‘á»c"/>}
+            </button>)}</div>
+        </section>}
+    </div>;
+}
+function showMonthPicker(input: HTMLInputElement) {
+    if (typeof input.showPicker !== "function") return false;
+    try {
+        input.showPicker();
+        return true;
+    } catch {
+        return false;
+    }
+}
+function MonthPickerControl({ value, onChange, ariaLabel, prefix }: {
+    value: string;
+    onChange: (value: string) => void;
+    ariaLabel: string;
+    prefix?: string;
+}) {
+    const inputRef = useRef<HTMLInputElement>(null);
+    const monthLabel = formatMonthVn(value);
+    return <label className="date-control month-picker-control">
+        <Calendar size={18} aria-hidden="true"/>
+        <span aria-hidden="true">{prefix ? `${prefix}${monthLabel.replace(/^ThÃ¡ng\s+/, "")}` : monthLabel}</span>
+        <input
+            ref={inputRef}
+            className="month-picker-native"
+            aria-label={ariaLabel}
+            type="month"
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
+            onClick={(event) => showMonthPicker(event.currentTarget)}
+            onKeyDown={(event) => {
+                if (event.key !== "Enter" && event.key !== " ") return;
+                if (showMonthPicker(inputRef.current ?? event.currentTarget)) event.preventDefault();
+            }}
+        />
+    </label>;
+}
+function ManagerHeader({ view, period, onPeriodChange }: {
+    view: string;
+    period: string;
+    onPeriodChange: (period: string) => void;
+}) {
+    const subtitles: Record<string, string> = {
+        "Tá»•ng quan": "Xin chÃ o, Quáº£n trá»‹ viÃªn! ÄÃ¢y lÃ  tá»•ng quan hoáº¡t Ä‘á»™ng cá»§a táº¥t cáº£ cá»­a hÃ ng.",
+        "Cá»­a hÃ ng": "Quáº£n lÃ½ thÃ´ng tin cá»­a hÃ ng, nhÃ¢n sá»± vÃ  káº¿t quáº£ hoáº¡t Ä‘á»™ng cá»§a tá»«ng cá»­a hÃ ng.",
+        "Giao viá»‡c": "Danh sÃ¡ch cÃ´ng viá»‡c cho tá»«ng ca lÃ m â€“ giÃºp nhÃ¢n viÃªn dá»… dÃ ng theo dÃµi vÃ  thá»±c hiá»‡n.",
+        "DÃ²ng tiá»n": "Theo dÃµi doanh thu, chi phÃ­ vÃ  lá»£i nhuáº­n cá»§a tá»«ng cá»­a hÃ ng.",
+        "LÆ°Æ¡ng thÆ°á»Ÿng quáº£n lÃ½": "Xem lÆ°Æ¡ng quáº£n lÃ½ vÃ  thÆ°á»Ÿng theo sá»‘ liá»‡u tÃ i chÃ­nh Ä‘Ã£ ghi nháº­n cá»§a tá»«ng cá»­a hÃ ng.",
+        "BÃ¡o cÃ¡o": "Theo dÃµi vÃ  phÃ¢n tÃ­ch káº¿t quáº£ hoáº¡t Ä‘á»™ng cá»§a há»‡ thá»‘ng.",
+        "Chia lá»£i nhuáº­n": "PhÃ¢n chia lá»£i nhuáº­n sau cÃ¹ng Ä‘Ã£ khÃ³a cho hai thÃ nh viÃªn theo tá»· lá»‡ cá»‘ Ä‘á»‹nh.",
+        "Äiá»u chuyá»ƒn nhÃ¢n sá»±": "Quáº£n lÃ½ nhÃ¢n viÃªn há»— trá»£ giá»¯a cÃ¡c cá»­a hÃ ng theo thá»i gian vÃ  ca lÃ m viá»‡c.",
+        "CÃ i Äáº·t ChÃ­nh SÃ¡ch": "Thiáº¿t láº­p quy táº¯c váº­n hÃ nh dÃ¹ng chung cho toÃ n há»‡ thá»‘ng.",
+        "CÃ i Ä‘áº·t": "Quáº£n lÃ½ thÃ´ng tin tÃ i khoáº£n vÃ  cÃ¡c thiáº¿t láº­p há»‡ thá»‘ng.",
+    };
+    return <div className="page-header"><div><h1>{view}</h1><p>{subtitles[view]}</p></div><div className="header-actions"><MonthPickerControl ariaLabel="ThÃ¡ng bÃ¡o cÃ¡o" value={period} onChange={onPeriodChange}/></div></div>;
+}
+function StatCard({ label, value, note, tone = "green", icon = "â†—" }: {
+    label: string;
+    value: string;
+    note?: string;
+    tone?: string;
+    icon?: string;
+}) {
+    const Icon = statIcons[icon] ?? TrendingUp;
+    return <article className={`stat-card ${tone}`}><div className="stat-icon"><Icon size={25} strokeWidth={1.9}/></div><div><span>{label}</span><strong>{value}</strong>{note && <small>{note}</small>}</div></article>;
+}
+function ManagerView({ view, stores, loading, reload, openStore, isSuperAdmin }: {
+    view: string;
+    stores: Store[];
+    loading: boolean;
+    reload: () => Promise<void>;
+    openStore: (store: Store) => void;
+    isSuperAdmin: boolean;
+}) {
+    const totals = useMemo(() => stores.reduce((sum, store) => ({ revenue: sum.revenue + store.revenue, expense: sum.expense + store.expense, profit: sum.profit + store.profit }), { revenue: 0, expense: 0, profit: 0 }), [stores]);
+    if (view === "Tá»•ng quan")
+        return <DashboardOverview stores={stores} totals={totals} loading={loading} openStore={openStore}/>;
+    if (view === "Cá»­a hÃ ng")
+        return <StoresView stores={stores} totals={totals} reload={reload} openStore={openStore} isSuperAdmin={isSuperAdmin}/>;
+    if (view === "Giao viá»‡c")
+        return <FunctionalTaskManager stores={stores}/>;
+    if (view === "DÃ²ng tiá»n")
+        return <ManagerCashflow/>;
+    if (view === "LÆ°Æ¡ng thÆ°á»Ÿng quáº£n lÃ½")
+        return <ManagerPayroll/>;
+    if (view === "BÃ¡o cÃ¡o")
+        return <ManagerBusinessReport/>;
+    if (view === "Äiá»u chuyá»ƒn nhÃ¢n sá»±")
+        return <ReferenceManagerTransfer stores={stores}/>;
+    if (view === "Chia lá»£i nhuáº­n")
+        return <ManagerProfitSharingClosing/>;
+    if (view === "CÃ i Äáº·t ChÃ­nh SÃ¡ch" && isSuperAdmin)
+        return <AttendancePolicySettings/>;
+    return <FunctionalSettings name="Quáº£n trá»‹ viÃªn" email="admin@dore.vn"/>;
+}
+function DashboardOverview({ stores, totals, loading, openStore }: {
+    stores: Store[];
+    totals: {
+        revenue: number;
+        expense: number;
+        profit: number;
+    };
+    loading: boolean;
+    openStore: (store: Store) => void;
+}) {
+    const storesWithComparison = stores.filter((store) => store.previous);
+    const hasCompleteComparison = stores.length > 0 && storesWithComparison.length === stores.length;
+    const previousTotals = storesWithComparison.reduce((sum, store) => ({
+        revenue: sum.revenue + Number(store.previous?.revenue ?? 0),
+        expense: sum.expense + Number(store.previous?.expense ?? 0),
+        profit: sum.profit + Number(store.previous?.profit ?? 0),
+    }), { revenue: 0, expense: 0, profit: 0 });
+    const note = (key: keyof typeof totals) => hasCompleteComparison
+        ? comparisonNote(totals[key], previousTotals[key])
+        : "ChÆ°a Ä‘á»§ sá»‘ liá»‡u thÃ¡ng trÆ°á»›c";
+    return <div className="page-content">
+    <div className="stats-grid three"><StatCard label="Tá»”NG DOANH THU" value={money(totals.revenue)} note={note("revenue")} icon="â‚«"/><StatCard label="Tá»”NG CHI PHÃ" value={money(totals.expense)} note={note("expense")} tone="orange" icon="â–¤"/><StatCard label="Tá»”NG Lá»¢I NHUáº¬N" value={money(totals.profit)} note={note("profit")} tone="blue" icon="â–¥"/></div>
+    <div className="section-title"><div><h2>Quáº£n lÃ½ cá»­a hÃ ng</h2><p>Chá»n cá»­a hÃ ng Ä‘á»ƒ xem vÃ  quáº£n lÃ½ chi tiáº¿t.</p></div><span>{stores.filter((store) => store.status === "ACTIVE").length} cá»­a hÃ ng Ä‘ang hoáº¡t Ä‘á»™ng</span></div>
+    <div className="store-grid">{loading ? Array.from({ length: 5 }, (_, i) => <div className="store-card loading-card" key={i}/>) : stores.map((store, index) => <article className={`store-card ${store.status === "INACTIVE" ? "inactive" : ""}`} key={store.id}><div className={`store-cover cover-${index % 5}`}><div className="shop-sign"><img className="store-logo-image" src="/logo.jpg" alt={`Logo ${store.name}`} width={1254} height={1254}/><span>{store.name.replace("DORE ", "")}</span></div><div className="shop-front"><i /><i /><i /></div></div><div className="store-card-body"><div className={`store-status ${store.status === "INACTIVE" ? "inactive" : ""}`}>â— {store.status === "INACTIVE" ? "NgÆ°ng hoáº¡t Ä‘á»™ng" : "Äang hoáº¡t Ä‘á»™ng"}</div><h3>{store.name}</h3><p>âŒ– {store.address}</p><div className="store-numbers"><span>Doanh thu thÃ¡ng <b>{money(store.revenue)}</b></span><span>Lá»£i nhuáº­n <b>{money(store.profit)}</b></span></div><button className="store-open" onClick={() => openStore(store)}>Xem cá»­a hÃ ng <span>â†’</span></button></div></article>)}</div>
+  </div>;
+}
+function StoresView({ stores, totals, reload, openStore, isSuperAdmin }: {
+    stores: Store[];
+    totals: {
+        revenue: number;
+        expense: number;
+        profit: number;
+    };
+    reload: () => Promise<void>;
+    openStore: (store: Store) => void;
+    isSuperAdmin: boolean;
+}) {
+    const [showForm, setShowForm] = useState(false);
+    const [editing, setEditing] = useState<Store | null>(null);
+    const [name, setName] = useState("");
+    const [address, setAddress] = useState("");
+    const [status, setStatus] = useState<"ACTIVE" | "INACTIVE">("ACTIVE");
+    const [message, setMessage] = useState("");
+    const [query, setQuery] = useState("");
+    const [deleteCandidate, setDeleteCandidate] = useState<Store | null>(null);
+    const [deletingStoreId, setDeletingStoreId] = useState<string | null>(null);
+    const [deleteMessage, setDeleteMessage] = useState("");
+    const deleteRootRef = useRef<HTMLDivElement>(null);
+    const deleteDialogRef = useRef<HTMLFormElement>(null);
+    const deleteCancelRef = useRef<HTMLButtonElement>(null);
+    const deleteTriggerRef = useRef<HTMLButtonElement>(null);
+    const closeDeleteDialog = () => {
+      if (deletingStoreId) return;
+      setDeleteCandidate(null);
+      setDeleteMessage("");
+    };
+    useAccessibleModal({
+      open: deleteCandidate !== null,
+      rootRef: deleteRootRef,
+      dialogRef: deleteDialogRef,
+      initialFocusRef: deleteCancelRef,
+      returnFocusRef: deleteTriggerRef,
+      onDismiss: closeDeleteDialog,
+      dismissDisabled: deletingStoreId !== null,
+    });
+    const filteredStores = stores.filter((store) => `${store.name} ${store.address}`.toLocaleLowerCase("vi-VN").includes(query.toLocaleLowerCase("vi-VN")));
+    function beginEdit(store?: Store) { setEditing(store ?? null); setName(store?.name ?? "DORE "); setAddress(store?.address ?? ""); setStatus(store?.status === "INACTIVE" ? "INACTIVE" : "ACTIVE"); setMessage(""); setShowForm(true); }
+    async function save(event: FormEvent) { event.preventDefault(); const response = await fetch("/api/stores", { method: editing ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: editing?.id, name, address, status }) }); const data = await response.json(); if (!response.ok)
+        return setMessage(data.message); setShowForm(false); await reload(); }
+    async function toggleStatus(store: Store) {
+      const nextStatus = store.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
+      const verb = nextStatus === "INACTIVE" ? "ngÆ°ng hoáº¡t Ä‘á»™ng" : "kÃ­ch hoáº¡t láº¡i";
+      if (!confirm(`Báº¡n cÃ³ cháº¯c muá»‘n ${verb} ${store.name}? Dá»¯ liá»‡u lá»‹ch sá»­ váº«n Ä‘Æ°á»£c giá»¯ nguyÃªn.`)) return;
+      const response = await fetch("/api/stores", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: store.id, name: store.name, address: store.address, status: nextStatus }) });
+      const data = await response.json();
+      if (!response.ok) return alert(data.message);
+      await reload();
+    }
+    function beginDelete(store: Store, trigger: HTMLButtonElement) {
+      deleteTriggerRef.current = trigger;
+      setDeleteCandidate(store);
+      setDeleteMessage("");
+    }
+    async function deleteStore(event: FormEvent) {
+      event.preventDefault();
+      if (!deleteCandidate || deletingStoreId) return;
+      setDeletingStoreId(deleteCandidate.id);
+      setDeleteMessage("");
+      try {
+        const response = await fetch("/api/stores", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: deleteCandidate.id }),
+        });
+        const data = await response.json().catch(() => ({})) as { message?: string };
+        if (!response.ok) {
+          setDeleteMessage(data.message ?? "KhÃ´ng thá»ƒ xÃ³a cá»­a hÃ ng.");
+          return;
+        }
+        setDeleteCandidate(null);
+        await reload();
+      } catch {
+        setDeleteMessage("KhÃ´ng thá»ƒ káº¿t ná»‘i Ä‘á»ƒ xÃ³a cá»­a hÃ ng. Vui lÃ²ng thá»­ láº¡i.");
+      } finally {
+        setDeletingStoreId(null);
+      }
+    }
+    const activeCount = stores.filter((store) => store.status === "ACTIVE").length;
+    const totalEmployees = stores.reduce((sum, store) => sum + Number(store.employeeCount ?? 0), 0);
+    return <div className="page-content">
+      <div className="store-admin-metrics"><StatCard label="Tá»”NG Sá» Cá»¬A HÃ€NG" value={String(stores.length)} note={`${activeCount} Ä‘ang hoáº¡t Ä‘á»™ng`} icon="â–§"/><StatCard label="Tá»”NG NHÃ‚N VIÃŠN" value={String(totalEmployees)} note="toÃ n há»‡ thá»‘ng" icon="âœ“"/><StatCard label="Tá»”NG DOANH THU" value={money(totals.revenue)} note="trong khoáº£ng thá»i gian chá»n" icon="â†—"/><StatCard label="Tá»”NG CHI PHÃ" value={money(totals.expense)} note="trong khoáº£ng thá»i gian chá»n" tone="orange" icon="â–¤"/><StatCard label="Tá»”NG Lá»¢I NHUáº¬N" value={money(totals.profit)} note="trong khoáº£ng thá»i gian chá»n" tone="blue" icon="â–¥"/></div>
+      <div className="toolbar"><div className="stats-inline"><b>{stores.length}</b> cá»­a hÃ ng Â· <b>{money(totals.revenue)}</b> doanh thu</div><div className="store-toolbar-actions"><input aria-label="TÃ¬m kiáº¿m cá»­a hÃ ng" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="TÃ¬m kiáº¿m cá»­a hÃ ng..."/><button className="primary-button" onClick={() => beginEdit()}>ï¼‹ ThÃªm cá»­a hÃ ng</button></div></div>
+      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Keyboard focus lets users scroll the wide store table. */}
+      <div className="table-card"><div className="table-head"><h2>Danh sÃ¡ch cá»­a hÃ ng</h2></div><div className="data-table-wrap" role="region" tabIndex={0} aria-label="Danh sÃ¡ch cá»­a hÃ ng, cuá»™n ngang Ä‘á»ƒ xem Ä‘áº§y Ä‘á»§"><table className="data-table"><thead><tr><th>#</th><th>Cá»­a hÃ ng</th><th>Äá»‹a chá»‰</th><th>NhÃ¢n viÃªn</th><th>Doanh thu</th><th>Chi phÃ­</th><th>Lá»£i nhuáº­n</th>{isSuperAdmin ? <th>ÄÆ¡n hÃ ng Ä‘Ã£ phÃ¡t sinh</th> : null}<th>Tráº¡ng thÃ¡i</th><th>Thao tÃ¡c</th></tr></thead><tbody>{filteredStores.map((store, index) => {
+        const hasOrders = Number(store.lifetimeOrderCount ?? 0) > 0;
+        const hasSalaryAdvances = Number(store.salaryAdvanceCount ?? 0) > 0;
+        const cannotDelete = store.canDelete === false || hasOrders || hasSalaryAdvances;
+        const deleteReason = hasOrders
+          ? "KhÃ´ng thá»ƒ xÃ³a vÃ¬ cá»­a hÃ ng Ä‘Ã£ phÃ¡t sinh Ä‘Æ¡n hÃ ng"
+          : hasSalaryAdvances
+            ? "KhÃ´ng thá»ƒ xÃ³a vÃ¬ cá»­a hÃ ng cÃ²n lá»‹ch sá»­ á»©ng lÆ°Æ¡ng cáº§n Ä‘á»‘i soÃ¡t"
+            : `XÃ³a ${store.name}`;
+        return <tr key={store.id}><td>{index + 1}</td><td><button className="table-link" onClick={() => openStore(store)}>{store.name}</button></td><td>{store.address}</td><td><b>{store.employeeCount ?? 0}</b> nhÃ¢n viÃªn</td><td className="money-green">{money(store.revenue)}</td><td className="money-orange">{money(store.expense)}</td><td className="money-blue">{money(store.profit)}</td>{isSuperAdmin ? <td><b>{Number(store.lifetimeOrderCount ?? 0)}</b> Ä‘Æ¡n</td> : null}<td><span className={`status-pill ${store.status === "INACTIVE" ? "inactive" : ""}`}>{store.status === "INACTIVE" ? "NgÆ°ng hoáº¡t Ä‘á»™ng" : "Äang hoáº¡t Ä‘á»™ng"}</span></td><td><div className="row-actions"><button onClick={() => beginEdit(store)}>Sá»­a</button><button className={store.status === "ACTIVE" ? "danger" : ""} onClick={() => toggleStatus(store)}>{store.status === "ACTIVE" ? "NgÆ°ng hoáº¡t Ä‘á»™ng" : "KÃ­ch hoáº¡t láº¡i"}</button>{isSuperAdmin ? <button className="danger store-delete-button" disabled={cannotDelete} title={deleteReason} onClick={(event) => beginDelete(store, event.currentTarget)}>XÃ³a</button> : null}</div></td></tr>;
+      })}</tbody></table></div></div>
+      {showForm ? <div className="modal-backdrop"><form className="modal" onSubmit={save}><div className="modal-title"><h2>{editing ? "Cáº­p nháº­t cá»­a hÃ ng" : "ThÃªm cá»­a hÃ ng má»›i"}</h2><button type="button" aria-label="ÄÃ³ng" onClick={() => setShowForm(false)}>Ã—</button></div><label>TÃªn cá»­a hÃ ng<input value={name} onChange={e => setName(e.target.value)} required/></label><label>Äá»‹a chá»‰<input value={address} onChange={e => setAddress(e.target.value)} required/></label>{editing ? <label>Tráº¡ng thÃ¡i<select value={status} onChange={(event) => setStatus(event.target.value as "ACTIVE" | "INACTIVE")}><option value="ACTIVE">Äang hoáº¡t Ä‘á»™ng</option><option value="INACTIVE">NgÆ°ng hoáº¡t Ä‘á»™ng</option></select></label> : null}<div className="info-box">{editing ? "Khi ngÆ°ng hoáº¡t Ä‘á»™ng, cá»­a hÃ ng chá»‰ Ä‘Æ°á»£c xem dá»¯ liá»‡u lá»‹ch sá»­ vÃ  khÃ´ng thá»ƒ phÃ¡t sinh thao tÃ¡c má»›i." : "Há»‡ thá»‘ng sáº½ tá»± táº¡o ca lÃ m, danh má»¥c chi phÃ­, lÆ°Æ¡ng thÆ°á»Ÿng, nhÃ¢n viÃªn, Ä‘Æ¡n hÃ ng, dÃ²ng tiá»n vÃ  bÃ¡o cÃ¡o cho cá»­a hÃ ng má»›i."}</div>{message ? <div className="form-message">{message}</div> : null}<div className="modal-actions"><button type="button" onClick={() => setShowForm(false)}>Há»§y</button><button type="submit" className="primary-button">{editing ? "LÆ°u thay Ä‘á»•i" : "Táº¡o cá»­a hÃ ng"}</button></div></form></div> : null}
+      {deleteCandidate ? <div className="modal-backdrop" ref={deleteRootRef}><form className="modal store-delete-modal" ref={deleteDialogRef} role="alertdialog" aria-modal="true" aria-labelledby="store-delete-title" aria-describedby="store-delete-description" tabIndex={-1} onSubmit={deleteStore}><div className="modal-title"><div><h2 id="store-delete-title">XÃ³a cá»­a hÃ ng khá»i há»‡ thá»‘ng?</h2><p>{deleteCandidate.name}</p></div><button type="button" aria-label="ÄÃ³ng há»™p thoáº¡i xÃ³a cá»­a hÃ ng" disabled={deletingStoreId !== null} onClick={closeDeleteDialog}>Ã—</button></div><div className="store-delete-warning" id="store-delete-description"><b>Chá»‰ xÃ³a Ä‘Æ°á»£c cá»­a hÃ ng chÆ°a tá»«ng phÃ¡t sinh Ä‘Æ¡n hÃ ng vÃ  khÃ´ng cÃ²n khoáº£n á»©ng lÆ°Æ¡ng cáº§n Ä‘á»‘i soÃ¡t.</b><p>Cá»­a hÃ ng sáº½ biáº¿n máº¥t khá»i danh sÃ¡ch vÃ  cÃ¡c tÃ i khoáº£n liÃªn quan bá»‹ ngáº¯t truy cáº­p ngay. Dá»¯ liá»‡u phá»¥ Ä‘Æ°á»£c giá»¯ ná»™i bá»™ Ä‘á»ƒ khÃ´ng lÃ m máº¥t lá»‹ch sá»­ hoáº·c táº¡o báº£n ghi má»“ cÃ´i.</p></div>{deleteMessage ? <div className="form-message" role="alert">{deleteMessage}</div> : null}<div className="modal-actions"><button ref={deleteCancelRef} type="button" disabled={deletingStoreId !== null} onClick={closeDeleteDialog}>Giá»¯ láº¡i cá»­a hÃ ng</button><button type="submit" className="primary-button store-delete-confirm" disabled={deletingStoreId !== null}>{deletingStoreId ? "Äang xÃ³a..." : "XÃ³a cá»­a hÃ ng"}</button></div></form></div> : null}
+    </div>;
+}
+function TasksView({ stores }: {
+    stores: Store[];
+}) { const [tasks, setTasks] = useState(["Má»Ÿ cá»­a hÃ ng, kiá»ƒm tra vá»‡ sinh", "Sáº¯p xáº¿p vÃ  bá»• sung hÃ ng trÃªn ká»‡", "TÆ° váº¥n vÃ  há»— trá»£ khÃ¡ch hÃ ng", "BÃ¡o cÃ¡o doanh thu cuá»‘i ca"]); const [sent, setSent] = useState(false); return <div className="page-content split-layout"><section className="form-card"><div className="form-grid three"><label>Cá»­a hÃ ng<select>{stores.map(s => <option key={s.id}>{s.name}</option>)}</select></label><label>Ca lÃ m<select><option>Ca 1 Â· 07:00 - 12:00</option><option>Ca 2 Â· 12:00 - 17:00</option><option>Ca 3 Â· 17:00 - 23:00</option></select></label><label>NgÃ y Ã¡p dá»¥ng<input type="date" defaultValue="2026-08-06"/></label></div><h2>Danh sÃ¡ch cÃ´ng viá»‡c</h2><div className="task-editor">{tasks.map((task, index) => <div key={index}><span>{index + 1}</span><input value={task} onChange={e => setTasks(tasks.map((t, i) => i === index ? e.target.value : t))}/><button onClick={() => setTasks(tasks.filter((_, i) => i !== index))}>Ã—</button></div>)}</div><button className="ghost-button" onClick={() => setTasks([...tasks, ""])}>ï¼‹ ThÃªm cÃ´ng viá»‡c</button><button className="primary-button send-button" onClick={() => setSent(true)}>â¤ LÆ°u vÃ  gá»­i</button>{sent && <div className="success-banner">âœ“ ÄÃ£ gá»­i {tasks.length} cÃ´ng viá»‡c Ä‘áº¿n nhÃ¢n viÃªn trong ca.</div>}</section><aside className="help-card"><h2>HÆ°á»›ng dáº«n</h2><ol><li>Chá»n cá»­a hÃ ng, ca vÃ  ngÃ y Ã¡p dá»¥ng.</li><li>Nháº­p cÃ´ng viá»‡c cÃ¹ng ghi chÃº cá»¥ thá»ƒ.</li><li>NhÃ¢n viÃªn nháº­n viá»‡c trÃªn trang chá»§ vÃ  tick khi hoÃ n thÃ nh.</li></ol><div className="phone-preview"><b>âœ“ CÃ´ng viá»‡c cáº§n lÃ m</b><span>{tasks.length}</span></div></aside></div>; }
+export function CashflowView({ stores, totals }: {
+    stores: Store[];
+    totals: {
+        revenue: number;
+        expense: number;
+        profit: number;
+    };
+}) { return <div className="page-content"><div className="stats-grid three"><StatCard label="DOANH THU" value={money(totals.revenue)} note="â†‘ 12,45% so vá»›i ká»³ trÆ°á»›c"/><StatCard label="CHI PHÃ" value={money(totals.expense)} note="â†‘ 8,32% so vá»›i ká»³ trÆ°á»›c" tone="orange" icon="â†“"/><StatCard label="Lá»¢I NHUáº¬N" value={money(totals.profit)} note="â†‘ 16,78% so vá»›i ká»³ trÆ°á»›c" tone="blue" icon="â–¥"/></div><div className="chart-grid"><ChartCard title="Biá»ƒu Ä‘á»“ dÃ²ng tiá»n" values={[62, 70, 65, 80, 78, 73, 86]} labels={["01", "05", "10", "15", "20", "25", "31"]}/><DonutCard revenue={totals.revenue} expense={totals.expense} profit={totals.profit}/></div><div className="table-card"><div className="table-head"><h2>Chi tiáº¿t theo cá»­a hÃ ng</h2><button onClick={() => exportCsvFile("dong-tien-he-thong.csv", [["Cá»­a hÃ ng", "Doanh thu", "Chi phÃ­", "Lá»£i nhuáº­n", "BiÃªn lá»£i nhuáº­n"], ...stores.map(s => [s.name, s.revenue, s.expense, s.profit, `${((s.profit / Math.max(1, s.revenue)) * 100).toFixed(2)}%`])])}>Xuáº¥t bÃ¡o cÃ¡o â†“</button></div><table className="data-table"><thead><tr><th>Cá»­a hÃ ng</th><th>Doanh thu</th><th>Chi phÃ­</th><th>Lá»£i nhuáº­n</th><th>BiÃªn lá»£i nhuáº­n</th></tr></thead><tbody>{stores.map(s => <tr key={s.id}><td>{s.name}</td><td>{money(s.revenue)}</td><td>{money(s.expense)}</td><td className="money-green">{money(s.profit)}</td><td>{((s.profit / Math.max(1, s.revenue)) * 100).toFixed(2)}%</td></tr>)}</tbody></table></div></div>; }
+function ChartCard({ title, values, labels }: {
+    title: string;
+    values: number[];
+    labels: string[];
+}) { return <section className="chart-card"><div className="chart-title"><h2>{title}</h2><span>â— Doanh thuã€€â— Chi phÃ­ã€€â— Lá»£i nhuáº­n</span></div><div className="bar-chart">{values.map((v, i) => <div key={i} className="bar-column"><div className="bar greenbar" style={{ height: `${v}%` }}/><div className="bar orangebar" style={{ height: `${Math.max(18, v - 31)}%` }}/><div className="bar bluebar" style={{ height: `${Math.max(12, v - 43)}%` }}/><span>{labels[i]}</span></div>)}</div></section>; }
+function DonutCard({ revenue, expense, profit }: {
+    revenue: number;
+    expense: number;
+    profit: number;
+}) { const total = revenue + expense + profit; return <section className="chart-card"><h2>Tá»· lá»‡ cÆ¡ cáº¥u</h2><div className="donut-layout"><div className="donut" style={{ background: `conic-gradient(#07863b 0 ${(revenue / total) * 100}%,#ff7a15 0 ${((revenue + expense) / total) * 100}%,#2376ee 0)` }}><div><small>Tá»•ng</small><b>{compactMoney(revenue)}</b></div></div><div className="legend"><span><i className="green-dot"/>Doanh thu <b>{money(revenue)}</b></span><span><i className="orange-dot"/>Chi phÃ­ <b>{money(expense)}</b></span><span><i className="blue-dot"/>Lá»£i nhuáº­n <b>{money(profit)}</b></span></div></div></section>; }
+type ManagerPayrollRow = {
+    period: string;
+    storeId: string;
+    storeName: string;
+    profitBeforePerformanceRewards: number;
+    employeeKpiBonus: number;
+    finalProfit: number;
+    managerHours?: number;
+    employeeEligibleHours?: number;
+    totalKpiHours?: number;
+    profitPerKpiHour?: number;
+    kpiRate?: number;
+    managerSalary: number;
+    managerBonus: number;
+    managerTotal: number;
+    paymentConfirmedAt: string | null;
+    closedAt: string | null;
+    status: "LOCKED";
+};
+type ManagerPayrollReport = {
+    period: string;
+    policy: {
+        salaryPerStore: number;
+        managerHoursPerStore?: number;
+        tiers?: Array<{ minimumProfitPerHour: number; rate: number }>;
+    };
+    rows: ManagerPayrollRow[];
+    totals: { storeCount: number; totalSalary: number; totalBonus: number; totalPay: number };
+};
+function ManagerPayroll() {
+    const [period, setPeriod] = useState(() => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh", year: "numeric", month: "2-digit" }).format(new Date()));
+    const [report, setReport] = useState<ManagerPayrollReport | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState("");
+    const load = useCallback(async () => {
+        setLoading(true);
+        setError("");
+        try {
+            const params = new URLSearchParams({ scope: "manager", period });
+            const response = await fetch(`/api/payroll?${params}`, { cache: "no-store" });
+            const payload = await response.json() as { managerPayroll?: ManagerPayrollReport; message?: string };
+            if (!response.ok || !payload.managerPayroll) throw new Error(payload.message || "KhÃ´ng thá»ƒ táº£i lÆ°Æ¡ng thÆ°á»Ÿng quáº£n lÃ½.");
+            setReport(payload.managerPayroll);
+        } catch (cause) {
+            setReport(null);
+            setError(cause instanceof Error ? cause.message : "KhÃ´ng thá»ƒ táº£i lÆ°Æ¡ng thÆ°á»Ÿng quáº£n lÃ½.");
+        } finally {
+            setLoading(false);
+        }
+    }, [period]);
+    useEffect(() => { void load(); }, [load]);
+
+    const exportReport = () => {
+        if (!report) return;
+        exportCsvFile(`luong-thuong-quan-ly-${report.period}.csv`, [
+            ["Cá»­a hÃ ng", "Ká»³", "Lá»£i nhuáº­n cÆ¡ sá»Ÿ", "Giá» KPI nhÃ¢n viÃªn chÃ­nh", "Giá» quáº£n lÃ½", "Tá»•ng giá» KPI", "Lá»£i nhuáº­n/giá»", "Má»©c KPI", "LÆ°Æ¡ng quáº£n lÃ½", "ThÆ°á»Ÿng KPI quáº£n lÃ½", "Tá»•ng nháº­n", "Lá»£i nhuáº­n sau cÃ¹ng", "ÄÃ£ chi lÃºc", "KhÃ³a lÃºc"],
+            ...report.rows.map((row) => [row.storeName, row.period, row.profitBeforePerformanceRewards, row.employeeEligibleHours ?? 0, row.managerHours ?? report.policy.managerHoursPerStore ?? 140, row.totalKpiHours ?? 0, row.profitPerKpiHour ?? 0, `${((row.kpiRate ?? 0) * 100).toFixed(0)}%`, row.managerSalary, row.managerBonus, row.managerTotal, row.finalProfit, row.paymentConfirmedAt, row.closedAt]),
+        ]);
+    };
+    const policy = report?.policy ?? { salaryPerStore: 3_000_000, managerHoursPerStore: 140, tiers: [{ minimumProfitPerHour: 30_000, rate: .07 }, { minimumProfitPerHour: 15_000, rate: .05 }, { minimumProfitPerHour: 7_000, rate: .03 }] };
+    const managerHours = policy.managerHoursPerStore ?? 140;
+    const totals = report?.totals ?? { storeCount: 0, totalSalary: 0, totalBonus: 0, totalPay: 0 };
+    const rows = report?.rows ?? [];
+    return <div className="page-content manager-reference payroll-page">
+        <div className="ref-toolbar"><div><h2>LÆ¯Æ NG THÆ¯á»NG QUáº¢N LÃ</h2><p>Chá»‰ ghi nháº­n sá»‘ liá»‡u tháº­t tá»« cÃ¡c cá»­a hÃ ng Ä‘Ã£ xÃ¡c nháº­n chi vÃ  khÃ³a ká»³.</p></div><div className="ref-toolbar-actions"><input aria-label="Ká»³ lÆ°Æ¡ng quáº£n lÃ½" type="month" value={period} onChange={(event) => setPeriod(event.target.value)}/><button onClick={() => void load()} disabled={loading}><RefreshCw size={16}/> {loading ? "Äang táº£iâ€¦" : "LÃ m má»›i"}</button><button onClick={exportReport} disabled={!rows.length}><Download size={16}/> Xuáº¥t CSV</button></div></div>
+        <div className="notice-banner">â„¹ LÆ°Æ¡ng máº·c Ä‘á»‹nh {money(policy.salaryPerStore)}/cá»­a hÃ ng/ká»³. Quáº£n lÃ½ Ä‘Æ°á»£c tÃ­nh cá»‘ Ä‘á»‹nh {managerHours} giá»/cá»­a hÃ ng; thÆ°á»Ÿng quáº£n lÃ½ vÃ  nhÃ¢n viÃªn cÃ¹ng chia quá»¹ KPI 3%/5%/7% theo tá»· trá»ng giá» lÃ m. Giá» ca há»— trá»£ khÃ´ng tham gia máº«u sá»‘.</div>
+        {error && <div className="form-message">{error}</div>}
+        <div className="stats-grid four"><StatCard label="Tá»”NG LÆ¯Æ NG QUáº¢N LÃ" value={money(totals.totalSalary)} note={`${totals.storeCount} cá»­a hÃ ng Ä‘Ã£ khÃ³a ká»³`} icon="â™•"/><StatCard label="Tá»”NG THÆ¯á»NG KPI" value={money(totals.totalBonus)} note={`${managerHours} giá» quáº£n lÃ½/cá»­a hÃ ng`} tone="orange" icon="âœ¦"/><StatCard label="Tá»”NG THá»°C NHáº¬N" value={money(totals.totalPay)} note={`Ká»³ ${period}`} tone="blue" icon="â‚«"/><StatCard label="Cá»¬A HÃ€NG ÄÃƒ CHá»T" value={String(totals.storeCount)} note="ÄÃ£ xÃ¡c nháº­n chi vÃ  khÃ³a" icon="âœ“"/></div>
+        <section className="table-card"><div className="table-head"><div><h2>LÆ°Æ¡ng thÆ°á»Ÿng theo tá»«ng cá»­a hÃ ng Â· {period}</h2><p>Sá»‘ liá»‡u Ä‘Æ°á»£c láº¥y tá»« báº£n chá»‘t báº¥t biáº¿n cá»§a má»—i cá»­a hÃ ng.</p></div><span className="status-pill">{rows.length} ká»³ cá»­a hÃ ng Ä‘Ã£ khÃ³a</span></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>Cá»­a hÃ ng</th><th>Lá»£i nhuáº­n cÆ¡ sá»Ÿ</th><th>Giá» xÃ©t KPI</th><th>Lá»£i nhuáº­n/giá»</th><th>Má»©c KPI</th><th>LÆ°Æ¡ng máº·c Ä‘á»‹nh</th><th>ThÆ°á»Ÿng KPI quáº£n lÃ½</th><th>Tá»•ng thá»±c nháº­n</th><th>Lá»£i nhuáº­n sau cÃ¹ng</th><th>ÄÃ£ chi lÃºc</th><th>KhÃ³a ká»³ lÃºc</th><th>Tráº¡ng thÃ¡i</th></tr></thead><tbody>
+            {loading && !report ? <tr><td colSpan={12} className="empty-cell">Äang táº£i sá»‘ liá»‡u lÆ°Æ¡ng thÆ°á»Ÿng quáº£n lÃ½â€¦</td></tr> : rows.length === 0 ? <tr><td colSpan={12} className="empty-cell">ChÆ°a cÃ³ cá»­a hÃ ng nÃ o hoÃ n táº¥t xÃ¡c nháº­n chi vÃ  khÃ³a ká»³ {period}.</td></tr> : rows.map((row) => <tr key={`${row.storeId}-${row.period}`}><td><b>{row.storeName}</b></td><td>{money(row.profitBeforePerformanceRewards)}</td><td><small>NV {Number(row.employeeEligibleHours ?? 0).toFixed(2)} giá» + QL {Number(row.managerHours ?? managerHours).toFixed(2)} giá»</small><br/><b>{Number(row.totalKpiHours ?? 0).toFixed(2)} giá»</b></td><td>{money(row.profitPerKpiHour ?? 0)}/giá»</td><td>{((row.kpiRate ?? 0) * 100).toFixed(0)}%</td><td>{money(row.managerSalary)}</td><td className="money-green">{money(row.managerBonus)}</td><td><b>{money(row.managerTotal)}</b></td><td>{money(row.finalProfit)}</td><td>{row.paymentConfirmedAt ? dateTime(row.paymentConfirmedAt) : "â€”"}</td><td>{row.closedAt ? dateTime(row.closedAt) : "â€”"}</td><td><span className="status-pill">ÄÃ£ khÃ³a</span></td></tr>)}
+        </tbody><tfoot><tr><td>Tá»”NG Cá»˜NG</td><td colSpan={4}/><td>{money(totals.totalSalary)}</td><td>{money(totals.totalBonus)}</td><td>{money(totals.totalPay)}</td><td colSpan={5}/></tr></tfoot></table></div></section>
+    </div>;
+}
+export function ReportsView({ stores, totals }: {
+    stores: Store[];
+    totals: {
+        revenue: number;
+        expense: number;
+        profit: number;
+    };
+}) { return <div className="page-content"><div className="stats-grid four"><StatCard label="Tá»•ng doanh thu" value={compactMoney(totals.revenue)}/><StatCard label="Tá»•ng chi phÃ­" value={compactMoney(totals.expense)} tone="orange"/><StatCard label="Tá»•ng lá»£i nhuáº­n" value={compactMoney(totals.profit)} tone="blue"/><StatCard label="Tá»· lá»‡ lá»£i nhuáº­n" value={`${(totals.profit / totals.revenue * 100).toFixed(2)}%`} icon="%"/></div><div className="chart-grid"><ChartCard title="Xu hÆ°á»›ng 7 ká»³ gáº§n nháº¥t" values={[54, 62, 58, 69, 65, 77, 81]} labels={["T2", "T3", "T4", "T5", "T6", "T7", "T8"]}/><DonutCard revenue={totals.revenue} expense={totals.expense} profit={totals.profit}/></div><div className="analysis-strip">â–¥ <b>Xu hÆ°á»›ng:</b> Doanh thu vÃ  lá»£i nhuáº­n tÄƒng á»•n Ä‘á»‹nh; {stores[1]?.name ?? "DORE Cáº¦N THÆ "} Ä‘ang dáº«n Ä‘áº§u doanh thu thÃ¡ng.</div></div>; }
+function TransferView({ stores }: {
+    stores: Store[];
+}) { const [saved, setSaved] = useState(false); return <div className="page-content"><div className="transfer-layout"><section className="form-card"><h2>1. ThÃ´ng tin nhÃ¢n viÃªn</h2><div className="employee-profile"><div className="avatar large">A</div><div><b>Nguyá»…n VÄƒn An Â· NV0015</b><span>NhÃ¢n viÃªn bÃ¡n hÃ ng</span><small>Äang lÃ m táº¡i cá»­a hÃ ng chÃ­nh</small></div></div><div className="detail-list"><span>Cá»­a hÃ ng chÃ­nh <b>DORE Cáº¦N THÆ </b></span><span>LÆ°Æ¡ng theo giá» <b>35.000 Ä‘</b></span><span>Phá»¥ cáº¥p há»— trá»£ <b>500.000 Ä‘</b></span></div></section><section className="form-card"><h2>2. ThÃ´ng tin Ä‘iá»u chuyá»ƒn</h2><div className="form-grid two"><label>Cá»­a hÃ ng nháº­n<select>{stores.slice(1).map(s => <option key={s.id}>{s.name}</option>)}</select></label><label>NgÆ°á»i phÃª duyá»‡t<select><option>Quáº£n trá»‹ viÃªn DORE</option></select></label><label>NgÃ y báº¯t Ä‘áº§u<input type="date" defaultValue="2026-08-10"/></label><label>NgÃ y káº¿t thÃºc<input type="date" defaultValue="2026-08-20"/></label></div><label>Ca Ã¡p dá»¥ng<div className="check-row"><span>â˜‘ Ca sÃ¡ng</span><span>â˜‘ Ca chiá»u</span><span>â˜ Ca tá»‘i</span></div></label><label>LÃ½ do<textarea defaultValue="Há»— trá»£ khai trÆ°Æ¡ng vÃ  á»•n Ä‘á»‹nh hoáº¡t Ä‘á»™ng cá»­a hÃ ng."/></label><button className="primary-button" onClick={() => setSaved(true)}>LÆ°u Ä‘iá»u chuyá»ƒn</button>{saved && <div className="success-banner">âœ“ Äiá»u chuyá»ƒn Ä‘Ã£ Ä‘Æ°á»£c lÆ°u vÃ  chá» duyá»‡t.</div>}</section><aside className="policy-card"><h2>3. Quyá»n truy cáº­p</h2><p>âœ“ ÄÆ°á»£c Ä‘Äƒng nháº­p cá»­a hÃ ng nháº­n trong thá»i gian há»— trá»£.</p><p>Ã— Tá»± thu há»“i quyá»n sau khi háº¿t háº¡n.</p><p>âŒ‚ Tá»± trá»Ÿ vá» cá»­a hÃ ng chÃ­nh.</p><hr /><h2>4. LÆ°Æ¡ng & chi phÃ­</h2><p>LÆ°Æ¡ng, thÆ°á»Ÿng, phá»¥ cáº¥p phÃ¡t sinh Ä‘Æ°á»£c tÃ­nh cho cá»­a hÃ ng nháº­n há»— trá»£.</p></aside></div><div className="table-card"><div className="table-head"><h2>Lá»‹ch sá»­ Ä‘iá»u chuyá»ƒn</h2><button>Gia háº¡n thá»i gian</button></div><table className="data-table"><thead><tr><th>Thá»i gian</th><th>Cá»­a hÃ ng há»— trá»£</th><th>Ca lÃ m viá»‡c</th><th>NgÆ°á»i duyá»‡t</th><th>Tráº¡ng thÃ¡i</th></tr></thead><tbody><tr><td>10/08 - 20/08/2026</td><td>DORE VÄ¨NH LONG</td><td>SÃ¡ng, Chiá»u</td><td>Quáº£n trá»‹ viÃªn</td><td><span className="status-pill">Äang há»— trá»£</span></td></tr></tbody></table></div></div>; }
+function DividendView({ totals }: {
+    totals: {
+        revenue: number;
+        expense: number;
+        profit: number;
+    };
+}) { void totals; return null; }
+function SettingsView({ name, email }: {
+    name: string;
+    email: string;
+}) { const [saved, setSaved] = useState(false); return <div className="page-content settings-layout"><aside className="settings-nav"><h2>CÃ i Ä‘áº·t</h2><button className="active">â–£ ThÃ´ng tin cÃ¡ nhÃ¢n</button><button>â–¢ Äá»•i máº­t kháº©u</button><button>â™§ ThÃ´ng bÃ¡o</button><button>â— NgÃ´n ngá»¯</button></aside><section className="form-card"><h2>ThÃ´ng tin cÃ¡ nhÃ¢n</h2><p className="muted">Cáº­p nháº­t thÃ´ng tin tÃ i khoáº£n cá»§a báº¡n.</p><div className="profile-form"><div className="profile-photo">{name.slice(0, 1)}<button>âŒ</button></div><div className="form-grid two"><label>Há» vÃ  tÃªn<input defaultValue={name}/></label><label>Email<input defaultValue={email}/></label><label>Sá»‘ Ä‘iá»‡n thoáº¡i<input defaultValue="0901 234 567"/></label><label>Chá»©c vá»¥<select><option>Quáº£n lÃ½ há»‡ thá»‘ng</option></select></label></div></div><label>Äá»‹a chá»‰<input defaultValue="Ninh Kiá»u, TP. Cáº§n ThÆ¡"/></label><label>Giá»›i thiá»‡u<textarea defaultValue="Quáº£n lÃ½ há»‡ thá»‘ng chuá»—i cá»­a hÃ ng DORE."/></label><button className="primary-button align-right" onClick={() => setSaved(true)}>LÆ°u thay Ä‘á»•i</button>{saved && <div className="success-banner">âœ“ ÄÃ£ lÆ°u thÃ´ng tin.</div>}</section></div>; }
+function StoreWorkspace({ store, view, period, onPeriodChange, onReload, focusedOrderId, focusedOrderRequest, isSuperAdmin }: {
+    store: Store;
+    view: string;
+    period: string;
+    onPeriodChange: (period: string) => void;
+    onReload: () => Promise<void>;
+    focusedOrderId: string | null;
+    focusedOrderRequest: number;
+    isSuperAdmin: boolean;
+}) {
+    useEffect(() => { if (view === "Tá»•ng quan") void onReload(); }, [onReload, store.id, view]);
+    const title = view === "Tá»•ng quan" ? `Tá»•ng quan ${store.name}` : view;
+    const inactive = store.status === "INACTIVE";
+    const costLabels: Record<string, string> = { fixedCosts: "Chi phÃ­ cá»‘ Ä‘á»‹nh", incidentalCosts: "Chi phÃ­ phÃ¡t sinh", inventoryGoods: "Tiá»n nháº­p hÃ ng", inventoryShipping: "Váº­n chuyá»ƒn", employeeBaseSalary: "LÆ°Æ¡ng nhÃ¢n viÃªn", tiktokAllowance: "Phá»¥ cáº¥p TikTok", supportAllowance: "Phá»¥ cáº¥p há»— trá»£", manualAllowance: "Phá»¥ cáº¥p khÃ¡c", manualBonus: "ThÆ°á»Ÿng nhÃ¢n viÃªn", managerSalary: "LÆ°Æ¡ng quáº£n lÃ½", employeeKpiBonus: "ThÆ°á»Ÿng KPI nhÃ¢n viÃªn", managerBonus: "ThÆ°á»Ÿng KPI quáº£n lÃ½" };
+    return <><div className="page-header store-header"><div><span className="breadcrumb">Cá»¬A HÃ€NG Â· {store.address}</span><h1>{title}</h1><p>Dá»¯ liá»‡u váº­n hÃ nh Ä‘á»™c láº­p cá»§a {store.name}.</p></div><div className="header-actions"><span className={`store-state ${inactive ? "inactive" : ""}`}>{inactive ? "NgÆ°ng hoáº¡t Ä‘á»™ng" : "Äang hoáº¡t Ä‘á»™ng"}</span><MonthPickerControl ariaLabel={`Ká»³ dá»¯ liá»‡u cá»§a ${store.name}`} value={period} onChange={onPeriodChange} prefix="Ká»³ "/></div></div><div className={`page-content ${inactive ? "store-readonly" : ""}`}>{inactive && <div className="inactive-store-banner">Cá»­a hÃ ng Ä‘ang ngÆ°ng hoáº¡t Ä‘á»™ng. CÃ¡c thao tÃ¡c táº¡o hoáº·c sá»­a dá»¯ liá»‡u Ä‘Ã£ khÃ³a; lá»‹ch sá»­ dÃ²ng tiá»n vÃ  bÃ¡o cÃ¡o váº«n Ä‘Æ°á»£c giá»¯ nguyÃªn.</div>}{view === "Tá»•ng quan" && <><div className="stats-grid four"><StatCard label="Doanh thu tá»« cÃ¡c ca" value={money(store.revenue)}/><StatCard label="Tá»•ng táº¥t cáº£ chi phÃ­" value={money(store.expense)} tone="orange"/><StatCard label="Lá»£i nhuáº­n sau cÃ¹ng" value={money(store.profit)} tone="blue"/><StatCard label="BiÃªn lá»£i nhuáº­n" value={`${store.revenue ? (store.profit / store.revenue * 100).toFixed(2) : "0.00"}%`} icon="%" tone="purple"/></div><section className="table-card store-expense-breakdown"><div className="table-head"><div><h2>CÆ¡ cáº¥u tá»•ng chi phÃ­ cá»­a hÃ ng</h2><p>ÄÃ£ cá»™ng chi phÃ­ cá»‘ Ä‘á»‹nh, phÃ¡t sinh, nháº­p hÃ ng, váº­n chuyá»ƒn, lÆ°Æ¡ng, thÆ°á»Ÿng vÃ  phá»¥ cáº¥p</p></div><b>{money(store.expense)}</b></div><div className="comparison-grid">{Object.entries(store.expenseBreakdown ?? {}).map(([key, value]) => <p key={key}><span>{costLabels[key] ?? key}</span><b>{money(Number(value))}</b><em>{store.expense ? `${(Number(value) / store.expense * 100).toFixed(1)}%` : "0%"}</em></p>)}</div></section><StoreFinancialReport store={store} initialPeriod={period} onPeriodChange={onPeriodChange}/></>}{view === "Reset Dá»¯ Liá»‡u" && isSuperAdmin ? <SuperAdminReset store={store} onReset={onReload}/> : view === "ÄÆ¡n hÃ ng" ? <StoreOrdersManagement store={store} period={period} focusedOrderId={focusedOrderId} focusRequestKey={focusedOrderRequest} onChanged={onReload}/> : view === "Chi phÃ­ cá»‘ Ä‘á»‹nh" ? <FixedCostManagement store={store} onSaved={onReload}/> : view !== "Tá»•ng quan" && <StoreModule store={store} view={view} period={period} onPeriodChange={onPeriodChange}/>}</div></>;
+}
+function StoreCashflowView({ store, period, onPeriodChange }: { store: Store; period: string; onPeriodChange: (period: string) => void }) {
+    const [reportVersion, setReportVersion] = useState(0);
+    const refreshFinance = () => setReportVersion((version) => version + 1);
+    return <div className="reference-module store-cashflow-page">
+        <StoreOperatingExpense store={store} onSaved={refreshFinance}/>
+        <StoreShiftCashflow key={store.id} store={store} period={period} onPeriodChange={onPeriodChange} refreshVersion={reportVersion}/>
+        <StoreFinancialReport key={`${store.id}-${reportVersion}`} store={store} initialPeriod={period} onPeriodChange={onPeriodChange}/>
+    </div>;
+}
+function StoreModule({ store, view, period, onPeriodChange }: {
+    store: Store;
+    view: string;
+    period: string;
+    onPeriodChange: (period: string) => void;
+}) {
+    if (view === "CÃ i Ä‘áº·t") return <FunctionalSettings name={`Quáº£n lÃ½ ${store.name}`} email="quanly@dore.vn" storeId={store.id}/>;
+    if (view === "Lá»‹ch phÃ¢n ca") return <StoreScheduleManagement store={store}/>;
+    if (view === "NhÃ¢n viÃªn") return <StoreEmployeeManagement store={store}/>;
+    if (view === "Nháº­p hÃ ng") return <StoreInventoryManagement store={store}/>;
+    if (view === "DÃ²ng tiá»n") return <StoreCashflowView store={store} period={period} onPeriodChange={onPeriodChange}/>;
+    if (view === "BÃ¡o cÃ¡o") return <StoreFinancialReport store={store} initialPeriod={period} onPeriodChange={onPeriodChange}/>;
+    return <ReferenceStoreModule store={store} view={view}/>;
+    const moduleData: Record<string, {
+    stats: [
+        string,
+        string
+    ][];
+    columns: string[];
+    rows: string[][];
+}> = { "Ca lÃ m viá»‡c": { stats: [["Tá»•ng ca", "3 ca"], ["Tá»•ng nhÃ¢n viÃªn", "18 ngÆ°á»i"], ["Tá»•ng lÆ°á»£t ca", "32 lÆ°á»£t"]], columns: ["Ca", "Thá»i gian", "NhÃ¢n viÃªn", "Tráº¡ng thÃ¡i"], rows: [["Ca 1", "07:00 - 12:00", "6 nhÃ¢n viÃªn", "Äang hoáº¡t Ä‘á»™ng"], ["Ca 2", "12:00 - 17:00", "7 nhÃ¢n viÃªn", "Sáº¯p tá»›i"], ["Ca 3", "17:00 - 23:00", "5 nhÃ¢n viÃªn", "Sáº¯p tá»›i"]] }, "Lá»‹ch phÃ¢n ca": { stats: [["Ca hÃ´m nay", "3"], ["NhÃ¢n viÃªn", "18"], ["Ca trá»‘ng", "2"]], columns: ["NhÃ¢n viÃªn", "Ca 1", "Ca 2", "Ca 3"], rows: [["Nguyá»…n Thá»‹ An", "07:00 - 12:00", "-", "-"], ["Tráº§n VÄƒn BÃ¬nh", "-", "12:00 - 17:00", "-"], ["LÃª Thá»‹ CÃºc", "07:00 - 12:00", "-", "17:00 - 23:00"]] }, "NhÃ¢n viÃªn": { stats: [["Tá»•ng nhÃ¢n viÃªn", "3"], ["Äang lÃ m viá»‡c", "3"], ["Táº¡m nghá»‰", "0"]], columns: ["MÃ£ NV", "Há» vÃ  tÃªn", "Chá»©c vá»¥", "SÄT", "Tráº¡ng thÃ¡i"], rows: [["NV001", "Nguyá»…n Thá»‹ An", "BÃ¡n hÃ ng", "0765 109 784", "Äang lÃ m"], ["NV002", "Tráº§n VÄƒn BÃ¬nh", "BÃ¡n hÃ ng", "0923 456 789", "Äang lÃ m"], ["NV003", "LÃª Thá»‹ CÃºc", "Thu ngÃ¢n", "0812 345 678", "Äang lÃ m"]] }, "Nháº­p hÃ ng": { stats: [["Tá»•ng máº·t hÃ ng", "28"], ["Sá»‘ lÆ°á»£ng", "128 bao"], ["Chi phÃ­ nháº­p", "124.850.000 Ä‘"]], columns: ["Máº·t hÃ ng", "Sá»‘ lÆ°á»£ng", "CÃ¢n náº·ng", "ÄÆ¡n giÃ¡/kg", "ThÃ nh tiá»n"], rows: [["ChÃ¢n vÃ¡y", "15 bao", "120 kg", "120.000 Ä‘", "14.415.000 Ä‘"], ["Äá»“ nam", "20 bao", "210,5 kg", "150.000 Ä‘", "31.595.000 Ä‘"], ["Ão dÃ i", "10 bao", "80 kg", "200.000 Ä‘", "16.015.000 Ä‘"]] }, "Cháº¥m cÃ´ng": { stats: [["NhÃ¢n viÃªn", "6"], ["Tá»•ng giá» lÃ m", "27,91 giá»"], ["Tá»•ng lÆ°Æ¡ng", "558.200 Ä‘"]], columns: ["NhÃ¢n viÃªn", "Ca", "Giá» vÃ o", "Giá» káº¿t ca", "Sá»‘ giá»", "LÆ°Æ¡ng nháº­n"], rows: [["Nguyá»…n Thá»‹ An", "Ca 1", "06:58", "12:05", "5,07", "101.400 Ä‘"], ["Tráº§n VÄƒn BÃ¬nh", "Ca 2", "11:59", "17:02", "5,05", "101.000 Ä‘"], ["LÃª Thá»‹ CÃºc", "Ca 3", "16:58", "23:05", "6,12", "122.400 Ä‘"]] }, "LÆ°Æ¡ng thÆ°á»Ÿng": { stats: [["Tá»•ng giá»", "612,5 giá»"], ["LÆ°Æ¡ng cá»©ng", "12.250.000 Ä‘"], ["Tá»•ng chi tráº£", "20.950.000 Ä‘"]], columns: ["NhÃ¢n viÃªn", "Giá» lÃ m", "LÆ°Æ¡ng cá»©ng", "Phá»¥ cáº¥p TikTok", "ThÆ°á»Ÿng", "Tá»•ng nháº­n"], rows: [["Nguyá»…n Thá»‹ An", "208,5", "4.170.000 Ä‘", "500.000 Ä‘", "3.000.000 Ä‘", "7.670.000 Ä‘"], ["Tráº§n VÄƒn BÃ¬nh", "201", "4.020.000 Ä‘", "700.000 Ä‘", "2.000.000 Ä‘", "6.720.000 Ä‘"], ["LÃª Thá»‹ CÃºc", "203", "4.060.000 Ä‘", "300.000 Ä‘", "1.700.000 Ä‘", "6.560.000 Ä‘"]] }, "DÃ²ng tiá»n": { stats: [["Doanh thu", money(store.revenue)], ["Chi phÃ­", money(store.expense)], ["Lá»£i nhuáº­n", money(store.profit)]], columns: ["Loáº¡i chi phÃ­", "Sá»‘ tiá»n", "Ká»³", "Ghi chÃº"], rows: [["Máº·t báº±ng", "18.000.000 Ä‘", "08/2026", "Chi phÃ­ cá»‘ Ä‘á»‹nh"], ["Marketing", "5.000.000 Ä‘", "08/2026", "Quáº£ng cÃ¡o thÃ¡ng"], ["Äiá»‡n, nÆ°á»›c, wifi", "4.600.000 Ä‘", "08/2026", "ÄÃ£ Ä‘á»‘i soÃ¡t"]] }, "BÃ¡o cÃ¡o": { stats: [["NhÃ¢n viÃªn", "3"], ["Giá» lÃ m", "612,5"], ["Tá»•ng lÆ°Æ¡ng", "20.950.000 Ä‘"]], columns: ["NhÃ¢n viÃªn", "Giá» lÃ m", "LÆ°Æ¡ng cá»©ng", "ThÆ°á»Ÿng", "Phá»¥ cáº¥p", "LÆ°Æ¡ng nháº­n"], rows: [["Nguyá»…n Thá»‹ An", "208,5", "4.170.000 Ä‘", "3.000.000 Ä‘", "500.000 Ä‘", "7.670.000 Ä‘"], ["Tráº§n VÄƒn BÃ¬nh", "201", "4.020.000 Ä‘", "2.000.000 Ä‘", "700.000 Ä‘", "6.720.000 Ä‘"]] } }; if (view === "CÃ i Ä‘áº·t")
+    return <SettingsView name={`Quáº£n lÃ½ ${store.name}`} email="quanly@dore.vn"/>; const data = moduleData[view] ?? moduleData["Lá»‹ch phÃ¢n ca"]; return <><div className="stats-grid three">{data.stats.map(([label, value], i) => <StatCard key={label} label={label} value={value} tone={i === 1 ? "orange" : i === 2 ? "blue" : "green"}/>)}</div><div className="table-card"><div className="table-head"><h2>Chi tiáº¿t {view.toLowerCase()}</h2><div><button>Bá»™ lá»c</button><button>Xuáº¥t Excel â†“</button></div></div><div className="data-table-wrap"><table className="data-table"><thead><tr>{data.columns.map(c => <th key={c}>{c}</th>)}</tr></thead><tbody>{data.rows.map((row, i) => <tr key={i}>{row.map((cell, j) => <td key={j} className={j === row.length - 1 ? "money-green" : ""}>{cell}</td>)}</tr>)}</tbody></table></div></div></>; }
+function EmployeePortal({ user, onUser }: {
+    user: User;
+    onUser: (user: User) => void;
+}) {
+    const navigationIdentity = useMemo(() => ({ userId: user.id, role: "EMPLOYEE" as const }), [user.id]);
+    const [navigationReady, setNavigationReady] = useState(false);
+    const [view, setView] = useState(employeeMenu[0]);
+    const [shift, setShift] = useState<EmployeeShiftState>({
+        active: Boolean(user.shiftActive), shiftCode: user.currentShift, startedAt: user.shiftStartedAt,
+        shiftName: user.currentShiftName, scheduledStart: user.scheduledStart, scheduledEnd: user.scheduledEnd,
+        scheduledEndAt: null,
+        attendanceStatus: null,
+        attendanceDeltaMinutes: null,
+    });
+    const [orders, setOrders] = useState<Order[]>([]);
+    const [tiktok, setTiktok] = useState(false);
+    const [closingDraft, setClosingDraft] = useState<EmployeeClosingDraft>(EMPTY_EMPLOYEE_CLOSING_DRAFT);
+    useEffect(() => {
+        const restored = readNavigationSnapshot(navigationIdentity, navigationMenus);
+        setView(restored.employeeView);
+        setNavigationReady(true);
+    }, [navigationIdentity]);
+    useEffect(() => {
+        if (!navigationReady) return;
+        writeNavigationSnapshot(navigationIdentity, navigationMenus, {
+            managerView: managerMenu[0],
+            storeId: null,
+            storeView: storeMenu[0],
+            employeeView: view,
+            managerPeriod: null,
+        });
+    }, [navigationIdentity, navigationReady, view]);
+    const loadOrders = useCallback(() => fetch("/api/orders").then(response => response.json()).then(data => setOrders(data.orders ?? [])), []);
+    const syncShift = useCallback(async () => {
+        const response = await fetch("/api/shift", { cache: "no-store" });
+        if (!response.ok)
+            return;
+        const data = await response.json();
+        const nextShiftCode = data.active ? data.shiftCode : null;
+        const changedShift = Boolean(shift.shiftCode && nextShiftCode && shift.shiftCode !== nextShiftCode);
+        const storeContextChanged = (typeof data.storeId === "string" || data.storeId === null) && data.storeId !== user.storeId;
+        if (changedShift) {
+            setTiktok(false);
+            setClosingDraft(EMPTY_EMPLOYEE_CLOSING_DRAFT);
+            await loadOrders();
+        }
+        setShift({
+            active: Boolean(data.active),
+            shiftCode: nextShiftCode,
+            startedAt: data.active ? data.startedAt : null,
+            shiftName: data.active ? data.shiftName : null,
+            scheduledStart: data.active ? data.scheduledStart : null,
+            scheduledEnd: data.active ? data.scheduledEnd : null,
+            scheduledEndAt: data.active ? data.scheduledEndAt : null,
+            attendanceStatus: data.active && (data.attendanceStatus === "EARLY" || data.attendanceStatus === "ON_TIME" || data.attendanceStatus === "LATE") ? data.attendanceStatus : null,
+            attendanceDeltaMinutes: data.active && Number.isInteger(data.attendanceDeltaMinutes) ? data.attendanceDeltaMinutes : null,
+        });
+        const nextEmployeeTiktokAllowance = resolveEmployeeTiktokAllowanceSnapshot("sync", data, user.employeeTiktokAllowance);
+        const tiktokAllowanceChanged = nextEmployeeTiktokAllowance !== normalizeEmployeeTiktokAllowance(user.employeeTiktokAllowance);
+        if (changedShift || storeContextChanged || tiktokAllowanceChanged || Boolean(user.shiftActive) !== Boolean(data.active)) onUser({
+            ...user,
+            storeId: typeof data.storeId === "string" || data.storeId === null ? data.storeId : user.storeId,
+            storeName: typeof data.storeName === "string" || data.storeName === null ? data.storeName : user.storeName,
+            isSupporting: typeof data.isSupporting === "boolean" ? data.isSupporting : user.isSupporting,
+            activeTransferId: typeof data.activeTransferId === "string" || data.activeTransferId === null ? data.activeTransferId : user.activeTransferId,
+            employeeTiktokAllowance: nextEmployeeTiktokAllowance,
+            shiftActive: data.active ? 1 : 0,
+            currentShift: nextShiftCode,
+            shiftStartedAt: data.active ? data.startedAt : null,
+            currentShiftName: data.active ? data.shiftName : null,
+            scheduledStart: data.active ? data.scheduledStart : null,
+            scheduledEnd: data.active ? data.scheduledEnd : null,
+        });
+    }, [loadOrders, onUser, shift.shiftCode, user]);
+    useEffect(() => {
+        if (view === "ÄÆ¡n hÃ ng" || view === "DÃ²ng tiá»n" || view === "Trang chá»§")
+            loadOrders();
+    }, [view, loadOrders, shift.active]);
+    useEffect(() => {
+        void syncShift();
+        const timer = window.setInterval(() => void syncShift(), 30_000);
+        const syncWhenVisible = () => { if (document.visibilityState === "visible") void syncShift(); };
+        document.addEventListener("visibilitychange", syncWhenVisible);
+        window.addEventListener("focus", syncWhenVisible);
+        return () => {
+            window.clearInterval(timer);
+            document.removeEventListener("visibilitychange", syncWhenVisible);
+            window.removeEventListener("focus", syncWhenVisible);
+        };
+    }, [syncShift]);
+    async function shiftAction(action: "start" | "end", payload?: ShiftActionPayload): Promise<ShiftActionResult> {
+        const response = await fetch("/api/shift", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, tiktok, ...payload }) });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) return {
+            ok: false,
+            message: data.message ?? "KhÃ´ng thá»ƒ cáº­p nháº­t ca lÃ m viá»‡c. Vui lÃ²ng thá»­ láº¡i.",
+            requiresEarlyEndConfirmation: data.requiresEarlyEndConfirmation === true,
+            scheduledEndAt: typeof data.scheduledEndAt === "string" ? data.scheduledEndAt : null,
+            serverNow: typeof data.serverNow === "string" ? data.serverNow : null,
+        };
+        const next = {
+            ...user,
+            storeId: typeof data.storeId === "string" || data.storeId === null ? data.storeId : user.storeId,
+            storeName: typeof data.storeName === "string" || data.storeName === null ? data.storeName : user.storeName,
+            isSupporting: typeof data.isSupporting === "boolean" ? data.isSupporting : user.isSupporting,
+            activeTransferId: data.returnedToHomeStore ? null : user.activeTransferId,
+            employeeTiktokAllowance: resolveEmployeeTiktokAllowanceSnapshot(action, data, user.employeeTiktokAllowance),
+            shiftActive: data.active ? 1 : 0,
+            currentShift: data.active ? data.shiftCode : null,
+            shiftStartedAt: data.active ? data.startedAt : null,
+            currentShiftName: data.active ? data.shiftName : null,
+            scheduledStart: data.active ? data.scheduledStart : null,
+            scheduledEnd: data.active ? data.scheduledEnd : null,
+        };
+        onUser(next);
+        setShift({
+            active: data.active,
+            shiftCode: data.active ? data.shiftCode : null,
+            startedAt: data.active ? data.startedAt : null,
+            shiftName: data.active ? data.shiftName : null,
+            scheduledStart: data.active ? data.scheduledStart : null,
+            scheduledEnd: data.active ? data.scheduledEnd : null,
+            scheduledEndAt: data.active ? data.scheduledEndAt : null,
+            attendanceStatus: data.active && (data.attendanceStatus === "EARLY" || data.attendanceStatus === "ON_TIME" || data.attendanceStatus === "LATE") ? data.attendanceStatus : null,
+            attendanceDeltaMinutes: data.active && Number.isInteger(data.attendanceDeltaMinutes) ? data.attendanceDeltaMinutes : null,
+        });
+        if (action === "end")
+            alert(data.tiktokAllowance ? `${data.message} Phá»¥ cáº¥p TikTok: ${money(data.tiktokAllowance)}.` : (data.message ?? "ÄÃ£ káº¿t ca vÃ  ghi nháº­n lá»‹ch sá»­ ca lÃ m."));
+        if (action === "end") {
+            setTiktok(false);
+            setClosingDraft(EMPTY_EMPLOYEE_CLOSING_DRAFT);
+        }
+        loadOrders();
+        return {
+            ok: true,
+            message: data.message,
+            startedAt: typeof data.startedAt === "string" ? data.startedAt : null,
+            attendanceStatus: data.attendanceStatus === "EARLY" || data.attendanceStatus === "ON_TIME" || data.attendanceStatus === "LATE"
+                ? data.attendanceStatus : null,
+            attendanceDeltaMinutes: Number.isInteger(data.attendanceDeltaMinutes) ? data.attendanceDeltaMinutes : null,
+        };
+    }
+    if (!navigationReady)
+        return <div className="app-loading"><div className="pulse-logo"><img className="brand-logo-image" src="/logo.jpg" alt="Logo DORE Quáº£n LÃ½" width={1254} height={1254}/></div><p>Äang má»Ÿ láº¡i mÃ n hÃ¬nh gáº§n nháº¥t...</p></div>;
+    const employeeStoreName = user.storeName ?? user.homeStoreName ?? "DORE";
+    return <AppShell brand={employeeStoreName} subtitle={user.isSupporting ? "Äang há»— trá»£ táº¡m thá»i" : "Há»‡ thá»‘ng lÃ m viá»‡c nhÃ¢n viÃªn"} menu={employeeMenu} active={view} onActive={setView} user={user} accent="employee">
+        <div className="page-header employee-header employee-brand-header">
+            <div><div className="employee-brand-title"><strong>{employeeStoreName}</strong><span>{user.isSupporting ? `ÄANG Há»– TRá»¢ Â· Cá»¬A HÃ€NG CHÃNH: ${user.homeStoreName ?? "DORE"}` : `${view.toLocaleUpperCase("vi-VN")} Â· Há»† THá»NG LÃ€M VIá»†C NHÃ‚N VIÃŠN`}</span></div></div>
+            <div className="header-user"><button className="bell" aria-label="ThÃ´ng bÃ¡o"><Bell size={20}/><span>2</span></button><div className="avatar"><UserRound size={20}/></div><span><b>{user.name}</b><small>{user.employeeCode ?? "NV"}</small></span></div>
+        </div>
+        <div className="page-content"><EmployeeView user={user} view={view} shift={shift} orders={orders} onShift={shiftAction} tiktok={tiktok} setTiktok={setTiktok} closingDraft={closingDraft} onClosingDraftChange={setClosingDraft} reloadOrders={loadOrders}/></div>
+    </AppShell>;
+}
+function EmployeeView({ user, view, shift, orders, onShift, tiktok, setTiktok, closingDraft, onClosingDraftChange, reloadOrders }: {
+    user: User;
+    view: string;
+    shift: EmployeeShiftState;
+    orders: Order[];
+    onShift: (action: "start" | "end", payload?: ShiftActionPayload) => void | ShiftActionResult | Promise<void | ShiftActionResult>;
+    tiktok: boolean;
+    setTiktok: (v: boolean) => void;
+    closingDraft: EmployeeClosingDraft;
+    onClosingDraftChange: (draft: EmployeeClosingDraft) => void;
+    reloadOrders: () => void;
+}) { if (view === "Trang chá»§")
+    return <ReferenceEmployeeHome user={user} shift={shift} orders={orders} onShift={onShift} tiktok={tiktok} setTiktok={setTiktok} closingDraft={closingDraft} onClosingDraftChange={onClosingDraftChange}/>; if (view === "ÄÆ¡n hÃ ng")
+    return <EmployeeOrders user={user} shift={shift} orders={orders} reload={reloadOrders}/>; if (view === "Doanh thu")
+    return <ReferenceEmployeeRevenue/>; if (view === "Báº£ng lÆ°Æ¡ng")
+    return <ReferenceEmployeePayroll/>; if (view === "DÃ²ng tiá»n")
+    return <ReferenceEmployeeCashflow shift={shift} orders={orders}/>; return <ReferenceEmployeeShiftHistory/>; }
+function EmployeeHome({ user, shift, orders, onShift, tiktok, setTiktok }: {
+    user: User;
+    shift: EmployeeShiftState;
+    orders: Order[];
+    onShift: (a: "start" | "end", closing?: ShiftClosePayload) => void;
+    tiktok: boolean;
+    setTiktok: (v: boolean) => void;
+}) { const tiktokAllowanceAmount = normalizeEmployeeTiktokAllowance(user.employeeTiktokAllowance); const activeOrders = orders.filter(o => o.status === "COMPLETED"); const total = activeOrders.reduce((a, o) => a + o.amount, 0); return <><div className="employee-hero-grid"><section className="attendance-card"><span>ÄIá»‚M DANH</span><strong>{new Date().toLocaleTimeString("vi-VN")}</strong><button className={shift.active ? "end-shift" : "primary-button"} onClick={() => onShift(shift.active ? "end" : "start")}>{shift.active ? "Káº¾T CA" : "ÄIá»‚M DANH VÃ€O CA"}</button><small>{shift.active ? `Äang lÃ m Â· ${shift.shiftCode}` : "Báº¡n chÆ°a báº¯t Ä‘áº§u ca lÃ m viá»‡c"}</small></section><section className="info-card"><span>THÃ”NG TIN NHÃ‚N VIÃŠN</span><p>MÃ£ nhÃ¢n viÃªn <b>NV001</b></p><p>Há» vÃ  tÃªn <b>{user.name}</b></p><p>Chá»©c vá»¥ <b>NhÃ¢n viÃªn bÃ¡n hÃ ng</b></p><p>Cá»­a hÃ ng <b>DORE THá»T Ná»T</b></p></section><section className="shift-card"><span>CA LÃ€M VIá»†C HÃ”M NAY</span><div><b>CA 1</b><strong>07:00 - 12:00</strong></div><small className={shift.active ? "active-text" : "warning-text"}>{shift.active ? "â— Äang trong ca" : "ChÆ°a Ä‘iá»ƒm danh"}</small></section></div><FunctionalEmployeeTasks user={user}/><section className="closing-card"><div><h2>ThÃ´ng tin káº¿t ca</h2><p>Tá»•ng sá»‘ Ä‘Æ¡n <b>{activeOrders.length}</b></p><p>Doanh thu theo Ä‘Æ¡n <b>{money(total)}</b></p></div><label className="tiktok-box"><b>â™ª CLIP TIKTOK</b><span>Náº¿u ca nÃ y cÃ³ lÃ m clip TikTok, vui lÃ²ng tick bÃªn dÆ°á»›i.</span><span><input type="checkbox" checked={tiktok} onChange={e => setTiktok(e.target.checked)}/> Ca nÃ y cÃ³ lÃ m clip TikTok (+{money(tiktokAllowanceAmount)})</span></label></section></>; }
+function EmployeeOrders({ user, shift, orders, reload }: {
+    user: User;
+    shift: EmployeeShiftState;
+    orders: Order[];
+    reload: () => void;
+}) {
+    const emptyForm = { customerName: "", phone: "", age: "", amount: "", paymentMethod: "CASH" };
+    const [search, setSearch] = useState("");
+    const [fromDate, setFromDate] = useState("");
+    const [toDate, setToDate] = useState("");
+    const [payment, setPayment] = useState("ALL");
+    const [page, setPage] = useState(1);
+    const [message, setMessage] = useState("");
+    const [success, setSuccess] = useState("");
+    const [detail, setDetail] = useState<Order | null>(null);
+    const [form, setForm] = useState(emptyForm);
+    const [saving, setSaving] = useState(false);
+    const formRef = useRef<HTMLDivElement | null>(null);
+    const createRequestId = useRef<string | null>(null);
+    const pageSize = 5;
+    const filtered = useMemo(() => orders.filter(order => {
+        const keyword = search.trim().toLocaleLowerCase("vi-VN");
+        const matchesSearch = !keyword || [order.code, order.customer_name ?? "", order.phone ?? ""].some(value => value.toLocaleLowerCase("vi-VN").includes(keyword));
+        const createdDate = localDate(order.created_at);
+        return matchesSearch && (!fromDate || createdDate >= fromDate) && (!toDate || createdDate <= toDate) && (payment === "ALL" || order.payment_method === payment);
+    }), [orders, search, fromDate, toDate, payment]);
+    const completed = filtered.filter(order => order.status === "COMPLETED");
+    const cash = completed.filter(order => order.payment_method === "CASH").reduce((sum, order) => sum + order.amount, 0);
+    const bank = completed.filter(order => order.payment_method === "BANK_TRANSFER").reduce((sum, order) => sum + order.amount, 0);
+    const pages = Math.max(1, Math.ceil(filtered.length / pageSize));
+    const paged = filtered.slice((Math.min(page, pages) - 1) * pageSize, Math.min(page, pages) * pageSize);
+
+    function scrollToForm() {
+        setTimeout(() => formRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 0);
+    }
+    function beginAdd() {
+        if (!shift.active)
+            return;
+        createRequestId.current = null;
+        setForm(emptyForm);
+        setMessage("");
+        setSuccess("");
+        scrollToForm();
+    }
+    function resetForm() {
+        createRequestId.current = null;
+        setForm(emptyForm);
+        setMessage("");
+    }
+    async function save(event: FormEvent<HTMLFormElement>) {
+        event.preventDefault();
+        if (!shift.active)
+            return setMessage("Báº¡n chÆ°a báº¯t Ä‘áº§u ca lÃ m viá»‡c");
+        setMessage("");
+        setSuccess("");
+        const parsedAmount = parseVndInput(form.amount);
+        if (!Number.isSafeInteger(parsedAmount) || parsedAmount <= 0)
+            return setMessage("GiÃ¡ trá»‹ Ä‘Æ¡n hÃ ng pháº£i lÃ  sá»‘ tiá»n há»£p lá»‡ lá»›n hÆ¡n 0.");
+        const payload = { ...form, amount: parsedAmount };
+        const clientRequestId = createRequestId.current ??= crypto.randomUUID();
+        setSaving(true);
+        try {
+            const response = await fetch("/api/orders", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "Idempotency-Key": clientRequestId },
+                body: JSON.stringify({ ...payload, clientRequestId }),
+            });
+            const result = await response.json();
+            if (!response.ok) return setMessage(result.message ?? "KhÃ´ng thá»ƒ lÆ°u Ä‘Æ¡n hÃ ng.");
+            setSuccess(`ÄÃ£ táº¡o Ä‘Æ¡n ${result.code}.`);
+            resetForm();
+            reload();
+        } catch {
+            // Keep the same request key. If the server committed before the
+            // connection dropped, pressing save again returns that same order.
+            setMessage("Máº¥t káº¿t ná»‘i khi lÆ°u Ä‘Æ¡n. Vui lÃ²ng thá»­ láº¡i, há»‡ thá»‘ng sáº½ khÃ´ng táº¡o Ä‘Æ¡n trÃ¹ng.");
+        } finally {
+            setSaving(false);
+        }
+    }
+    function resetFilters() {
+        setSearch("");
+        setFromDate("");
+        setToDate("");
+        setPayment("ALL");
+        setPage(1);
+        reload();
+    }
+    function exportCsv() {
+        const csvCell = (value: string | number | null) => {
+            const raw = String(value ?? "");
+            const safe = /^[=+\-@]/.test(raw) ? `'${raw}` : raw;
+            return `"${safe.replaceAll('"', '""')}"`;
+        };
+        const rows = [
+            ["STT", "MÃ£ Ä‘Æ¡n hÃ ng", "TÃªn khÃ¡ch hÃ ng", "SÄT", "Tuá»•i", "NV bÃ¡n hÃ ng", "Ca", "GiÃ¡ trá»‹ Ä‘Æ¡n hÃ ng", "HÃ¬nh thá»©c thanh toÃ¡n", "Thá»i gian táº¡o", "Tráº¡ng thÃ¡i"],
+            ...filtered.map((order, index) => [index + 1, order.code, order.customer_name ?? "", order.phone ?? "", order.age ?? "", order.employeeName, shift.shiftCode ?? "", order.amount, order.payment_method === "CASH" ? "Tiá»n máº·t" : "Chuyá»ƒn khoáº£n", dateTime(order.created_at), order.status === "COMPLETED" ? "HoÃ n táº¥t" : "ÄÃ£ há»§y"]),
+        ];
+        const blob = new Blob(["\uFEFF" + rows.map(row => row.map(csvCell).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `don-hang-${shift.shiftCode ?? "ca-hien-tai"}.csv`;
+        link.click();
+        URL.revokeObjectURL(url);
+    }
+    function updateForm(field: keyof typeof form, value: string) {
+        setForm(current => ({ ...current, [field]: value }));
+    }
+
+    return <section className="employee-orders-screen">
+        {!shift.active && <div className="locked-banner">ğŸ”’ <b>Báº¡n chÆ°a báº¯t Ä‘áº§u ca lÃ m viá»‡c</b><span>HÃ£y Ä‘iá»ƒm danh táº¡i Trang chá»§ Ä‘á»ƒ má»Ÿ chá»©c nÄƒng thÃªm Ä‘Æ¡n hÃ ng.</span></div>}
+        <div className="orders-panel">
+            <div className="orders-panel-head">
+                <div className="orders-heading"><span className="orders-heading-icon"><ShoppingCart size={23}/></span><div><h2>ÄÆ N HÃ€NG</h2><p>Táº¡o Ä‘Æ¡n má»›i vÃ  xem lá»‹ch sá»­ Ä‘Ã£ ghi nháº­n</p><small className="orders-readonly-note">ÄÆ¡n Ä‘Ã£ lÆ°u chá»‰ Ä‘Æ°á»£c xem; chá»‰nh sá»­a hoáº·c há»§y do quáº£n lÃ½ thá»±c hiá»‡n.</small></div></div>
+                <div className="orders-actions"><button className="secondary-button" onClick={exportCsv} disabled={filtered.length === 0}><Download size={17}/> Xuáº¥t Excel</button><button className="primary-button" disabled={!shift.active} onClick={beginAdd}><Plus size={18}/> ThÃªm Ä‘Æ¡n hÃ ng</button></div>
+            </div>
+            <div className="order-stats">
+                <div className="order-stat-card"><i><ShoppingBag size={26}/></i><span>Tá»•ng sá»‘ Ä‘Æ¡n<strong>{completed.length}</strong></span></div>
+                <div className="order-stat-card"><i><BadgeDollarSign size={26}/></i><span>Tá»•ng tiá»n CK<strong>{money(bank)}</strong></span></div>
+                <div className="order-stat-card"><i><Banknote size={26}/></i><span>Tá»•ng tiá»n TM<strong>{money(cash)}</strong></span></div>
+                <div className="order-stat-card"><i><WalletCards size={26}/></i><span>Tá»•ng tiá»n<strong>{money(cash + bank)}</strong></span></div>
+            </div>
+            <div className="order-filters">
+                <label className="order-search"><span className="sr-only">TÃ¬m kiáº¿m Ä‘Æ¡n hÃ ng</span><input value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} placeholder="TÃ¬m kiáº¿m mÃ£ Ä‘Æ¡n hÃ ng, tÃªn khÃ¡ch hÃ ng, SÄT..."/></label>
+                <label><span className="sr-only">Tá»« ngÃ y</span><input type="date" value={fromDate} onChange={event => { setFromDate(event.target.value); setPage(1); }}/></label>
+                <label><span className="sr-only">Äáº¿n ngÃ y</span><input type="date" value={toDate} onChange={event => { setToDate(event.target.value); setPage(1); }}/></label>
+                <label><span>HÃ¬nh thá»©c thanh toÃ¡n</span><select value={payment} onChange={event => { setPayment(event.target.value); setPage(1); }}><option value="ALL">Táº¥t cáº£</option><option value="CASH">Tiá»n máº·t</option><option value="BANK_TRANSFER">Chuyá»ƒn khoáº£n</option></select></label>
+                <button className="refresh-button" onClick={resetFilters}><RefreshCw size={17}/> LÃ m má»›i</button>
+            </div>
+            <div className="data-table-wrap">
+                <table className="order-table"><thead><tr><th>STT</th><th>MÃ£ Ä‘Æ¡n hÃ ng</th><th>TÃªn khÃ¡ch hÃ ng</th><th>SÄT</th><th>Tuá»•i</th><th>NV bÃ¡n hÃ ng</th><th>GiÃ¡ trá»‹ Ä‘Æ¡n hÃ ng</th><th>HÃ¬nh thá»©c thanh toÃ¡n</th><th>Thá»i gian táº¡o</th><th>Chi tiáº¿t</th></tr></thead>
+                    <tbody>{paged.length === 0 ? <tr><td colSpan={10} className="empty-cell">{shift.active ? "ChÆ°a cÃ³ Ä‘Æ¡n hÃ ng phÃ¹ há»£p trong ca hiá»‡n táº¡i." : "Báº¡n chÆ°a báº¯t Ä‘áº§u ca lÃ m viá»‡c"}</td></tr> : paged.map((order, index) => <tr key={order.id} className={order.status === "VOID" ? "void-order" : ""}><td data-label="STT">{(Math.min(page, pages) - 1) * pageSize + index + 1}</td><td data-label="MÃ£ Ä‘Æ¡n"><b className="order-code">{order.code}</b></td><td data-label="KhÃ¡ch hÃ ng">{order.customer_name || "â€”"}</td><td data-label="SÄT">{order.phone || "â€”"}</td><td data-label="Tuá»•i">{order.age ?? "â€”"}</td><td data-label="NhÃ¢n viÃªn / ca"><b>{order.employeeName}</b><small>{shift.shiftCode ? `(${shift.shiftCode})` : ""}</small></td><td data-label="GiÃ¡ trá»‹"><b>{money(order.amount)}</b></td><td data-label="Thanh toÃ¡n"><span className={`order-payment ${order.payment_method === "CASH" ? "cash" : "bank"}`}>{order.payment_method === "CASH" ? "Tiá»n máº·t" : "Chuyá»ƒn khoáº£n"}</span></td><td data-label="Táº¡o lÃºc">{dateTime(order.created_at)}</td><td data-label="Chi tiáº¿t"><div className="order-row-actions"><button type="button" aria-label={`Xem chi tiáº¿t Ä‘Æ¡n ${order.code}`} title="Xem chi tiáº¿t" onClick={() => setDetail(order)}><Eye size={15}/></button></div></td></tr>)}</tbody>
+                </table>
+            </div>
+            <div className="order-pagination"><span>Hiá»ƒn thá»‹ {filtered.length === 0 ? 0 : (Math.min(page, pages) - 1) * pageSize + 1} - {Math.min(Math.min(page, pages) * pageSize, filtered.length)} cá»§a {filtered.length} Ä‘Æ¡n hÃ ng</span><div><button disabled={page <= 1} onClick={() => setPage(current => Math.max(1, current - 1))}>â€¹</button>{Array.from({ length: pages }, (_, index) => index + 1).slice(0, 5).map(number => <button key={number} className={Math.min(page, pages) === number ? "active" : ""} onClick={() => setPage(number)}>{number}</button>)}<button disabled={page >= pages} onClick={() => setPage(current => Math.min(pages, current + 1))}>â€º</button></div></div>
+        </div>
+        <div className="order-form-card" ref={formRef}>
+            <div className="order-form-title"><ShoppingCart size={21}/><h2>THÃŠM ÄÆ N HÃ€NG Má»šI</h2></div>
+            <form onSubmit={save}>
+                <fieldset disabled={!shift.active}>
+                    <div className="order-form-grid">
+                        <label>MÃ£ Ä‘Æ¡n hÃ ng<input value="Tá»± Ä‘á»™ng khi lÆ°u" disabled/><small>MÃ£ Ä‘Æ¡n hÃ ng Ä‘Æ°á»£c táº¡o tá»± Ä‘á»™ng</small></label>
+                        <label>TÃªn khÃ¡ch hÃ ng <small>(khÃ´ng báº¯t buá»™c)</small><input value={form.customerName} onChange={event => updateForm("customerName", event.target.value)} placeholder="Nháº­p tÃªn khÃ¡ch hÃ ng" maxLength={100}/></label>
+                        <label>SÄT <small>(khÃ´ng báº¯t buá»™c)</small><input value={form.phone} onChange={event => updateForm("phone", event.target.value)} placeholder="Nháº­p sá»‘ Ä‘iá»‡n thoáº¡i" inputMode="tel" maxLength={20}/></label>
+                        <label>Tuá»•i <small>(khÃ´ng báº¯t buá»™c)</small><input value={form.age} onChange={event => updateForm("age", event.target.value)} placeholder="Nháº­p tuá»•i" type="number" min="1" max="120"/></label>
+                        <label>NV bÃ¡n hÃ ng<input value={`${user.name}${shift.shiftName ? ` (${shift.shiftName})` : shift.shiftCode ? ` (${shift.shiftCode})` : ""}`} disabled/><small>Tá»± Ä‘á»™ng gáº¯n theo tÃ i khoáº£n vÃ  ca hiá»‡n táº¡i</small></label>
+                        <label>GiÃ¡ trá»‹ Ä‘Æ¡n hÃ ng<input value={form.amount} onChange={event => updateForm("amount", formatVndInput(event.target.value))} placeholder="Nháº­p giÃ¡ trá»‹ Ä‘Æ¡n hÃ ng" inputMode="numeric" required/><small>VÃ­ dá»¥: 15000 sáº½ hiá»ƒn thá»‹ 15,000.</small></label>
+                        <label>HÃ¬nh thá»©c thanh toÃ¡n<select value={form.paymentMethod} onChange={event => updateForm("paymentMethod", event.target.value)} required><option value="CASH">Tiá»n máº·t</option><option value="BANK_TRANSFER">Chuyá»ƒn khoáº£n</option></select></label>
+                    </div>
+                </fieldset>
+                {message && <div className="form-message">{message}</div>}
+                {success && <div className="order-success">âœ“ {success}</div>}
+                <div className="order-form-actions"><button type="button" className="secondary-button" onClick={resetForm} disabled={saving}>Há»§y</button><button className="primary-button" disabled={!shift.active || saving}>{saving ? "Äang lÆ°u..." : "LÆ°u Ä‘Æ¡n hÃ ng"}</button></div>
+            </form>
+        </div>
+        {detail && <div className="modal-backdrop"><div className="modal order-detail-modal"><div className="modal-title"><h2>Chi tiáº¿t Ä‘Æ¡n {detail.code}</h2><button onClick={() => setDetail(null)}>Ã—</button></div><dl><div><dt>KhÃ¡ch hÃ ng</dt><dd>{detail.customer_name || "KhÃ¡ch láº»"}</dd></div><div><dt>Sá»‘ Ä‘iá»‡n thoáº¡i</dt><dd>{detail.phone || "KhÃ´ng cung cáº¥p"}</dd></div><div><dt>Tuá»•i</dt><dd>{detail.age ?? "KhÃ´ng cung cáº¥p"}</dd></div><div><dt>NhÃ¢n viÃªn / ca</dt><dd>{detail.employeeName} Â· {shift.shiftCode}</dd></div><div><dt>Thanh toÃ¡n</dt><dd>{detail.payment_method === "CASH" ? "Tiá»n máº·t" : "Chuyá»ƒn khoáº£n"}</dd></div><div><dt>GiÃ¡ trá»‹</dt><dd>{money(detail.amount)}</dd></div><div><dt>Thá»i gian táº¡o</dt><dd>{dateTime(detail.created_at)}</dd></div><div><dt>Tráº¡ng thÃ¡i</dt><dd>{detail.status === "COMPLETED" ? "HoÃ n táº¥t" : "ÄÃ£ há»§y"}</dd></div></dl></div></div>}
+    </section>;
+}
+function EmployeePayroll() { return <><div className="filter-card"><label>ThÃ¡ng<input type="month" defaultValue="2026-08"/></label><label>Äáº¿n ngÃ y<input type="date" defaultValue="2026-08-06"/></label><button className="primary-button">Xem thá»‘ng kÃª</button></div><div className="stats-grid four"><StatCard label="Tá»”NG THU NHáº¬P" value="5.250.000 Ä‘"/><StatCard label="Tá»”NG LÆ¯Æ NG" value="4.800.000 Ä‘" tone="blue"/><StatCard label="Tá»”NG THÆ¯á»NG" value="450.000 Ä‘" tone="orange"/><StatCard label="HOÃ€N THÃ€NH CA" value="100%" icon="âœ“"/></div><div className="table-card"><div className="table-head"><h2>Chi tiáº¿t lÆ°Æ¡ng theo ca</h2><span>ÄÆ¡n giÃ¡ 20.000 Ä‘/giá»</span></div><table className="data-table"><thead><tr><th>NgÃ y lÃ m</th><th>Ca</th><th>Giá» vÃ o</th><th>Giá» káº¿t</th><th>Sá»‘ giá»</th><th>LÆ°Æ¡ng cá»©ng</th><th>ThÆ°á»Ÿng</th><th>ThÃ nh tiá»n</th></tr></thead><tbody>{[["05/08/2026", "Ca 1", "07:02", "12:05", "5,05", "101.000 Ä‘", "50.000 Ä‘", "151.000 Ä‘"], ["04/08/2026", "Ca 2", "12:01", "17:03", "5,03", "100.600 Ä‘", "0 Ä‘", "100.600 Ä‘"], ["03/08/2026", "Ca 3", "17:00", "23:03", "6,05", "121.000 Ä‘", "80.000 Ä‘", "201.000 Ä‘"]].map((r, i) => <tr key={i}>{r.map((x, j) => <td key={j} className={j === 7 ? "money-green" : ""}>{x}</td>)}</tr>)}</tbody></table></div></>; }
+export function EmployeeCashflow({ shift, orders }: {
+    shift: {
+        active: boolean;
+    };
+    orders: Order[];
+}) { const active = orders.filter(o => o.status === "COMPLETED"); const revenue = active.reduce((a, o) => a + o.amount, 0); const cost = shift.active ? 350000 : 0; return <>{!shift.active && <div className="locked-banner"><b>Báº¡n chÆ°a báº¯t Ä‘áº§u ca lÃ m viá»‡c</b><span>Sá»‘ liá»‡u dÃ²ng tiá»n sáº½ xuáº¥t hiá»‡n khi ca Ä‘Æ°á»£c kÃ­ch hoáº¡t.</span></div>}<div className="stats-grid three"><StatCard label="DOANH THU CA" value={money(revenue)} note={`${active.length} Ä‘Æ¡n hÃ ng`}/><StatCard label="CHI PHÃ CA" value={money(cost)} tone="orange" note="Chi phÃ­ phÃ¡t sinh"/><StatCard label="Lá»¢I NHUáº¬N Táº M TÃNH" value={money(Math.max(0, revenue - cost))} tone="blue" note="Doanh thu - Chi phÃ­"/></div><div className="table-card"><div className="table-head"><h2>Lá»‹ch sá»­ dÃ²ng tiá»n cÃ¡c ca</h2><button>Xuáº¥t Excel â†“</button></div><table className="data-table"><thead><tr><th>NgÃ y</th><th>Ca</th><th>Sá»‘ Ä‘Æ¡n</th><th>Doanh thu</th><th>Chi phÃ­</th><th>Lá»£i nhuáº­n</th><th>Tráº¡ng thÃ¡i</th></tr></thead><tbody><tr><td>05/08/2026</td><td>Ca 1</td><td>56</td><td>2.350.000 Ä‘</td><td>320.000 Ä‘</td><td className="money-green">2.030.000 Ä‘</td><td><span className="status-pill">ÄÃ£ káº¿t ca</span></td></tr><tr><td>04/08/2026</td><td>Ca 2</td><td>49</td><td>2.100.000 Ä‘</td><td>310.000 Ä‘</td><td className="money-green">1.790.000 Ä‘</td><td><span className="status-pill">ÄÃ£ káº¿t ca</span></td></tr></tbody></table></div></>; }
+function EmployeeHistory() { return <><div className="filter-card"><label>Tá»« ngÃ y<input type="date" defaultValue="2026-08-01"/></label><label>Äáº¿n ngÃ y<input type="date" defaultValue="2026-08-31"/></label><label>Ca lÃ m<select><option>Táº¥t cáº£</option><option>Ca 1</option><option>Ca 2</option></select></label><button className="primary-button">TÃ¬m kiáº¿m</button></div><div className="table-card"><div className="table-head"><h2>Lá»‹ch sá»­ ca lÃ m</h2><button>Xuáº¥t Excel â†“</button></div><table className="data-table"><thead><tr><th>NgÃ y lÃ m</th><th>MÃ£ nhÃ¢n viÃªn</th><th>Ca</th><th>Giá» vÃ o</th><th>Giá» káº¿t</th><th>Sá»‘ giá»</th><th>LÆ°Æ¡ng giá»</th><th>LÆ°Æ¡ng dá»± tÃ­nh</th></tr></thead><tbody>{[["05/08/2026", "NV001", "Ca 1", "07:02", "12:05", "5,05 giá»", "20.000 Ä‘", "101.000 Ä‘"], ["04/08/2026", "NV001", "Ca 2", "12:01", "17:03", "5,03 giá»", "20.000 Ä‘", "100.600 Ä‘"], ["03/08/2026", "NV001", "Ca 3", "17:00", "23:03", "6,05 giá»", "20.000 Ä‘", "121.000 Ä‘"], ["02/08/2026", "NV001", "Ca 1", "07:00", "12:00", "5,00 giá»", "20.000 Ä‘", "100.000 Ä‘"]].map((r, i) => <tr key={i}>{r.map((x, j) => <td key={j} className={j === 7 ? "money-green" : ""}>{x}</td>)}</tr>)}</tbody></table></div></>; }
+
+// Kept as visual fallbacks while the functional modules above handle all active routes.
+void [TasksView, ManagerPayroll, TransferView, DividendView, EmployeeHome, EmployeePayroll, EmployeeHistory];

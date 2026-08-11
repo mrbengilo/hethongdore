@@ -330,7 +330,17 @@ export default function StorePayrollClosing({ store, initialPeriod }: { store: S
       { action: "FINALIZE_MANAGER", label: "Chốt lương quản lý", completed: managerCompleted, available: managerAvailable, reason: managerCompleted ? "Đã chốt lương quản lý." : firstCompleted ? "Đủ điều kiện chốt lương quản lý." : "Hoàn tất khóa bảng lương cửa hàng trước." },
       { action: "CONFIRM_SALARY", label: "Xác nhận chi lương", completed: closingRank >= 2, available: closingRank === 1, reason: closingRank >= 2 ? "Đã xác nhận chi lương." : closingRank === 1 ? "Đủ điều kiện xác nhận chi lương." : "Hoàn tất chốt lương quản lý trước." },
       { action: "CONFIRM_REWARDS", label: "Xác nhận thưởng và phụ cấp", completed: closingRank >= 3, available: closingRank === 2, reason: closingRank >= 3 ? "Đã xác nhận thưởng và phụ cấp." : closingRank === 2 ? "Đủ điều kiện xác nhận thưởng và phụ cấp." : "Xác nhận chi lương trước." },
-      { action: "CONFIRM_PAYMENT", label: "Chốt sổ", completed: closingRank >= 4, available: closingRank === 3, reason: closingRank >= 4 ? "Đã xác nhận chi tr��~m�G����ƭy�tem.tiktokAllowance, item.supportAllowance, item.manualAllowance, item.manualBonus, item.kpiBonus, item.totalPay, item.salaryAdvanceReserved ?? 0, item.availablePay ?? item.totalPay]),
+      { action: "CONFIRM_PAYMENT", label: "Chốt sổ", completed: closingRank >= 4, available: closingRank === 3, reason: closingRank >= 4 ? "Đã xác nhận chi trả và chốt sổ." : closingRank === 3 ? "Đủ điều kiện xác nhận đã chi và chốt sổ." : "Xác nhận lương, thưởng và phụ cấp trước." },
+      { action: "CLOSE_PERIOD", label: "Khóa kỳ chi lương thưởng", completed: closingRank >= 5, available: closingRank === 4, reason: closingRank >= 5 ? "Kỳ lương thưởng đã khóa." : closingRank === 4 ? "Đủ điều kiện khóa kỳ chi lương thưởng." : "Chốt sổ trước khi khóa kỳ." },
+    ];
+  }, [allEmployeesIndividuallyLocked, closing, closingRank, closingWindowDate, closingWindowOpen, employeeClosingById.size, pendingAdvanceAmount, summary]);
+
+  const exportReport = () => {
+    if (!summary || !dataIsCurrent) return;
+    const rows: Array<Array<string | number>> = [
+      ["BÁO CÁO LƯƠNG THƯỞNG", store.name, period],
+      ["Mã NV", "Nhân viên", "Lương cứng/giờ", "Giờ làm thực tế", "Giờ tính KPI", "Lương thực nhận", "Phụ cấp TikTok", "Phụ cấp hỗ trợ", "Phụ cấp khác", "Thưởng khác", "Thưởng KPI", "Tổng nhận", "Đã ứng", "Còn phải trả"],
+      ...summary.items.map((item) => [item.employeeCode, item.employeeName, item.hourlyRate, item.hours.toFixed(2), Number(item.kpiHours ?? item.hours).toFixed(2), item.baseSalary, item.tiktokAllowance, item.supportAllowance, item.manualAllowance, item.manualBonus, item.kpiBonus, item.totalPay, item.salaryAdvanceReserved ?? 0, item.availablePay ?? item.totalPay]),
       ["", "TỔNG NHÂN VIÊN", "", summary.totalHours.toFixed(2), employeeKpiHours.toFixed(2), summary.totalBaseSalary, summary.totalTikTokAllowance, summary.totalSupportAllowance, summary.totalManualAllowance, summary.totalManualBonus, summary.totalKpiBonus, summary.totalPay, summary.totalSalaryAdvanceReserved ?? 0, summary.totalAvailablePay ?? summary.totalPay],
       ["", `LƯƠNG QUẢN LÝ (${managerFixedHours} giờ cố định)`, "", summary.managerSalary],
       ["", `THƯỞNG KPI QUẢN LÝ (${managerFixedHours}/${totalKpiHours.toFixed(2)} giờ × ${percent(summary.kpiRate)} quỹ KPI)`, "", summary.managerBonus],
