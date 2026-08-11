@@ -44,6 +44,7 @@ const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS shift_sessions (id TEXT PRIMARY KEY, shift_code TEXT NOT NULL UNIQUE, store_id TEXT NOT NULL, employee_id TEXT NOT NULL, shift_name TEXT, scheduled_start TEXT, scheduled_end TEXT, scheduled_start_at TEXT, scheduled_end_at TEXT, work_date TEXT, previous_session_id TEXT, transfer_id TEXT, applied_hourly_rate INTEGER, applied_tiktok_allowance INTEGER, started_at TEXT NOT NULL, attendance_status TEXT, attendance_delta_minutes INTEGER, clock_in_latitude REAL, clock_in_longitude REAL, clock_in_accuracy_meters REAL, clock_in_location_captured_at TEXT, ended_at TEXT, duration_seconds INTEGER NOT NULL DEFAULT 0, admin_adjusted_duration_seconds INTEGER, tiktok INTEGER NOT NULL DEFAULT 0, tiktok_allowance INTEGER NOT NULL DEFAULT 0, tasks_completed INTEGER NOT NULL DEFAULT 0, expense_amount INTEGER NOT NULL DEFAULT 0, expense_note TEXT, cash_revenue INTEGER NOT NULL DEFAULT 0, transfer_revenue INTEGER NOT NULL DEFAULT 0, close_reason TEXT, close_status TEXT NOT NULL DEFAULT 'PENDING', status TEXT NOT NULL DEFAULT 'ACTIVE')`,
   `CREATE TABLE IF NOT EXISTS employee_transfers (id TEXT PRIMARY KEY, employee_id TEXT NOT NULL, source_store_id TEXT NOT NULL, target_store_id TEXT NOT NULL, start_date TEXT NOT NULL, end_date TEXT NOT NULL, shifts_json TEXT NOT NULL DEFAULT '[]', support_hourly_rate INTEGER NOT NULL, support_allowance INTEGER NOT NULL DEFAULT 0, reason TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'SCHEDULED', created_by TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, ended_at TEXT)`,
   `CREATE TABLE IF NOT EXISTS employee_payroll_closings (id TEXT PRIMARY KEY, store_id TEXT NOT NULL, employee_id TEXT NOT NULL, period TEXT NOT NULL, snapshot_json TEXT NOT NULL, employee_status_at_lock TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'LOCKED', locked_at TEXT NOT NULL, locked_by TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS salary_advances (id TEXT PRIMARY KEY, store_id TEXT NOT NULL, employee_id TEXT NOT NULL, period TEXT NOT NULL CHECK (period GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]'), advance_date TEXT NOT NULL CHECK (advance_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'), amount INTEGER NOT NULL CHECK (amount > 0), gross_entitlement_snapshot INTEGER NOT NULL CHECK (gross_entitlement_snapshot >= 0), available_before_snapshot INTEGER NOT NULL CHECK (available_before_snapshot >= 0), remaining_after_snapshot INTEGER NOT NULL CHECK (remaining_after_snapshot >= 0), note TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'DRAFT' CHECK (status IN ('DRAFT', 'PAID')), version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1), client_request_id TEXT NOT NULL, payload_hash TEXT NOT NULL, mutation_token TEXT NOT NULL, created_by TEXT NOT NULL, created_at TEXT NOT NULL, updated_by TEXT NOT NULL, updated_at TEXT NOT NULL, paid_by TEXT, paid_at TEXT)`,
   `CREATE INDEX IF NOT EXISTS idx_orders_store_shift ON orders(store_id, employee_id, shift_code, created_at)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_recipient_type_entity ON notifications(recipient_user_id, type, entity_id)`,
   `CREATE INDEX IF NOT EXISTS idx_notifications_recipient_unread ON notifications(recipient_user_id, read_at, created_at)`,
@@ -63,6 +64,8 @@ const schemaStatements = [
   `CREATE INDEX IF NOT EXISTS idx_employee_transfers_employee_dates ON employee_transfers(employee_id, start_date, end_date, status)`,
   `CREATE INDEX IF NOT EXISTS idx_employee_transfers_target_dates ON employee_transfers(target_store_id, start_date, end_date, status)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_employee_payroll_closing_period ON employee_payroll_closings(store_id, employee_id, period)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_salary_advances_actor_request ON salary_advances(store_id, created_by, client_request_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_salary_advances_store_period_employee ON salary_advances(store_id, period, employee_id, status)`,
 ];
 
 async function ensureManagerAccount(db: D1Database, passwordHash: string) {
@@ -123,14 +126,7 @@ async function ensureStoreOrderCodePrefixes(db: D1Database) {
     const codePrefix = nextAvailableStoreOrderCodePrefix(basePrefix, unavailable);
     const lastValue = existing?.lastValue ?? historicalStats.get(store.id)?.get(codePrefix)?.max ?? 0;
     if (existing) {
-      // A pre-index duplicate keeps its counter but receives a deterministic
-      // collision suffix. No historical order code is ever rewritten.
-      await db.prepare("UPDATE store_order_code_sequences SET code_prefix = ?, updated_at = ? WHERE store_id = ?")
-        .bind(codePrefix, now, store.id).run();
-    } else {
-      await db.prepare(`INSERT OR IGNORE INTO store_order_code_sequences
-        (store_id, code_prefix, last_value, updated_at) VALUES (?, ?, ?, ?)`)
-        .bind(store.id, codePrefix, lastValue, now).run();
+      ×½í¢G§²ÚîÆ­yÞow).run();
     }
     occupied.add(codePrefix);
   }
@@ -213,6 +209,16 @@ async function initializeDb() {
     ["client_request_fingerprint", "ALTER TABLE orders ADD COLUMN client_request_fingerprint TEXT"],
   ].filter(([column]) => !existingOrderColumns.has(column));
   if (missingOrderColumns.length) await db.batch(missingOrderColumns.map(([, sql]) => db.prepare(sql)));
+  const salaryAdvanceColumns = await db.prepare("PRAGMA table_info(salary_advances)").all<{ name: string }>();
+  const existingSalaryAdvanceColumns = new Set(salaryAdvanceColumns.results.map((column) => column.name));
+  const missingSalaryAdvanceColumns = [
+    ["gross_entitlement_snapshot", "ALTER TABLE salary_advances ADD COLUMN gross_entitlement_snapshot INTEGER NOT NULL DEFAULT 0 CHECK (gross_entitlement_snapshot >= 0)"],
+    ["available_before_snapshot", "ALTER TABLE salary_advances ADD COLUMN available_before_snapshot INTEGER NOT NULL DEFAULT 0 CHECK (available_before_snapshot >= 0)"],
+    ["remaining_after_snapshot", "ALTER TABLE salary_advances ADD COLUMN remaining_after_snapshot INTEGER NOT NULL DEFAULT 0 CHECK (remaining_after_snapshot >= 0)"],
+  ].filter(([column]) => !existingSalaryAdvanceColumns.has(column));
+  if (missingSalaryAdvanceColumns.length) {
+    await db.batch(missingSalaryAdvanceColumns.map(([, sql]) => db.prepare(sql)));
+  }
   // Create this partial index only after legacy databases have received both
   // additive columns. Existing orders keep NULL keys and remain untouched.
   await db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_employee_client_request ON orders(employee_id, client_request_id) WHERE client_request_id IS NOT NULL").run();

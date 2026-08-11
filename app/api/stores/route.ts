@@ -10,7 +10,11 @@ import {
   managerCanAccessStore,
   managerHasGlobalStoreAccess,
 } from "../_lib/manager-scope";
-import { storeDateRangeFinance } from "../_lib/store-finance";
+import {
+  recognizeFullPeriodFixedCostsForOverview,
+  storeDateRangeFinance,
+  storePeriodFinance,
+} from "../_lib/store-finance";
 
 const defaultShifts = [
   { name: "Ca 1", start: "07:00", end: "12:00", durationMinutes: 300 },
@@ -47,19 +51,30 @@ export async function GET(request: Request) {
   const priorRange = previousComparableDateRange(currentRange, "month");
   const priorPeriod = priorRange.to.slice(0, 7);
   const stores = (await Promise.all(result.results.map(async ({ id }) => {
-    const [current, previous, employeeCount, lifetimeOrderCount] = await Promise.all([
+    const [currentRangeFinance, currentPeriodFinance, previousRangeFinance, previousPeriodFinance, employeeCount, lifetimeOrderCount, salaryAdvanceCount] = await Promise.all([
       storeDateRangeFinance(db, id, currentRange),
+      storePeriodFinance(db, id, requestedPeriod),
       storeDateRangeFinance(db, id, priorRange),
+      storePeriodFinance(db, id, priorPeriod),
       db.prepare("SELECT COUNT(*) AS count FROM employees WHERE store_id = ? AND status != 'ARCHIVED'").bind(id).first<{ count: number }>(),
       db.prepare("SELECT COUNT(*) AS count FROM orders WHERE store_id = ?").bind(id).first<{ count: number }>(),
+      db.prepare("SELECT COUNT(*) AS count FROM salary_advances WHERE store_id = ? AND status IN ('DRAFT', 'PAID')").bind(id).first<{ count: number }>(),
     ]);
+    const current = currentRangeFinance && currentPeriodFinance
+      ? recognizeFullPeriodFixedCostsForOverview(currentRangeFinance, currentPeriodFinance)
+      : currentRangeFinance;
+    const previous = previousRangeFinance && previousPeriodFinance
+      ? recognizeFullPeriodFixedCostsForOverview(previousRangeFinance, previousPeriodFinance)
+      : previousRangeFinance;
     const orderCount = Number(lifetimeOrderCount?.count ?? 0);
+    const advanceCount = Number(salaryAdvanceCount?.count ?? 0);
     return current ? {
       ...current,
       period: requestedPeriod,
       employeeCount: Number(employeeCount?.count ?? 0),
       lifetimeOrderCount: orderCount,
-      canDelete: orderCount === 0,
+      salaryAdvanceCount: advanceCount,
+      canDelete: orderCount === 0 && advanceCount === 0,
       previous: previous ? { period: priorPeriod, range: previous.range, revenue: previous.revenue, expense: previous.expense, profit: previous.profit } : null,
     } : null;
   }))).filter(Boolean);
@@ -87,11 +102,23 @@ export async function POST(request: Request) {
   const db = await initDb();
   const id = `st-${crypto.randomUUID().slice(0, 8)}`;
   const now = new Date().toISOString();
+  const liveDuplicate = await db.prepare("SELECT 1 AS present FROM stores WHERE name = ? AND status IN ('ACTIVE', 'INACTIVE') LIMIT 1")
+    .bind(name).first<{ present: number }>();
+  if (liveDuplicate) return json({ message: "Tên cửa hàng đã tồn tại." }, 409);
   let created = false;
   for (let attempt = 0; attempt < 64; attempt += 1) {
     const codePrefix = await nextPrefixForStoreName(db, name);
     try {
       await db.batch([
+        // The legacy schema has a global UNIQUE(name) constraint. Release the
+        // display name only from a tombstoned row in the same transaction as
+        // the new insert. The immutable store id and DELETE audit retain the
+        // old store's identity/history, while concurrent creators still race
+        // on the database constraint and can never create two live names.
+        db.prepare(`UPDATE stores
+          SET name = name || ' · ĐÃ XÓA · ' || id
+          WHERE name = ? AND status = 'DELETED'`)
+          .bind(name),
         db.prepare("INSERT INTO stores (id, name, address, revenue, expense, status, created_at) VALUES (?, ?, ?, 0, 0, 'ACTIVE', ?)").bind(id, name, address, now),
         db.prepare(`INSERT INTO store_order_code_sequences
           (store_id, code_prefix, last_value, updated_at) VALUES (?, ?, 0, ?)`)
@@ -102,7 +129,7 @@ export async function POST(request: Request) {
       created = true;
       break;
     } catch (error) {
-      const duplicateName = await db.prepare("SELECT 1 AS present FROM stores WHERE name = ? LIMIT 1")
+      const duplicateName = await db.prepare("SELECT 1 AS present FROM stores WHERE name = ? AND status IN ('ACTIVE', 'INACTIVE') LIMIT 1")
         .bind(name).first<{ present: number }>();
       if (duplicateName) return json({ message: "Tên cửa hàng đã tồn tại." }, 409);
       if (isStoreOrderCodePrefixConflict(error)) continue;
@@ -203,11 +230,15 @@ export async function DELETE(request: Request) {
       SELECT ?, ?, 'DELETE', 'STORE', target.id, ?, ?
       FROM stores target
       WHERE target.id = ? AND target.status IN ('ACTIVE', 'INACTIVE')
-        AND NOT EXISTS (SELECT 1 FROM orders existing_order WHERE existing_order.store_id = target.id)`)
+        AND NOT EXISTS (SELECT 1 FROM orders existing_order WHERE existing_order.store_id = target.id)
+        AND NOT EXISTS (SELECT 1 FROM salary_advances existing_advance
+          WHERE existing_advance.store_id = target.id AND existing_advance.status IN ('DRAFT', 'PAID'))`)
       .bind(deletionAuditId, user.id, detail, deletedAt, storeId),
     db.prepare(`UPDATE stores SET status = 'DELETED'
       WHERE id = ? AND status IN ('ACTIVE', 'INACTIVE') AND ${gate}
-        AND NOT EXISTS (SELECT 1 FROM orders existing_order WHERE existing_order.store_id = stores.id)`)
+        AND NOT EXISTS (SELECT 1 FROM orders existing_order WHERE existing_order.store_id = stores.id)
+        AND NOT EXISTS (SELECT 1 FROM salary_advances existing_advance
+          WHERE existing_advance.store_id = stores.id AND existing_advance.status IN ('DRAFT', 'PAID'))`)
       .bind(storeId, deletionAuditId, storeId),
     // Closing a home-store employee's support shift must recognize its orders
     // and expense at the receiving store exactly once, just like the normal
@@ -331,6 +362,11 @@ export async function DELETE(request: Request) {
       .bind(storeId).first<{ present: number }>();
     if (order) {
       return json({ message: "Không thể xóa cửa hàng vì cửa hàng đã phát sinh đơn hàng." }, 409);
+    }
+    const salaryAdvance = await db.prepare("SELECT 1 AS present FROM salary_advances WHERE store_id = ? AND status IN ('DRAFT', 'PAID') LIMIT 1")
+      .bind(storeId).first<{ present: number }>();
+    if (salaryAdvance) {
+      return json({ message: "Không thể xóa cửa hàng vì cửa hàng còn lịch sử ứng lương cần đối soát." }, 409);
     }
     return json({ message: "Cửa hàng vừa thay đổi hoặc đã được xóa. Vui lòng tải lại danh sách." }, 409);
   }

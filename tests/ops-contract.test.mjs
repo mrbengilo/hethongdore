@@ -288,7 +288,8 @@ test("Windows release packaging is allowlisted and rejects local data or browser
   const pack = await text("../ops/scripts/package-source.ps1");
   assert.match(pack, /\$entries\s*=\s*@\(/u);
   assert.match(pack, /tar\.exe -C \$project -czf \$pending @entries/u);
-  assert.match(pack, /\.openai/u);
+  assert.match(pack, /'\.openai\/hosting\.json'/u);
+  assert.match(pack, /\.openai\/\(\?!hosting\\\.json\$\)/u);
   assert.match(pack, /\.vps-access/u);
   assert.match(pack, /\.qa-/u);
   assert.match(pack, /\.codex-dev/u);

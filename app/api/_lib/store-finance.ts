@@ -342,6 +342,83 @@ export type StoreDateRangeFinance = Omit<StorePeriodFinance, "period"> & {
   }>;
 };
 
+/**
+ * The store overview is a month-to-date activity view, but a fixed-cost batch
+ * belongs to the selected month in full as soon as it is recorded. The generic
+ * date-range report intentionally accrues monthly costs day by day, so using it
+ * directly on the current partial month would show only a fraction of the
+ * configured fixed costs. Reconcile only that monthly category here and keep
+ * the timeline/totals internally exact; other report ranges retain their
+ * normal accrual behaviour.
+ */
+export function recognizeFullPeriodFixedCostsForOverview(
+  rangeFinance: StoreDateRangeFinance,
+  periodFinance: StorePeriodFinance,
+): StoreDateRangeFinance {
+  const periodFixedCosts = requireVnd(periodFinance.expenseBreakdown.fixedCosts, "Chi phí cố định theo tháng");
+  const targetPeriod = periodFinance.period;
+  // A previous equal-length comparison can straddle two months (for example
+  // 30/01–28/02). Only replace the portion belonging to the selected target
+  // month; fixed costs already accrued for the other month remain part of the
+  // comparison range.
+  const fixedCostsOutsideTargetPeriod = sumVnd(rangeFinance.timeline
+    .filter((day) => day.date.slice(0, 7) !== targetPeriod)
+    .map((day) => requireVnd(day.expenseBreakdown.fixedCosts, "Chi phí cố định ngoài kỳ đối soát")));
+  const fixedCosts = sumVnd([fixedCostsOutsideTargetPeriod, periodFixedCosts]);
+  const recognizedFixedCosts = requireVnd(rangeFinance.expenseBreakdown.fixedCosts, "Chi phí cố định đã ghi nhận");
+  if (fixedCosts === recognizedFixedCosts) return rangeFinance;
+
+  const expenseBreakdown = { ...rangeFinance.expenseBreakdown, fixedCosts };
+  const expense = sumVnd(Object.values(expenseBreakdown));
+  const performanceRewards = sumVnd([
+    expenseBreakdown.employeeKpiBonus,
+    expenseBreakdown.managerBonus,
+  ]);
+  // Rebuild this category instead of pushing the whole delta into the last
+  // day. A previous comparable range can cross two calendar months (for
+  // example 30/01–28/02), so its already-accrued amount may be greater than
+  // the single prior-period total. Delta-only adjustment could make the last
+  // day negative. Reallocation keeps every daily value non-negative and the
+  // timeline sum equal to the overview total in both directions.
+  const fixedCostDayIndexes = rangeFinance.timeline.flatMap((day, index) => (
+    day.date.slice(0, 7) === targetPeriod && day.expenseBreakdown.fixedCosts > 0 ? [index] : []
+  ));
+  const allocationIndexes = fixedCostDayIndexes.length > 0
+    ? fixedCostDayIndexes
+    : periodFixedCosts > 0
+      ? rangeFinance.timeline.flatMap((day, index) => day.date.slice(0, 7) === targetPeriod ? [index] : []).slice(-1)
+      : [];
+  const allocationCount = allocationIndexes.length;
+  const baseAllocation = allocationCount > 0 ? Math.floor(periodFixedCosts / allocationCount) : 0;
+  const allocationRemainder = allocationCount > 0 ? periodFixedCosts % allocationCount : 0;
+  const allocatedByIndex = new Map(allocationIndexes.map((index, allocationIndex) => [
+    index,
+    baseAllocation + (allocationIndex < allocationRemainder ? 1 : 0),
+  ]));
+  const timeline = rangeFinance.timeline.map((day, index) => {
+    const dayFixedCosts = day.date.slice(0, 7) === targetPeriod
+      ? requireVnd(allocatedByIndex.get(index) ?? 0, "Chi phí cố định ngày đối soát")
+      : requireVnd(day.expenseBreakdown.fixedCosts, "Chi phí cố định ngày ngoài kỳ đối soát");
+    const dayExpenseBreakdown = { ...day.expenseBreakdown, fixedCosts: dayFixedCosts };
+    const dayExpense = sumVnd(Object.values(dayExpenseBreakdown));
+    return {
+      ...day,
+      expenseBreakdown: dayExpenseBreakdown,
+      expense: dayExpense,
+      profit: day.revenue - dayExpense,
+    };
+  });
+
+  return {
+    ...rangeFinance,
+    expenseBreakdown,
+    expense,
+    profit: rangeFinance.revenue - expense,
+    profitBeforePerformanceRewards: rangeFinance.revenue - (expense - performanceRewards),
+    timeline,
+  };
+}
+
 function emptyExpenseBreakdown(): StoreExpenseBreakdown {
   return {
     fixedCosts: 0,

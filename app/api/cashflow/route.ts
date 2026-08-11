@@ -52,6 +52,17 @@ type RecordRow = {
   updatedAt: string;
 };
 
+type SalaryAdvanceRow = {
+  storeId: string;
+  storeName: string;
+  employeeCode: string;
+  employeeName: string;
+  amount: number;
+  period: string;
+  note: string;
+  paidAt: string;
+};
+
 type CashEntry = {
   date: string;
   storeId: string;
@@ -172,15 +183,32 @@ async function collectEntries(
       )
     ORDER BY r.updated_at
   `);
+  const salaryAdvanceStatement = db.prepare(`
+    SELECT advance.store_id AS storeId, store.name AS storeName,
+      COALESCE(employee.code, 'ĐÃ XÓA') AS employeeCode,
+      COALESCE(employee.name, 'Nhân viên đã xóa') AS employeeName,
+      advance.amount, advance.period, advance.note, advance.paid_at AS paidAt
+    FROM salary_advances advance
+    JOIN stores store ON store.id = advance.store_id
+    LEFT JOIN employees employee ON employee.id = advance.employee_id
+    WHERE advance.status = 'PAID' AND advance.paid_at IS NOT NULL
+      AND store.status IN ('ACTIVE', 'INACTIVE')
+      AND advance.paid_at >= ? AND advance.paid_at < ?
+      ${storeId ? "AND advance.store_id = ?" : ""}
+    ORDER BY advance.paid_at
+  `);
 
   const shiftBinds: unknown[] = [bounds.localStart, bounds.localEnd, bounds.startUtc, bounds.endUtc];
   if (storeId) shiftBinds.push(storeId);
   const recordBinds: unknown[] = [];
   if (storeId) recordBinds.push(storeId);
   recordBinds.push(bounds.localStart, bounds.localEnd, bounds.startUtc, bounds.endUtc);
-  const [shiftResult, recordResult] = await Promise.all([
+  const salaryAdvanceBinds: unknown[] = [bounds.startUtc, bounds.endUtc];
+  if (storeId) salaryAdvanceBinds.push(storeId);
+  const [shiftResult, recordResult, salaryAdvanceResult] = await Promise.all([
     shiftStatement.bind(...shiftBinds).all<ShiftRow>(),
     recordStatement.bind(...recordBinds).all<RecordRow>(),
+    salaryAdvanceStatement.bind(...salaryAdvanceBinds).all<SalaryAdvanceRow>(),
   ]);
 
   const entries: CashEntry[] = [];
@@ -240,6 +268,20 @@ async function collectEntries(
     }
     if (amount <= 0 || !validEntryDate(date, range)) continue;
     entries.push({ date, storeId: row.storeId, storeName: row.storeName, inflow: 0, outflow: amount, source, note });
+  }
+  for (const row of salaryAdvanceResult.results) {
+    const date = recognizedLocalDate(row.paidAt);
+    const amount = safeVnd(row.amount);
+    if (amount <= 0 || !validEntryDate(date, range)) continue;
+    entries.push({
+      date,
+      storeId: row.storeId,
+      storeName: row.storeName,
+      inflow: 0,
+      outflow: amount,
+      source: "Ứng lương nhân viên",
+      note: `${row.employeeName} (${row.employeeCode}) · Kỳ ${row.period} · ${row.note}`,
+    });
   }
   return entries;
 }
@@ -402,7 +444,7 @@ export async function GET(request: Request) {
       endDateInclusive: true,
       revenue: "Doanh thu được ghi nhận theo ngày kế toán của ca đã kết thúc.",
       expenses: "Chi phí có ngày được ghi đúng ngày nghiệp vụ; chi phí cố định ưu tiên paymentDate/paidAt và nếu thiếu dùng ngày cập nhật hoặc đầu kỳ với nhãn ngày ghi nhận.",
-      payroll: "Lương, thưởng và phụ cấp chỉ là dòng tiền ra sau khi đã xác nhận thanh toán.",
+      payroll: "Khoản ứng lương là dòng tiền ra tại lúc xác nhận chi; phần lương, thưởng và phụ cấp còn lại là dòng tiền ra sau khi xác nhận thanh toán kỳ lương.",
       accountingReconciliation: "Tiền đã chi thực tế có thể khác chi phí kế toán do ngày thanh toán và ngày ghi nhận chi phí khác nhau.",
     },
   });

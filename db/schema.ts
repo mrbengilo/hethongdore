@@ -317,3 +317,32 @@ export const employeePayrollClosings = sqliteTable("employee_payroll_closings", 
   uniqueIndex("idx_employee_payroll_closing_period")
     .on(table.storeId, table.employeeId, table.period),
 ]);
+
+export const salaryAdvances = sqliteTable("salary_advances", {
+  id: text("id").primaryKey(),
+  storeId: text("store_id").notNull(),
+  employeeId: text("employee_id").notNull(),
+  period: text("period").notNull(),
+  advanceDate: text("advance_date").notNull(),
+  amount: integer("amount").notNull(),
+  grossEntitlementSnapshot: integer("gross_entitlement_snapshot").notNull(),
+  availableBeforeSnapshot: integer("available_before_snapshot").notNull(),
+  remainingAfterSnapshot: integer("remaining_after_snapshot").notNull(),
+  note: text("note").notNull(),
+  status: text("status").notNull().default("DRAFT"),
+  version: integer("version").notNull().default(1),
+  clientRequestId: text("client_request_id").notNull(),
+  payloadHash: text("payload_hash").notNull(),
+  mutationToken: text("mutation_token").notNull(),
+  createdBy: text("created_by").notNull(),
+  createdAt: text("created_at").notNull(),
+  updatedBy: text("updated_by").notNull(),
+  updatedAt: text("updated_at").notNull(),
+  paidBy: text("paid_by"),
+  paidAt: text("paid_at"),
+}, (table) => [
+  uniqueIndex("idx_salary_advances_actor_request")
+    .on(table.storeId, table.createdBy, table.clientRequestId),
+  index("idx_salary_advances_store_period_employee")
+    .on(table.storeId, table.period, table.employeeId, table.status),
+]);

@@ -48,9 +48,10 @@ before(async () => {
     db.prepare(`INSERT INTO stores (id, name, address, revenue, expense, status, created_at)
       VALUES ('delete-empty', 'DELETE EMPTY', 'A', 0, 0, 'ACTIVE', ?),
              ('delete-with-order', 'DELETE WITH ORDER', 'B', 0, 0, 'INACTIVE', ?),
+             ('delete-with-advance', 'DELETE WITH ADVANCE', 'B2', 0, 0, 'ACTIVE', ?),
              ('delete-race', 'DELETE RACE', 'C', 0, 0, 'ACTIVE', ?),
              ('delete-other', 'DELETE OTHER', 'D', 7000, 3000, 'ACTIVE', ?)`)
-      .bind(now, now, now, now),
+      .bind(now, now, now, now, now),
     db.prepare(`INSERT INTO employees
         (id, store_id, code, name, position, phone, hourly_rate, tiktok_allowance, status)
       VALUES ('delete-employee', 'delete-empty', 'DEL001', 'Nhân viên cần khóa', 'Bán hàng', '0900000201', 20000, 0, 'ACTIVE'),
@@ -92,6 +93,15 @@ before(async () => {
              ('delete-support-bank-order', 'DEL-SUPPORT-BANK', 'delete-other', 'delete-employee', 'DELETE-HOME-SUPPORT-SHIFT', 48000, 'BANK_TRANSFER', 'COMPLETED', ?),
              ('delete-support-void-order', 'DEL-SUPPORT-VOID', 'delete-other', 'delete-employee', 'DELETE-HOME-SUPPORT-SHIFT', 99000, 'CASH', 'VOIDED', ?)`)
       .bind(now, now, now),
+    db.prepare(`INSERT INTO salary_advances
+        (id, store_id, employee_id, period, advance_date, amount,
+         gross_entitlement_snapshot, available_before_snapshot, remaining_after_snapshot,
+         note, status, version, client_request_id, payload_hash, mutation_token,
+         created_by, created_at, updated_by, updated_at)
+      VALUES ('delete-salary-advance', 'delete-with-advance', 'delete-employee', '2026-08', '2026-08-10', 10000,
+        50000, 50000, 40000, 'Khoản ứng cần giữ để đối soát', 'DRAFT', 1,
+        'delete-advance-request', 'hash', 'token', 'delete-super', ?, 'delete-super', ?)`)
+      .bind(now, now),
   ]);
   await db.prepare(`INSERT INTO sessions (id, user_id, token_hash, expires_at, created_at)
     VALUES ('delete-super-session', 'delete-super', ?, ?, ?),
@@ -126,6 +136,14 @@ test("every historical order, including VOIDED, permanently blocks store deletio
   assert.match(result.body.message, /đã phát sinh đơn hàng/iu);
   assert.equal(await db.prepare("SELECT status FROM stores WHERE id = 'delete-with-order'").first("status"), "INACTIVE");
   assert.equal(await db.prepare("SELECT COUNT(*) AS count FROM audit_logs WHERE action = 'DELETE' AND entity_id = 'delete-with-order'").first("count"), 0);
+});
+
+test("salary advance history blocks store deletion without writing a tombstone audit", async () => {
+  const result = await responseBody(await stores.DELETE(request("/api/stores", tokens.super, "DELETE", { id: "delete-with-advance" })));
+  assert.equal(result.status, 409);
+  assert.match(result.body.message, /ứng lương/iu);
+  assert.equal(await db.prepare("SELECT status FROM stores WHERE id = 'delete-with-advance'").first("status"), "ACTIVE");
+  assert.equal(await db.prepare("SELECT COUNT(*) AS count FROM audit_logs WHERE action = 'DELETE' AND entity_id = 'delete-with-advance'").first("count"), 0);
 });
 
 test("a stale no-order read cannot delete after an order wins immediately before the atomic batch", async () => {
@@ -220,4 +238,34 @@ test("superadmin tombstones an orderless store, closes every linked active shift
   })));
   assert.equal(relogin.status, 403);
   assert.match(relogin.body.message, /Cửa hàng đã bị xóa/iu);
+});
+
+test("a deleted store releases its display name atomically while a live duplicate remains blocked", async () => {
+  await db.prepare("UPDATE stores SET status = 'DELETED' WHERE id = 'delete-empty'").run();
+
+  const created = await responseBody(await stores.POST(request("/api/stores", tokens.super, "POST", {
+    name: "DELETE EMPTY",
+    address: "Địa chỉ cửa hàng thay thế",
+  })));
+  assert.equal(created.status, 201);
+
+  const rows = await db.prepare(`SELECT id, name, status FROM stores
+    WHERE id = 'delete-empty' OR id = ? ORDER BY id`)
+    .bind(created.body.id).all();
+  assert.equal(rows.results.length, 2);
+  const tombstone = rows.results.find((row) => row.id === "delete-empty");
+  const replacement = rows.results.find((row) => row.id === created.body.id);
+  assert.equal(tombstone.status, "DELETED");
+  assert.match(tombstone.name, /^DELETE EMPTY · ĐÃ XÓA · delete-empty$/u);
+  assert.deepEqual({ name: replacement.name, status: replacement.status }, { name: "DELETE EMPTY", status: "ACTIVE" });
+  assert.equal(await db.prepare("SELECT COUNT(*) AS count FROM audit_logs WHERE action = 'CREATE' AND entity_id = ?")
+    .bind(created.body.id).first("count"), 1);
+
+  const duplicate = await responseBody(await stores.POST(request("/api/stores", tokens.super, "POST", {
+    name: "delete empty",
+    address: "Không được tạo",
+  })));
+  assert.equal(duplicate.status, 409);
+  assert.match(duplicate.body.message, /đã tồn tại/iu);
+  assert.equal(await db.prepare("SELECT COUNT(*) AS count FROM stores WHERE name = 'DELETE EMPTY' AND status IN ('ACTIVE', 'INACTIVE')").first("count"), 1);
 });

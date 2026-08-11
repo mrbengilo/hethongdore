@@ -21,6 +21,7 @@ import {
   employeeStatusAtInstantSql,
 } from "../_lib/employee-lifecycle";
 import { storePeriodFinance, type StoreExpenseBreakdown } from "../_lib/store-finance";
+import { salaryAdvanceCoverage, salaryAdvanceSettlementSplit, salaryAdvanceTotals } from "../../lib/salary-advances";
 
 type EmployeeRow = {
   id: string;
@@ -98,6 +99,12 @@ type PayrollItem = {
   adjustments: PayrollAdjustmentDetail[];
   kpiBonus: number;
   totalPay: number;
+  salaryAdvancePending: number;
+  salaryAdvancePaid: number;
+  salaryAdvanceReserved: number;
+  salaryAdvanceCoverageGap: number;
+  salaryAdvanceOverpaymentDebt: number;
+  availablePay: number;
 };
 
 type PayrollSummary = {
@@ -133,6 +140,12 @@ type PayrollSummary = {
   managerBonus: number;
   managerTotal: number;
   totalPay: number;
+  totalSalaryAdvancePending: number;
+  totalSalaryAdvancePaid: number;
+  totalSalaryAdvanceReserved: number;
+  totalSalaryAdvanceCoverageGap: number;
+  totalSalaryAdvanceOverpaymentDebt: number;
+  totalAvailablePay: number;
   items: PayrollItem[];
   status: "PREVIEW" | "LOCKED";
   finalizedAt?: string;
@@ -163,6 +176,8 @@ type PayrollClosing = {
   storeId: string;
   storeName: string;
   employeeTotal: number;
+  employeeGrossTotal?: number;
+  salaryAdvancePaidTotal?: number;
   managerSalary: number;
   managerBonus: number;
   managerTotal: number;
@@ -315,6 +330,12 @@ function mergePayrollItems(items: PayrollItem[]) {
       adjustments: [...adjustments.values()],
       kpiBonus: sumVnd([total.kpiBonus, current.kpiBonus]),
       totalPay: sumVnd([total.totalPay, current.totalPay]),
+      salaryAdvancePending: sumVnd([total.salaryAdvancePending ?? 0, current.salaryAdvancePending ?? 0]),
+      salaryAdvancePaid: sumVnd([total.salaryAdvancePaid ?? 0, current.salaryAdvancePaid ?? 0]),
+      salaryAdvanceReserved: sumVnd([total.salaryAdvanceReserved ?? 0, current.salaryAdvanceReserved ?? 0]),
+      salaryAdvanceCoverageGap: sumVnd([total.salaryAdvanceCoverageGap ?? 0, current.salaryAdvanceCoverageGap ?? 0]),
+      salaryAdvanceOverpaymentDebt: sumVnd([total.salaryAdvanceOverpaymentDebt ?? 0, current.salaryAdvanceOverpaymentDebt ?? 0]),
+      availablePay: sumVnd([total.availablePay ?? total.totalPay, current.availablePay ?? current.totalPay]),
       // Every source belongs to the same employee. Keep the manager-set base
       // rate instead of reverse-calculating a rate from rounded salary.
       hourlyRate: total.hourlyRate,
@@ -324,6 +345,24 @@ function mergePayrollItems(items: PayrollItem[]) {
 
 function isPayrollAction(value: unknown): value is PayrollAction {
   return typeof value === "string" && payrollActions.has(value as PayrollAction);
+}
+
+function salaryAdvanceCoverageConflict(summary: PayrollSummary, employeeId?: string) {
+  const coverage = salaryAdvanceCoverage(employeeId
+    ? summary.items.filter((item) => item.employeeId === employeeId)
+    : summary.items);
+  if (coverage.covered) return null;
+  const employees = coverage.employees.filter((item) => item.coverageGap > 0);
+  return json({
+    code: "SALARY_ADVANCE_UNDERFUNDED",
+    message: "KhÃ´ng thá»ƒ chá»‘t hoáº·c xÃ¡c nháº­n chi lÆ°Æ¡ng vÃ¬ lÆ°Æ¡ng hiá»‡n táº¡i khÃ´ng cÃ²n Ä‘á»§ bÃ¹ cÃ¡c khoáº£n á»©ng Ä‘Ã£ táº¡o/Ä‘Ã£ chi. HÃ£y Ä‘iá»u chá»‰nh dá»¯ liá»‡u lÆ°Æ¡ng vÃ  Ä‘á»‘i soÃ¡t khoáº£n á»©ng trÆ°á»›c.",
+    salaryAdvanceCoverage: {
+      covered: false,
+      totalCoverageGap: coverage.totalCoverageGap,
+      totalOverpaymentDebt: coverage.totalOverpaymentDebt,
+      employees,
+    },
+  }, 409);
 }
 
 function affectedRows(result: unknown) {
@@ -384,920 +423,4 @@ async function managerPayrollPeriod(db: Awaited<ReturnType<typeof initDb>>, peri
     ? await statement.bind(period, storeId).all<{ dataJson: string }>()
     : await statement.bind(period).all<{ dataJson: string }>();
   const rows = (await Promise.all(result.results.map(async (record) => {
-    const closing = parseData<PayrollClosing>(record.dataJson);
-    if (!closing || closing.status !== "LOCKED") return null;
-    const summary = await lockedSummary(db, closing.storeId, period);
-    if (!summary) return null;
-    const managerSalary = safePayrollVnd(closing.managerSalary || MANAGER_MONTHLY_SALARY_VND);
-    const managerBonus = safePayrollVnd(closing.managerBonus);
-    const managerTotal = sumVnd([managerSalary, managerBonus]);
-    return {
-      period,
-      storeId: closing.storeId,
-      storeName: closing.storeName,
-      profitBeforePerformanceRewards: summary.profit,
-      employeeKpiBonus: summary.totalKpiBonus,
-      finalProfit: summary.netProfit,
-      managerHours: summary.managerFixedHours ?? MANAGER_FIXED_WORK_HOURS_PER_STORE,
-      employeeEligibleHours: summary.kpiEligibleHours ?? 0,
-      totalKpiHours: summary.totalKpiHours ?? (summary.kpiEligibleHours ?? 0) + MANAGER_FIXED_WORK_HOURS_PER_STORE,
-      profitPerKpiHour: summary.profitPerKpiHour ?? summary.profitPerHour ?? 0,
-      kpiRate: summary.kpiRate ?? 0,
-      managerSalary,
-      managerBonus,
-      managerTotal,
-      paymentConfirmedAt: closing.paymentConfirmedAt ?? null,
-      closedAt: closing.closedAt ?? null,
-      status: "LOCKED" as const,
-    };
-  }))).filter((row): row is NonNullable<typeof row> => Boolean(row));
-  const totalSalary = sumVnd(rows.map((row) => row.managerSalary));
-  const totalBonus = sumVnd(rows.map((row) => row.managerBonus));
-  return {
-    period,
-    policy: {
-      salaryPerStore: MANAGER_MONTHLY_SALARY_VND,
-      managerHoursPerStore: MANAGER_FIXED_WORK_HOURS_PER_STORE,
-      tiers: [
-        { minimumProfitPerHour: 30_000, rate: 0.07 },
-        { minimumProfitPerHour: 15_000, rate: 0.05 },
-        { minimumProfitPerHour: 7_000, rate: 0.03 },
-      ],
-    },
-    rows,
-    totals: { storeCount: rows.length, totalSalary, totalBonus, totalPay: sumVnd([totalSalary, totalBonus]) },
-  };
-}
-
-async function buildPreview(db: Awaited<ReturnType<typeof initDb>>, storeId: string, period: string): Promise<PayrollSummary | null> {
-  const store = await storePeriodFinance(db, storeId, period);
-  if (!store) return null;
-
-  const { startUtc, endUtc, localStart, localEnd } = periodBoundsUtc(period);
-  const statusAtPeriodEndSql = employeeStatusAtInstantSql("e");
-  const employeesResult = await db.prepare(`
-    WITH employee_period_state AS (
-      SELECT e.*, strftime('%Y-%m', e.inactive_at, '+7 hours') AS inactivePeriod,
-        ${statusAtPeriodEndSql} AS statusAtPeriodEnd,
-        EXISTS(SELECT 1 FROM employee_status_history lifecycle_any
-          WHERE lifecycle_any.employee_id = e.id) AS hasLifecycleHistory
-      FROM employees e
-    )
-    SELECT id, code, name, position, hourly_rate AS hourlyRate, status,
-      statusAtPeriodEnd, hasLifecycleHistory, inactivePeriod
-    FROM employee_period_state e
-    WHERE (
-      (e.statusAtPeriodEnd IN ('ACTIVE', 'SUSPENDED') AND e.store_id = ?)
-      OR (e.store_id = ? AND (
-        EXISTS (
-          SELECT 1 FROM employee_status_history lifecycle_exit
-          WHERE lifecycle_exit.employee_id = e.id
-            AND lifecycle_exit.effective_at >= ? AND lifecycle_exit.effective_at < ?
-            AND lifecycle_exit.to_status IN ('TERMINATED', 'INACTIVE', 'ARCHIVED')
-        )
-        OR (e.hasLifecycleHistory = 0 AND e.status IN ('TERMINATED', 'INACTIVE')
-          AND e.inactivePeriod = ?)
-      ))
-      OR EXISTS (
-        SELECT 1 FROM shift_sessions s
-        WHERE s.employee_id = e.id AND s.store_id = ? AND s.status = 'COMPLETED'
-          AND s.ended_at IS NOT NULL AND (
-            (NULLIF(s.work_date, '') IS NOT NULL AND s.work_date >= ? AND s.work_date < ?)
-            OR (NULLIF(s.work_date, '') IS NULL AND s.started_at >= ? AND s.started_at < ?)
-          )
-      )
-      OR EXISTS (
-        SELECT 1 FROM employee_transfers t
-        WHERE t.employee_id = e.id AND t.target_store_id = ? AND t.status != 'CANCELLED'
-          AND t.start_date < ? AND t.end_date >= ?
-      )
-      OR EXISTS (
-        SELECT 1 FROM business_records r
-        WHERE r.category = 'LUONG_THUONG' AND r.store_id = ? AND r.status != 'DELETED'
-          AND json_extract(r.data_json, '$.employeeId') = e.id
-          AND substr(json_extract(r.data_json, '$.date'), 1, 7) = ?
-      )
-      OR EXISTS (
-        SELECT 1 FROM employee_payroll_closings c
-        WHERE c.store_id = ? AND c.employee_id = e.id AND c.period = ?
-          AND c.status IN ('BASE_LOCKED', 'LOCKED')
-      )
-    )
-    ORDER BY code
-  `).bind(
-    endUtc,
-    storeId,
-    storeId, startUtc, endUtc, period,
-    storeId, localStart, localEnd, startUtc, endUtc,
-    storeId, localEnd, localStart,
-    storeId, period,
-    storeId, period,
-  ).all<EmployeeRow>();
-  const hoursResult = await db.prepare(`
-    SELECT s.employee_id AS employeeId,
-      SUM(COALESCE(s.admin_adjusted_duration_seconds,
-        CASE WHEN s.duration_seconds > 0 THEN s.duration_seconds
-          ELSE ROUND((julianday(s.ended_at) - julianday(s.started_at)) * 86400, 0) END
-      )) AS durationSeconds,
-      SUM(CASE WHEN s.transfer_id IS NULL THEN
-        COALESCE(s.admin_adjusted_duration_seconds,
-          CASE WHEN s.duration_seconds > 0 THEN s.duration_seconds
-            ELSE ROUND((julianday(s.ended_at) - julianday(s.started_at)) * 86400, 0) END)
-        ELSE 0 END) AS kpiDurationSeconds,
-      COALESCE(s.applied_hourly_rate, e.hourly_rate) AS appliedHourlyRate,
-      COALESCE(SUM(s.tiktok_allowance), 0) AS tiktokAllowance,
-      SUM(CASE WHEN COALESCE(s.admin_adjusted_duration_seconds,
-        CASE WHEN s.duration_seconds > 0 THEN s.duration_seconds
-          ELSE ROUND((julianday(s.ended_at) - julianday(s.started_at)) * 86400, 0) END) > 0
-        THEN 1 ELSE 0 END) AS completedShiftCount,
-      SUM(CASE WHEN s.transfer_id IS NULL THEN
-        CASE WHEN COALESCE(s.admin_adjusted_duration_seconds,
-          CASE WHEN s.duration_seconds > 0 THEN s.duration_seconds
-            ELSE ROUND((julianday(s.ended_at) - julianday(s.started_at)) * 86400, 0) END) > 0
-          THEN 1 ELSE 0 END
-        ELSE 0 END) AS kpiCompletedShiftCount
-    FROM shift_sessions s
-    JOIN employees e ON e.id = s.employee_id
-    WHERE s.store_id = ? AND s.status = 'COMPLETED' AND s.ended_at IS NOT NULL
-      AND (
-        (NULLIF(s.work_date, '') IS NOT NULL AND s.work_date >= ? AND s.work_date < ?)
-        OR (NULLIF(s.work_date, '') IS NULL AND s.started_at >= ? AND s.started_at < ?)
-      )
-    GROUP BY s.employee_id, COALESCE(s.applied_hourly_rate, e.hourly_rate)
-  `).bind(storeId, localStart, localEnd, startUtc, endUtc).all<HoursRow>();
-
-  const transferAllowances = await db.prepare(`
-    SELECT DISTINCT t.id, t.employee_id AS employeeId, t.support_allowance AS supportAllowance
-    FROM employee_transfers t
-    JOIN shift_sessions s ON s.transfer_id = t.id AND s.store_id = t.target_store_id
-    WHERE t.target_store_id = ?
-      AND t.start_date < ? AND t.end_date >= ?
-      AND s.status = 'COMPLETED' AND (
-        (NULLIF(s.work_date, '') IS NOT NULL AND s.work_date >= ? AND s.work_date < ?)
-        OR (NULLIF(s.work_date, '') IS NULL AND s.started_at >= ? AND s.started_at < ?)
-      )
-      AND COALESCE(s.admin_adjusted_duration_seconds,
-        CASE WHEN s.duration_seconds > 0 THEN s.duration_seconds
-          ELSE ROUND((julianday(s.ended_at) - julianday(s.started_at)) * 86400, 0) END) > 0
-  `).bind(storeId, localEnd, localStart, localStart, localEnd, startUtc, endUtc).all<TransferAllowanceRow>();
-
-  const adjustments = await payrollAdjustments(db, storeId, period);
-
-  const shiftsByEmployee = new Map<string, {
-    durationSeconds: number;
-    kpiDurationSeconds: number;
-    baseSalary: number;
-    tiktokAllowance: number;
-    completedShiftCount: number;
-    kpiCompletedShiftCount: number;
-  }>();
-  for (const row of hoursResult.results) {
-    const current = shiftsByEmployee.get(row.employeeId) ?? {
-      durationSeconds: 0,
-      kpiDurationSeconds: 0,
-      baseSalary: 0,
-      tiktokAllowance: 0,
-      completedShiftCount: 0,
-      kpiCompletedShiftCount: 0,
-    };
-    const seconds = Math.max(0, Math.round(Number(row.durationSeconds ?? 0)));
-    const kpiSeconds = Math.max(0, Math.round(Number(row.kpiDurationSeconds ?? 0)));
-    const appliedHourlyRate = requireVnd(Number(row.appliedHourlyRate), "LÆ°Æ¡ng theo giá»");
-    const tiktokAllowance = requireVnd(Math.max(0, Math.round(Number(row.tiktokAllowance ?? 0))), "Phá»¥ cáº¥p TikTok");
-    shiftsByEmployee.set(row.employeeId, {
-      durationSeconds: current.durationSeconds + seconds,
-      kpiDurationSeconds: current.kpiDurationSeconds + kpiSeconds,
-      baseSalary: sumVnd([current.baseSalary, multiplyRatioVnd(appliedHourlyRate, seconds, 3_600)]),
-      tiktokAllowance: sumVnd([current.tiktokAllowance, tiktokAllowance]),
-      completedShiftCount: current.completedShiftCount + Math.max(0, Math.round(Number(row.completedShiftCount ?? 0))),
-      kpiCompletedShiftCount: current.kpiCompletedShiftCount + Math.max(0, Math.round(Number(row.kpiCompletedShiftCount ?? 0))),
-    });
-  }
-  const revenue = requireVnd(Number(store.revenue), "Doanh thu");
-  const expenseBeforePerformanceRewards = requireVnd(
-    Number(store.expense) - Number(store.expenseBreakdown.employeeKpiBonus) - Number(store.expenseBreakdown.managerBonus),
-    "Chi phÃ­ trÆ°á»›c thÆ°á»Ÿng hiá»‡u quáº£",
-  );
-  const profit = store.profitBeforePerformanceRewards;
-  const calculatedItems = employeesResult.results.map((employee): PayrollItem => {
-    const shift = shiftsByEmployee.get(employee.id);
-    const employeeDurationSeconds = shift?.durationSeconds ?? 0;
-    const minutes = durationMinutes(employeeDurationSeconds);
-    const hours = employeeDurationSeconds / 3_600;
-    const employeeAdjustments = adjustments.filter((item) => item.employeeId === employee.id);
-    const { manualAllowance, manualBonus } = payrollAdjustmentTotals(employeeAdjustments.map((item) => ({
-      kind: item.kind,
-      amount: requireVnd(Number(item.amount ?? 0), item.kind === "ALLOWANCE" ? "Phá»¥ cáº¥p khÃ¡c" : "ThÆ°á»Ÿng khÃ¡c"),
-    })));
-    const baseSalary = shift?.baseSalary ?? 0;
-    const tiktokAllowance = Math.max(0, Number(shift?.tiktokAllowance ?? 0));
-    const supportAllowance = transferAllowances.results
-      .filter((transfer) => transfer.employeeId === employee.id)
-      .reduce((sum, transfer) => sumVnd([sum, requireVnd(Number(transfer.supportAllowance ?? 0), "Phá»¥ cáº¥p há»— trá»£")]), 0);
-    return {
-      employeeId: employee.id,
-      employeeCode: employee.code,
-      employeeName: employee.name,
-      position: employee.position,
-      employmentStatus: employeeFinancialStatusForPeriod(
-        employee.statusAtPeriodEnd,
-        employee.hasLifecycleHistory,
-        employee.inactivePeriod,
-        period,
-      ),
-      completedShiftCount: shift?.completedShiftCount ?? 0,
-      kpiCompletedShiftCount: shift?.kpiCompletedShiftCount ?? 0,
-      kpiEligible: false,
-      durationSeconds: employeeDurationSeconds,
-      durationMinutes: minutes,
-      hours,
-      kpiDurationSeconds: shift?.kpiDurationSeconds ?? 0,
-      kpiHours: (shift?.kpiDurationSeconds ?? 0) / 3_600,
-      // This column is the base hourly rate owned by employee management.
-      // Do not infer it from baseSalary: VND rounding on a short shift would
-      // turn a configured 25,000 rate into an incorrect 25,020 display.
-      hourlyRate: requireVnd(Number(employee.hourlyRate), "LÆ°Æ¡ng theo giá»"),
-      baseSalary,
-      tiktokAllowance,
-      supportAllowance,
-      manualAllowance,
-      manualBonus,
-      adjustments: adjustmentDetails(adjustments, employee.id, storeId, store.name),
-      kpiBonus: 0,
-      totalPay: sumVnd([baseSalary, tiktokAllowance, supportAllowance, manualAllowance, manualBonus]),
-    };
-  });
-
-  // An individually locked employee keeps the exact immutable snapshot even
-  // when the rest of the store continues working later in the same month.
-  const individuallyLocked = new Map((await employeePayrollClosings(db, storeId, period)).map((closing) => [closing.employeeId, closing]));
-  const itemBases = calculatedItems.map((item) => {
-    const closing = individuallyLocked.get(item.employeeId);
-    if (!closing) return { item, kpiLocked: false };
-    const locked: PayrollItem = {
-      ...closing.item,
-      employmentStatus: closing.employeeStatusAtLock,
-      completedShiftCount: item.completedShiftCount,
-      kpiCompletedShiftCount: Number.isSafeInteger(closing.item.kpiCompletedShiftCount)
-        ? closing.item.kpiCompletedShiftCount
-        : item.kpiCompletedShiftCount,
-      kpiDurationSeconds: Number.isSafeInteger(closing.item.kpiDurationSeconds)
-        ? closing.item.kpiDurationSeconds
-        : item.kpiDurationSeconds,
-      kpiHours: Number.isFinite(closing.item.kpiHours)
-        ? closing.item.kpiHours
-        : item.kpiHours,
-      kpiEligible: false,
-      adjustments: Array.isArray(closing.item.adjustments) ? closing.item.adjustments : item.adjustments,
-    };
-    if (!closing.kpiDeferred) return { item: locked, kpiLocked: true };
-    return {
-      item: {
-        ...locked,
-        // KPI depends on the complete store month. It stays live until the
-        // store period is finalized while every deterministic component below
-        // remains frozen at the offboarding time.
-        kpiBonus: 0,
-        totalPay: employeePayWithKpi(locked, 0),
-      },
-      kpiLocked: false,
-    };
-  });
-  const kpiDistribution = distributeStoreKpiByPolicy(profit, itemBases.map(({ item }) => ({
-    employeeId: item.employeeId,
-    employmentStatus: item.employmentStatus,
-    completedShiftCount: item.kpiCompletedShiftCount,
-    durationSeconds: item.kpiDurationSeconds,
-  })));
-  const kpiAllocations = kpiDistribution.employees;
-  const kpiAllocationByEmployee = new Map(kpiAllocations.map((allocation) => [allocation.employeeId, allocation]));
-  const items = itemBases.map(({ item, kpiLocked }) => {
-    const allocation = kpiAllocationByEmployee.get(item.employeeId);
-    if (!allocation) return item;
-    if (kpiLocked) return { ...item, kpiEligible: allocation.eligible };
-    return {
-      ...item,
-      kpiEligible: allocation.eligible,
-      kpiBonus: allocation.bonus,
-      totalPay: employeePayWithKpi(item, allocation.bonus),
-    };
-  });
-  const payrollDurationSeconds = items.reduce((sum, item) => sum + item.durationSeconds, 0);
-  const kpiEligibleDurationSeconds = kpiAllocations.reduce((sum, item) => (
-    item.eligible ? sum + item.durationSeconds : sum
-  ), 0);
-  const totalHours = payrollDurationSeconds / 3_600;
-  const managerSalary = MANAGER_MONTHLY_SALARY_VND;
-  const totalKpiBonus = sumVnd(items.map((item) => item.kpiBonus));
-  const managerBonus = kpiDistribution.managerBonus;
-  const settlement = settleStoreProfit(profit, totalKpiBonus, managerBonus);
-  const netProfit = settlement.finalProfit;
-  const expense = sumVnd([expenseBeforePerformanceRewards, totalKpiBonus, managerBonus]);
-  const costBreakdown: StoreExpenseBreakdown = {
-    ...store.expenseBreakdown,
-    employeeKpiBonus: totalKpiBonus,
-    managerBonus,
-  };
-  return {
-    period,
-    storeId: store.id,
-    storeName: store.name,
-    revenue,
-    expense,
-    expenseBeforePerformanceRewards,
-    profit,
-    netProfit,
-    costBreakdown,
-    totalHours,
-    totalDurationSeconds: payrollDurationSeconds,
-    totalDurationMinutes: durationMinutes(payrollDurationSeconds),
-    kpiEligibleHours: kpiEligibleDurationSeconds / 3_600,
-    kpiEligibleDurationSeconds,
-    managerFixedHours: MANAGER_FIXED_WORK_HOURS_PER_STORE,
-    totalKpiHours: kpiDistribution.totalHours,
-    totalKpiDurationSeconds: kpiDistribution.totalDurationSeconds,
-    profitPerHour: kpiDistribution.profitPerHour,
-    profitPerKpiHour: kpiDistribution.profitPerHour,
-    kpiRate: kpiDistribution.kpiRate,
-    kpiPool: kpiDistribution.kpiPool,
-    totalBaseSalary: sumVnd(items.map((item) => item.baseSalary)),
-    totalTikTokAllowance: sumVnd(items.map((item) => item.tiktokAllowance)),
-    totalSupportAllowance: sumVnd(items.map((item) => item.supportAllowance)),
-    totalManualAllowance: sumVnd(items.map((item) => item.manualAllowance)),
-    totalManualBonus: sumVnd(items.map((item) => item.manualBonus)),
-    totalKpiBonus,
-    totalPerformanceBonus: sumVnd([totalKpiBonus, managerBonus]),
-    managerSalary,
-    managerBonus,
-    managerTotal: sumVnd([managerSalary, managerBonus]),
-    totalPay: sumVnd(items.map((item) => item.totalPay)),
-    items,
-    status: "PREVIEW",
-  };
-}
-
-export async function GET(request: Request) {
-  const user = await getSessionUser(request);
-  if (!user) return json({ message: "ChÆ°a Ä‘Äƒng nháº­p" }, 401);
-  const params = new URL(request.url).searchParams;
-  const period = params.get("period") ?? localPeriod();
-  if (!validPeriod(period)) return json({ message: "Ká»³ lÆ°Æ¡ng khÃ´ng há»£p lá»‡" }, 400);
-
-  const db = await initDb();
-  if (user.role === "EMPLOYEE") {
-    // An employee can have income in both the home store and a support store.
-    // Only their own item is returned; data of other employees remains private.
-    const { startUtc, endUtc, localStart, localEnd } = periodBoundsUtc(period);
-    const [snapshots, detailRows, adjustmentSourceRows] = await Promise.all([
-      db.prepare("SELECT data_json FROM business_records WHERE category = 'KPI_SUMMARY' AND status = 'LOCKED' AND id LIKE ? ORDER BY created_at")
-        .bind(`kpi-summary:%:${period}`).all<{ data_json: string }>(),
-      user.employeeId ? db.prepare(`
-      SELECT s.id,
-        s.shift_code AS shiftCode,
-        s.shift_name AS shiftName,
-        s.work_date AS workDate,
-        s.scheduled_start AS scheduledStart,
-        s.scheduled_end AS scheduledEnd,
-        s.started_at AS startedAt,
-        s.ended_at AS endedAt,
-        COALESCE(s.admin_adjusted_duration_seconds,
-          CASE WHEN s.duration_seconds > 0 THEN s.duration_seconds
-            ELSE ROUND((julianday(s.ended_at) - julianday(s.started_at)) * 86400, 0) END) AS durationSeconds,
-        COALESCE(s.applied_hourly_rate, e.hourly_rate) AS hourlyRate,
-        COALESCE(s.tiktok_allowance, 0) AS tiktokAllowance,
-        s.transfer_id AS transferId,
-        t.support_allowance AS supportAllowance,
-        s.store_id AS storeId,
-        target.name AS storeName,
-        source.name AS sourceStoreName
-      FROM shift_sessions s
-      JOIN employees e ON e.id = s.employee_id
-      JOIN stores target ON target.id = s.store_id
-      LEFT JOIN employee_transfers t ON t.id = s.transfer_id
-      LEFT JOIN stores source ON source.id = t.source_store_id
-      WHERE s.employee_id = ? AND s.status = 'COMPLETED' AND s.ended_at IS NOT NULL
-        AND (
-          (NULLIF(s.work_date, '') IS NOT NULL AND s.work_date >= ? AND s.work_date < ?)
-          OR (NULLIF(s.work_date, '') IS NULL AND s.started_at >= ? AND s.started_at < ?)
-        )
-      ORDER BY s.started_at DESC
-    `).bind(user.employeeId, localStart, localEnd, startUtc, endUtc).all<EmployeeShiftDetailRow>() : Promise.resolve({ results: [] as EmployeeShiftDetailRow[] }),
-      user.employeeId ? db.prepare(`
-        SELECT DISTINCT r.store_id AS storeId, s.name AS storeName
-        FROM business_records r
-        JOIN stores s ON s.id = r.store_id
-        WHERE r.category = 'LUONG_THUONG' AND r.status != 'DELETED'
-          AND json_extract(r.data_json, '$.employeeId') = ?
-          AND COALESCE(json_extract(r.data_json, '$.period'), substr(json_extract(r.data_json, '$.date'), 1, 7)) = ?
-      `).bind(user.employeeId, period).all<{ storeId: string; storeName: string }>()
-        : Promise.resolve({ results: [] as Array<{ storeId: string; storeName: string }> }),
-    ]);
-    const lockedSources = snapshots.results.flatMap((row) => {
-      const summary = parseData<PayrollSummary>(row.data_json);
-      const item = summary?.items.find((payrollItem) => payrollItem.employeeId === user.employeeId);
-      return item && summary ? [{ item, storeId: summary.storeId, storeName: summary.storeName }] : [];
-    });
-    const transferSeconds = new Map<string, number>();
-    for (const shift of detailRows.results) {
-      if (shift.transferId) transferSeconds.set(shift.transferId, (transferSeconds.get(shift.transferId) ?? 0) + Math.max(0, Math.round(Number(shift.durationSeconds ?? 0))));
-    }
-    const transferAllocationState = new Map<string, { cumulativeSeconds: number; allocated: number }>();
-    const shiftDetails = detailRows.results.map((shift) => {
-      const seconds = Math.max(0, Math.round(Number(shift.durationSeconds ?? 0)));
-      const hourlyRate = requireVnd(Math.max(0, Math.round(Number(shift.hourlyRate ?? 0))), "LÆ°Æ¡ng theo giá»");
-      const baseSalary = multiplyRatioVnd(hourlyRate, seconds, 3_600);
-      let supportAllowance = 0;
-      if (shift.transferId) {
-        const totalSeconds = transferSeconds.get(shift.transferId) ?? 0;
-        const allocation = transferAllocationState.get(shift.transferId) ?? { cumulativeSeconds: 0, allocated: 0 };
-        allocation.cumulativeSeconds += seconds;
-        const targetAllocated = totalSeconds > 0
-          ? multiplyRatioVnd(safePayrollVnd(shift.supportAllowance), allocation.cumulativeSeconds, totalSeconds)
-          : 0;
-        supportAllowance = Math.max(0, targetAllocated - allocation.allocated);
-        allocation.allocated = targetAllocated;
-        transferAllocationState.set(shift.transferId, allocation);
-      }
-      const tiktokAllowance = safePayrollVnd(shift.tiktokAllowance);
-      return {
-        ...shift,
-        durationSeconds: seconds,
-        durationMinutes: durationMinutes(seconds),
-        hours: seconds / 3_600,
-        hourlyRate,
-        baseSalary,
-        supportAllowance,
-        tiktokAllowance,
-        isSupport: Boolean(shift.transferId),
-        netPay: sumVnd([baseSalary, supportAllowance, tiktokAllowance]),
-      };
-    });
-    const supportSourceIds = new Set(shiftDetails.filter((shift) => shift.isSupport).map((shift) => shift.storeId));
-    const lockedSourceByStore = new Map(lockedSources.map((source) => [source.storeId, source]));
-    const detailSourceNames = new Map<string, string>([
-      ...detailRows.results.map((shift): [string, string] => [shift.storeId, shift.storeName]),
-      ...adjustmentSourceRows.results.map((source): [string, string] => [source.storeId, source.storeName]),
-    ]);
-    const sourceIds = new Set([...lockedSourceByStore.keys(), ...detailSourceNames.keys()]);
-    const resolvedSources = (await Promise.all([...sourceIds].map(async (storeId) => {
-      const lockedSource = lockedSourceByStore.get(storeId);
-      const needsLegacyAdjustments = Boolean(lockedSource && !Array.isArray(lockedSource.item.adjustments));
-      const [preview, closing, legacyAdjustments] = await Promise.all([
-        lockedSource ? Promise.resolve(null) : buildPreview(db, storeId, period),
-        payrollClosing(db, storeId, period),
-        needsLegacyAdjustments ? payrollAdjustments(db, storeId, period) : Promise.resolve([] as PayrollAdjustment[]),
-      ]);
-      const previewItem = preview?.items.find((payrollItem) => payrollItem.employeeId === user.employeeId);
-      const sourceItem = lockedSource?.item ?? previewItem;
-      if (!sourceItem) return null;
-      const storeName = lockedSource?.storeName ?? preview?.storeName ?? detailSourceNames.get(storeId) ?? "Cá»­a hÃ ng";
-      const item: PayrollItem = {
-        ...sourceItem,
-        adjustments: Array.isArray(sourceItem.adjustments)
-          ? sourceItem.adjustments
-          : adjustmentDetails(legacyAdjustments, sourceItem.employeeId, storeId, storeName),
-      };
-      return {
-        storeId,
-        storeName,
-        item,
-        locked: Boolean(lockedSource),
-        closing,
-      };
-    }))).filter((source): source is NonNullable<typeof source> => Boolean(source))
-      .sort((left, right) => left.storeName.localeCompare(right.storeName, "vi"));
-    const item = mergePayrollItems(resolvedSources.map((source) => source.item));
-    const sourceStates = resolvedSources.map((source) => ({
-      locked: source.locked,
-      paymentStatus: source.locked ? source.closing?.status ?? "PENDING" : "PROVISIONAL",
-    }));
-    const overallState = employeePayrollOverallState(sourceStates);
-    return json({
-      period,
-      locked: overallState.locked,
-      item,
-      sources: resolvedSources.map((source) => ({
-        ...source.item,
-        storeId: source.storeId,
-        storeName: source.storeName,
-        locked: source.locked,
-        isSupport: supportSourceIds.has(source.storeId),
-        sourceStoreName: shiftDetails.find((shift) => shift.storeId === source.storeId && shift.isSupport)?.sourceStoreName ?? null,
-        paymentStatus: source.locked ? source.closing?.status ?? "PENDING" : "PROVISIONAL",
-        paidAt: source.closing?.paymentConfirmedAt ?? null,
-      })),
-      shiftDetails,
-      paid: overallState.paid,
-    });
-  }
-
-  if (params.get("scope") === "manager") {
-    const scope = resolveManagerStoreScope(user, params.get("storeId"));
-    if (!scope.allowed) return json({ message: MANAGER_STORE_SCOPE_MESSAGE }, 403);
-    return json({ managerPayroll: await managerPayrollPeriod(db, period, scope.storeId) });
-  }
-
-  const scope = resolveManagerStoreScope(user, params.get("storeId"));
-  if (!scope.allowed) return json({ message: MANAGER_STORE_SCOPE_MESSAGE }, 403);
-  const storeId = scope.storeId;
-  if (!storeId) return json({ message: "Vui lÃ²ng chá»n cá»­a hÃ ng" }, 400);
-  const snapshot = await lockedSummary(db, storeId, period);
-
-  const summary = snapshot ?? await buildPreview(db, storeId, period);
-  if (!summary) return json({ message: "KhÃ´ng tÃ¬m tháº¥y cá»­a hÃ ng" }, 404);
-  const individualClosings = await employeePayrollClosings(db, storeId, period);
-  const closing = await payrollClosing(db, storeId, period);
-  const previous = await lockedSummary(db, storeId, previousPeriod(period));
-  const historyRows = await db.prepare("SELECT data_json FROM business_records WHERE category = 'PAYROLL_CLOSING' AND store_id = ? AND status != 'DELETED' ORDER BY created_at DESC LIMIT 24")
-    .bind(storeId).all<{ data_json: string }>();
-  const history = historyRows.results.flatMap((row) => {
-    const item = parseData<PayrollClosing>(row.data_json);
-    return item ? [item] : [];
-  });
-  return json({
-    period,
-    locked: summary.status === "LOCKED",
-    summary,
-    employeeClosings: individualClosings,
-    individualLockedCount: individualClosings.length,
-    closing,
-    previousSummary: previous,
-    history,
-  });
-}
-
-export async function POST(request: Request) {
-  const user = await getSessionUser(request);
-  if (!user || user.role !== "MANAGER") return json({ message: "KhÃ´ng cÃ³ quyá»n tá»•ng káº¿t lÆ°Æ¡ng thÆ°á»Ÿng" }, 403);
-  const body = await request.json().catch(() => ({})) as {
-    storeId?: string;
-    period?: string;
-    action?: string;
-    employeeId?: string;
-  };
-  const storeId = body.storeId?.trim();
-  const period = body.period?.trim() ?? "";
-  if (!storeId || !validPeriod(period)) return json({ message: "Cá»­a hÃ ng hoáº·c ká»³ lÆ°Æ¡ng khÃ´ng há»£p lá»‡" }, 400);
-  if (!managerCanAccessStore(user, storeId)) return json({ message: MANAGER_STORE_SCOPE_MESSAGE }, 403);
-  if (!await isStoreActive(storeId)) return json({ message: INACTIVE_STORE_MESSAGE }, 409);
-  const db = await initDb();
-  const requestedAction = body.action ?? "FINALIZE_EMPLOYEE";
-  if (!isPayrollAction(requestedAction)) return json({ message: "Thao tÃ¡c chá»‘t ká»³ lÆ°Æ¡ng khÃ´ng há»£p lá»‡." }, 400);
-  const action = requestedAction;
-  if (action === "FINALIZE_SINGLE_EMPLOYEE") {
-    const employeeId = body.employeeId?.trim() ?? "";
-    if (!employeeId) return json({ message: "Vui lÃ²ng chá»n nhÃ¢n viÃªn cáº§n chá»‘t lÆ°Æ¡ng." }, 400);
-    if (period > localPeriod()) return json({ message: "KhÃ´ng thá»ƒ chá»‘t lÆ°Æ¡ng cho ká»³ trong tÆ°Æ¡ng lai." }, 409);
-
-    const current = (await employeePayrollClosings(db, storeId, period)).find((closing) => closing.employeeId === employeeId);
-    if (current) return json({ employeeClosing: current, message: "LÆ°Æ¡ng nhÃ¢n viÃªn Ä‘Ã£ Ä‘Æ°á»£c chá»‘t vÃ  khÃ³a sá»• trÆ°á»›c Ä‘Ã³." });
-    const { startUtc, endUtc, localStart, localEnd } = periodBoundsUtc(period);
-    const statusAtPeriodEndSql = employeeStatusAtInstantSql("e");
-    const employee = await db.prepare(`SELECT e.code, e.name, e.status,
-        strftime('%Y-%m', e.inactive_at, '+7 hours') AS inactivePeriod,
-        ${statusAtPeriodEndSql} AS statusAtPeriodEnd,
-        EXISTS(SELECT 1 FROM employee_status_history lifecycle_any
-          WHERE lifecycle_any.employee_id = e.id) AS hasLifecycleHistory
-      FROM employees e WHERE e.id = ? AND e.status != 'ARCHIVED' LIMIT 1`)
-      .bind(endUtc, employeeId).first<{
-        code: string;
-        name: string;
-        status: string;
-        inactivePeriod: string | null;
-        statusAtPeriodEnd: string;
-        hasLifecycleHistory: number;
-      }>();
-    if (!employee) return json({ message: "KhÃ´ng tÃ¬m tháº¥y nhÃ¢n viÃªn." }, 404);
-    if (!canClosePayrollPeriod(period) && employee.status !== "TERMINATED" && employee.status !== "INACTIVE") {
-      return json({ message: "NhÃ¢n viÃªn Ä‘ang lÃ m viá»‡c chá»‰ Ä‘Æ°á»£c chá»‘t lÆ°Æ¡ng tá»« ngÃ y cuá»‘i cÃ¹ng cá»§a thÃ¡ng. NhÃ¢n viÃªn Ä‘Ã£ ngÆ°ng lÃ m viá»‡c váº«n Ä‘Æ°á»£c Æ°u tiÃªn chá»‘t sá»›m." }, 409);
-    }
-
-    const employmentStatus = employeeFinancialStatusForPeriod(
-      employee.statusAtPeriodEnd,
-      employee.hasLifecycleHistory,
-      employee.inactivePeriod,
-      period,
-    );
-    const id = employeeClosingId(storeId, period, employeeId);
-    const gateStartedAt = utcTimestamp();
-    const gateToken = payrollGateToken(`employee:${storeId}:${period}:${employeeId}`);
-    const gateSnapshot = JSON.stringify({
-      gateToken,
-      period,
-      storeId,
-      employeeId,
-      status: "CLOSING",
-      startedAt: gateStartedAt,
-    });
-
-    await db.prepare(`DELETE FROM employee_payroll_closings
-      WHERE id = ? AND status = 'CLOSING' AND locked_at < ?`)
-      .bind(id, stalePayrollGateCutoff()).run();
-
-    // The INSERT ... SELECT is the transaction boundary. A financial write
-    // either commits before this statement (and is included in the preview)
-    // or observes CLOSING and is rejected by the records route.
-    const gateResult = await db.prepare(`INSERT OR IGNORE INTO employee_payroll_closings
-      (id, store_id, employee_id, period, snapshot_json, employee_status_at_lock, status, locked_at, locked_by)
-      SELECT ?, ?, ?, ?, ?, ?, 'CLOSING', ?, ?
-      WHERE NOT EXISTS (
-        SELECT 1 FROM shift_sessions
-        WHERE store_id = ? AND (status = 'ACTIVE' OR ended_at IS NULL) AND (
-          (NULLIF(work_date, '') IS NOT NULL AND work_date >= ? AND work_date < ?)
-          OR (NULLIF(work_date, '') IS NULL AND started_at >= ? AND started_at < ?)
-        )
-      )
-      AND NOT EXISTS (
-        SELECT 1 FROM business_records
-        WHERE category = 'KPI_SUMMARY' AND store_id = ? AND status = 'CLOSING'
-          AND json_extract(data_json, '$.period') = ?
-      )`)
-      .bind(
-        id, storeId, employeeId, period, gateSnapshot, employmentStatus, gateStartedAt, gateToken,
-        storeId, localStart, localEnd, startUtc, endUtc,
-        storeId, period,
-      ).run();
-
-    if (affectedRows(gateResult) === 0) {
-      const saved = (await employeePayrollClosings(db, storeId, period)).find((closing) => closing.employeeId === employeeId);
-      if (saved) return json({ employeeClosing: saved, message: "LÆ°Æ¡ng nhÃ¢n viÃªn Ä‘Ã£ Ä‘Æ°á»£c chá»‘t vÃ  khÃ³a sá»• trÆ°á»›c Ä‘Ã³." });
-      const openShift = await db.prepare(`SELECT id FROM shift_sessions
-        WHERE store_id = ? AND (status = 'ACTIVE' OR ended_at IS NULL) AND (
-          (NULLIF(work_date, '') IS NOT NULL AND work_date >= ? AND work_date < ?)
-          OR (NULLIF(work_date, '') IS NULL AND started_at >= ? AND started_at < ?)
-        ) LIMIT 1`)
-        .bind(storeId, localStart, localEnd, startUtc, endUtc).first<{ id: string }>();
-      if (openShift) return json({ message: "Cá»­a hÃ ng cÃ²n ca lÃ m chÆ°a káº¿t thÃºc trong ká»³. HÃ£y káº¿t toÃ n bá»™ ca trÆ°á»›c khi chá»‘t lÆ°Æ¡ng nhÃ¢n viÃªn." }, 409);
-      return json({ message: "LÆ°Æ¡ng nhÃ¢n viÃªn Ä‘ang Ä‘Æ°á»£c chá»‘t bá»Ÿi má»™t yÃªu cáº§u khÃ¡c. Vui lÃ²ng thá»­ láº¡i sau." }, 409);
-    }
-
-    const releaseGate = async () => {
-      await db.prepare(`DELETE FROM employee_payroll_closings
-        WHERE id = ? AND status = 'CLOSING' AND locked_by = ?`)
-        .bind(id, gateToken).run();
-    };
-
-    try {
-      const summary = await lockedSummary(db, storeId, period) ?? await buildPreview(db, storeId, period);
-      if (!summary) {
-        await releaseGate();
-        return json({ message: "KhÃ´ng tÃ¬m tháº¥y cá»­a hÃ ng." }, 404);
-      }
-      const sourceItem = summary.items.find((item) => item.employeeId === employeeId);
-      if (!sourceItem) {
-        await releaseGate();
-        return json({ message: "NhÃ¢n viÃªn khÃ´ng cÃ³ trong báº£ng lÆ°Æ¡ng cá»§a cá»­a hÃ ng á»Ÿ ká»³ nÃ y." }, 404);
-      }
-
-      const lockedAt = utcTimestamp();
-      // Individual closing never owns the KPI amount. Store costs may still be
-      // corrected after employees are reviewed, so KPI is materialized only in
-      // the single immutable KPI_SUMMARY created by FINALIZE_EMPLOYEE.
-      const kpiDeferred = true;
-      const item: PayrollItem = {
-        ...sourceItem,
-        employmentStatus,
-        kpiBonus: 0,
-        totalPay: employeePayWithKpi(sourceItem, 0),
-      };
-      const employeeClosing: EmployeePayrollClosing = {
-        id,
-        period,
-        storeId,
-        storeName: summary.storeName,
-        employeeId,
-        employeeCode: employee.code,
-        employeeName: employee.name,
-        employeeStatusAtLock: employmentStatus,
-        item,
-        status: "BASE_LOCKED",
-        kpiDeferred,
-        lockedAt,
-        lockedBy: user.id,
-      };
-      const finalizeResult = await db.prepare(`UPDATE employee_payroll_closings
-        SET snapshot_json = ?, employee_status_at_lock = ?, status = 'BASE_LOCKED', locked_at = ?, locked_by = ?
-        WHERE id = ? AND status = 'CLOSING' AND locked_by = ?`)
-        .bind(JSON.stringify(employeeClosing), employmentStatus, lockedAt, user.id, id, gateToken).run();
-      if (affectedRows(finalizeResult) === 0) {
-        await releaseGate();
-        return json({ message: "KhÃ´ng thá»ƒ khÃ³a sá»• lÆ°Æ¡ng nhÃ¢n viÃªn vÃ¬ tráº¡ng thÃ¡i vá»«a Ä‘Æ°á»£c cáº­p nháº­t bá»Ÿi yÃªu cáº§u khÃ¡c." }, 409);
-      }
-
-      await writeAudit(user.id, "EMPLOYEE_PAYROLL_LOCK", "EMPLOYEE_PAYROLL_CLOSING", id, JSON.stringify({
-        storeId,
-        period,
-        employeeId,
-        employeeStatusAtLock: employmentStatus,
-        totalPay: employeeClosing.item.totalPay,
-        kpiDeferred: employeeClosing.kpiDeferred,
-      }));
-      return json({
-        employeeClosing,
-        message: summary.status === "LOCKED"
-          ? "ÄÃ£ khÃ³a cÃ¡c khoáº£n lÆ°Æ¡ng xÃ¡c Ä‘á»‹nh cá»§a nhÃ¢n viÃªn. KPI giá»¯ theo báº£ng lÆ°Æ¡ng tá»•ng Ä‘Ã£ khÃ³a cá»§a cá»­a hÃ ng."
-          : "ÄÃ£ khÃ³a lÆ°Æ¡ng cÆ¡ báº£n vÃ  cÃ¡c khoáº£n xÃ¡c Ä‘á»‹nh cá»§a nhÃ¢n viÃªn. KPI sáº½ Ä‘Æ°á»£c tÃ­nh chÃ­nh xÃ¡c khi chá»‘t ká»³ cá»­a hÃ ng.",
-      }, 201);
-    } catch (error) {
-      await releaseGate();
-      throw error;
-    }
-  }
-  if (action !== "FINALIZE_EMPLOYEE") {
-    const employeeSummary = await lockedSummary(db, storeId, period);
-    if (!employeeSummary) return json({ message: "HÃ£y chá»‘t lÆ°Æ¡ng thÆ°á»Ÿng nhÃ¢n viÃªn trÆ°á»›c." }, 409);
-    const existing = await payrollClosing(db, storeId, period);
-    const now = utcTimestamp();
-
-    if (action === "FINALIZE_MANAGER") {
-      if (existing) return json({ closing: existing, message: "LÆ°Æ¡ng thÆ°á»Ÿng quáº£n lÃ½ Ä‘Ã£ Ä‘Æ°á»£c chá»‘t." });
-      const closedEmployees = new Set((await employeePayrollClosings(db, storeId, period)).map((item) => item.employeeId));
-      const missingEmployees = employeeSummary.items.filter((item) => !closedEmployees.has(item.employeeId));
-      if (missingEmployees.length > 0) {
-        return json({
-          message: `HÃ£y chá»‘t lÆ°Æ¡ng riÃªng cho tá»«ng nhÃ¢n viÃªn trÆ°á»›c khi chá»‘t lÆ°Æ¡ng quáº£n lÃ½. CÃ²n ${missingEmployees.length} nhÃ¢n viÃªn chÆ°a khÃ³a sá»•.`,
-          missingEmployeeIds: missingEmployees.map((item) => item.employeeId),
-        }, 409);
-      }
-      const managerSalary = employeeSummary.managerSalary ?? MANAGER_MONTHLY_SALARY_VND;
-      const managerBonus = employeeSummary.managerBonus ?? 0;
-      const managerTotal = sumVnd([managerSalary, managerBonus]);
-      const salaryTotal = sumVnd([employeeSummary.totalBaseSalary, managerSalary]);
-      const employeeRewards = employeeSummary.totalPay - employeeSummary.totalBaseSalary;
-      const rewardAllowanceTotal = sumVnd([employeeRewards, managerBonus]);
-      const closing: PayrollClosing = {
-        period,
-        storeId,
-        storeName: employeeSummary.storeName,
-        employeeTotal: employeeSummary.totalPay,
-        managerSalary,
-        managerBonus,
-        managerTotal,
-        salaryTotal,
-        rewardAllowanceTotal,
-        grandTotal: sumVnd([employeeSummary.totalPay, managerTotal]),
-        status: "MANAGER_FINALIZED",
-        managerFinalizedAt: now,
-        managerFinalizedBy: user.id,
-      };
-      const id = closingId(storeId, period);
-      try {
-        await db.prepare("INSERT INTO business_records (id, category, store_id, owner_id, title, data_json, status, created_at, updated_at) VALUES (?, 'PAYROLL_CLOSING', ?, ?, ?, ?, 'MANAGER_FINALIZED', ?, ?)")
-          .bind(id, storeId, user.id, `Káº¿t sá»• lÆ°Æ¡ng ${period}`, JSON.stringify(closing), now, now).run();
-      } catch {
-        const current = await payrollClosing(db, storeId, period);
-        if (current) return json({ closing: current, message: "LÆ°Æ¡ng thÆ°á»Ÿng quáº£n lÃ½ Ä‘Ã£ Ä‘Æ°á»£c chá»‘t." });
-        return json({ message: "KhÃ´ng thá»ƒ chá»‘t lÆ°Æ¡ng thÆ°á»Ÿng quáº£n lÃ½." }, 409);
-      }
-      await writeAudit(user.id, "MANAGER_PAYROLL_FINALIZE", "PAYROLL_CLOSING", id, JSON.stringify({ storeId, period, managerSalary, managerBonus }));
-      return json({ closing, message: "ÄÃ£ chá»‘t lÆ°Æ¡ng thÆ°á»Ÿng quáº£n lÃ½." }, 201);
-    }
-
-    if (!existing) return json({ message: "HÃ£y chá»‘t lÆ°Æ¡ng thÆ°á»Ÿng quáº£n lÃ½ trÆ°á»›c." }, 409);
-    const id = closingId(storeId, period);
-    if (action === "CONFIRM_SALARY") {
-      if (["SALARY_CONFIRMED", "REWARDS_CONFIRMED", "PAYMENT_CONFIRMED", "LOCKED"].includes(existing.status)) return json({ closing: existing, message: "Khoáº£n chi lÆ°Æ¡ng Ä‘Ã£ Ä‘Æ°á»£c xÃ¡c nháº­n." });
-      if (existing.status !== "MANAGER_FINALIZED") return json({ message: "Tráº¡ng thÃ¡i ká»³ lÆ°Æ¡ng khÃ´ng há»£p lá»‡ Ä‘á»ƒ xÃ¡c nháº­n chi lÆ°Æ¡ng." }, 409);
-      const closing: PayrollClosing = { ...existing, status: "SALARY_CONFIRMED", salaryConfirmedAt: now, salaryConfirmedBy: user.id };
-      const result = await db.prepare("UPDATE business_records SET data_json = ?, status = 'SALARY_CONFIRMED', updated_at = ? WHERE id = ? AND status = 'MANAGER_FINALIZED'")
-        .bind(JSON.stringify(closing), now, id).run();
-      if (affectedRows(result) === 0) {
-        const current = await payrollClosing(db, storeId, period);
-        return current
-          ? json({ closing: current, message: "Tráº¡ng thÃ¡i ká»³ lÆ°Æ¡ng Ä‘Ã£ Ä‘Æ°á»£c cáº­p nháº­t bá»Ÿi má»™t yÃªu cáº§u khÃ¡c." })
-          : json({ message: "KhÃ´ng thá»ƒ xÃ¡c nháº­n khoáº£n chi lÆ°Æ¡ng." }, 409);
-      }
-      await writeAudit(user.id, "PAYROLL_SALARY_CONFIRM", "PAYROLL_CLOSING", id, JSON.stringify({ storeId, period, amount: closing.salaryTotal }));
-      return json({ closing, message: "ÄÃ£ xÃ¡c nháº­n khoáº£n chi lÆ°Æ¡ng nhÃ¢n viÃªn vÃ  quáº£n lÃ½." });
-    }
-    if (action === "CONFIRM_REWARDS") {
-      if (["REWARDS_CONFIRMED", "PAYMENT_CONFIRMED", "LOCKED"].includes(existing.status)) return json({ closing: existing, message: "Khoáº£n thÆ°á»Ÿng vÃ  phá»¥ cáº¥p Ä‘Ã£ Ä‘Æ°á»£c xÃ¡c nháº­n." });
-      if (existing.status !== "SALARY_CONFIRMED") return json({ message: "HÃ£y xÃ¡c nháº­n khoáº£n chi lÆ°Æ¡ng trÆ°á»›c." }, 409);
-      const closing: PayrollClosing = { ...existing, status: "REWARDS_CONFIRMED", rewardsConfirmedAt: now, rewardsConfirmedBy: user.id };
-      const result = await db.prepare("UPDATE business_records SET data_json = ?, status = 'REWARDS_CONFIRMED', updated_at = ? WHERE id = ? AND status = 'SALARY_CONFIRMED'")
-        .bind(JSON.stringify(closing), now, id).run();
-      if (affectedRows(result) === 0) {
-        const current = await payrollClosing(db, storeId, period);
-        return current
-          ? json({ closing: current, message: "Tráº¡ng thÃ¡i ká»³ lÆ°Æ¡ng Ä‘Ã£ Ä‘Æ°á»£c cáº­p nháº­t bá»Ÿi má»™t yÃªu cáº§u khÃ¡c." })
-          : json({ message: "KhÃ´ng thá»ƒ xÃ¡c nháº­n khoáº£n thÆ°á»Ÿng vÃ  phá»¥ cáº¥p." }, 409);
-      }
-      await writeAudit(user.id, "PAYROLL_REWARDS_CONFIRM", "PAYROLL_CLOSING", id, JSON.stringify({ storeId, period, amount: closing.rewardAllowanceTotal }));
-      return json({ closing, message: "ÄÃ£ xÃ¡c nháº­n khoáº£n chi thÆ°á»Ÿng vÃ  phá»¥ cáº¥p." });
-    }
-    if (action === "CONFIRM_PAYMENT") {
-      if (existing.status === "LOCKED") return json({ closing: existing, message: "Ká»³ lÆ°Æ¡ng Ä‘Ã£ káº¿t sá»• vÃ  khÃ³a." });
-      if (existing.status === "PAYMENT_CONFIRMED") return json({ closing: existing, message: "ÄÃ£ ghi nháº­n chi tráº£ lÆ°Æ¡ng, thÆ°á»Ÿng vÃ  phá»¥ cáº¥p." });
-      if (existing.status !== "REWARDS_CONFIRMED") return json({ message: "HÃ£y xÃ¡c nháº­n riÃªng khoáº£n chi lÆ°Æ¡ng vÃ  khoáº£n thÆ°á»Ÿng, phá»¥ cáº¥p trÆ°á»›c." }, 409);
-      const closing: PayrollClosing = { ...existing, status: "PAYMENT_CONFIRMED", paymentConfirmedAt: now, paymentConfirmedBy: user.id };
-      const result = await db.prepare("UPDATE business_records SET data_json = ?, status = 'PAYMENT_CONFIRMED', updated_at = ? WHERE id = ? AND status = 'REWARDS_CONFIRMED'")
-        .bind(JSON.stringify(closing), now, id).run();
-      if (affectedRows(result) === 0) {
-        const current = await payrollClosing(db, storeId, period);
-        return current
-          ? json({ closing: current, message: "Tráº¡ng thÃ¡i ká»³ lÆ°Æ¡ng Ä‘Ã£ Ä‘Æ°á»£c cáº­p nháº­t bá»Ÿi má»™t yÃªu cáº§u khÃ¡c." })
-          : json({ message: "KhÃ´ng thá»ƒ ghi nháº­n chi tráº£ lÆ°Æ¡ng thÆ°á»Ÿng." }, 409);
-      }
-      await writeAudit(user.id, "PAYROLL_PAYMENT_CONFIRM", "PAYROLL_CLOSING", id, JSON.stringify({ storeId, period, grandTotal: closing.grandTotal }));
-      return json({ closing, message: "ÄÃ£ chi vÃ  ghi nháº­n lá»‹ch sá»­ chi lÆ°Æ¡ng, thÆ°á»Ÿng, phá»¥ cáº¥p." });
-    }
-
-    if (existing.status === "LOCKED") return json({ closing: existing, message: "Ká»³ lÆ°Æ¡ng Ä‘Ã£ káº¿t sá»• vÃ  khÃ³a." });
-    if (action !== "CLOSE_PERIOD") return json({ message: "Thao tÃ¡c chá»‘t ká»³ lÆ°Æ¡ng khÃ´ng há»£p lá»‡." }, 400);
-    if (existing.status !== "PAYMENT_CONFIRMED") return json({ message: "HÃ£y xÃ¡c nháº­n chi trÆ°á»›c khi káº¿t sá»•." }, 409);
-    const closing: PayrollClosing = { ...existing, status: "LOCKED", closedAt: now, closedBy: user.id };
-    const result = await db.prepare("UPDATE business_records SET data_json = ?, status = 'LOCKED', updated_at = ? WHERE id = ? AND status = 'PAYMENT_CONFIRMED'")
-      .bind(JSON.stringify(closing), now, id).run();
-    if (affectedRows(result) === 0) {
-      const current = await payrollClosing(db, storeId, period);
-      return current
-        ? json({ closing: current, message: "Tráº¡ng thÃ¡i ká»³ lÆ°Æ¡ng Ä‘Ã£ Ä‘Æ°á»£c cáº­p nháº­t bá»Ÿi má»™t yÃªu cáº§u khÃ¡c." })
-        : json({ message: "KhÃ´ng thá»ƒ káº¿t sá»• ká»³ lÆ°Æ¡ng." }, 409);
-    }
-    await writeAudit(user.id, "PAYROLL_PERIOD_CLOSE", "PAYROLL_CLOSING", id, JSON.stringify({ storeId, period, grandTotal: closing.grandTotal }));
-    return json({ closing, message: "ÄÃ£ káº¿t sá»• vÃ  khÃ³a ká»³ lÆ°Æ¡ng thÆ°á»Ÿng." });
-  }
-
-  if (await lockedSummary(db, storeId, period)) return json({ message: "Ká»³ lÆ°Æ¡ng nÃ y Ä‘Ã£ Ä‘Æ°á»£c tá»•ng káº¿t vÃ  khÃ³a" }, 409);
-  if (!canClosePayrollPeriod(period)) return json({ message: "Chá»‰ Ä‘Æ°á»£c tá»•ng káº¿t lÆ°Æ¡ng, thÆ°á»Ÿng vÃ  KPI tá»« ngÃ y cuá»‘i cÃ¹ng cá»§a thÃ¡ng hoáº·c sau Ä‘Ã³." }, 409);
-  const { startUtc, endUtc, localStart, localEnd } = periodBoundsUtc(period);
-  const id = snapshotId(storeId, period);
-  await db.prepare(`DELETE FROM business_records
-    WHERE id = ? AND category = 'KPI_SUMMARY' AND status = 'CLOSING' AND updated_at < ?`)
-    .bind(id, stalePayrollGateCutoff()).run();
-
-  const gateStartedAt = utcTimestamp();
-  const gateToken = payrollGateToken(`store:${storeId}:${period}`);
-  const gateData = JSON.stringify({ gateToken, period, storeId, status: "CLOSING", startedAt: gateStartedAt });
-  const gateResult = await db.prepare(`INSERT OR IGNORE INTO business_records
-    (id, category, store_id, owner_id, title, data_json, status, created_at, updated_at)
-    SELECT ?, 'KPI_SUMMARY', ?, ?, ?, ?, 'CLOSING', ?, ?
-    WHERE NOT EXISTS (
-      SELECT 1 FROM shift_sessions
-      WHERE store_id = ? AND status = 'ACTIVE' AND (
-        (NULLIF(work_date, '') IS NOT NULL AND work_date >= ? AND work_date < ?)
-        OR (NULLIF(work_date, '') IS NULL AND started_at >= ? AND started_at < ?)
-      )
-    )
-    AND NOT EXISTS (
-      SELECT 1 FROM employee_payroll_closings
-      WHERE store_id = ? AND period = ? AND status = 'CLOSING'
-    )`)
-    .bind(
-      id, storeId, user.id, `Äang tá»•ng káº¿t KPI ${period}`, gateData, gateStartedAt, gateStartedAt,
-      storeId, localStart, localEnd, startUtc, endUtc,
-      storeId, period,
-    ).run();
-
-  if (affectedRows(gateResult) === 0) {
-    if (await lockedSummary(db, storeId, period)) return json({ message: "Ká»³ lÆ°Æ¡ng nÃ y Ä‘Ã£ Ä‘Æ°á»£c tá»•ng káº¿t vÃ  khÃ³a" }, 409);
-    const openShift = await db.prepare(`SELECT id FROM shift_sessions
-      WHERE store_id = ? AND status = 'ACTIVE' AND (
-        (NULLIF(work_date, '') IS NOT NULL AND work_date >= ? AND work_date < ?)
-        OR (NULLIF(work_date, '') IS NULL AND started_at >= ? AND started_at < ?)
-      ) LIMIT 1`)
-      .bind(storeId, localStart, localEnd, startUtc, endUtc).first<{ id: string }>();
-    if (openShift) return json({ message: "Cá»­a hÃ ng cÃ²n ca lÃ m trong ká»³ chÆ°a káº¿t thÃºc. HÃ£y káº¿t ca trÆ°á»›c khi chá»‘t lÆ°Æ¡ng." }, 409);
-    return json({ message: "Ká»³ lÆ°Æ¡ng Ä‘ang Ä‘Æ°á»£c chá»‘t bá»Ÿi má»™t yÃªu cáº§u khÃ¡c. Vui lÃ²ng thá»­ láº¡i sau." }, 409);
-  }
-
-  const releaseGate = async () => {
-    await db.prepare(`DELETE FROM business_records
-      WHERE id = ? AND category = 'KPI_SUMMARY' AND status = 'CLOSING'
-        AND json_extract(data_json, '$.gateToken') = ?`)
-      .bind(id, gateToken).run();
-  };
-
-  try {
-    const preview = await buildPreview(db, storeId, period);
-    if (!preview) {
-      await releaseGate();
-      return json({ message: "KhÃ´ng tÃ¬m tháº¥y cá»­a hÃ ng" }, 404);
-    }
-    const closedEmployees = new Set((await employeePayrollClosings(db, storeId, period)).map((item) => item.employeeId));
-    const missingEmployees = preview.items.filter((item) => !closedEmployees.has(item.employeeId));
-    if (missingEmployees.length > 0) {
-      await releaseGate();
-      return json({
-        message: `HÃ£y chá»‘t lÆ°Æ¡ng riÃªng cho tá»«ng nhÃ¢n viÃªn trÆ°á»›c khi khÃ³a báº£ng lÆ°Æ¡ng cá»­a hÃ ng. CÃ²n ${missingEmployees.length} nhÃ¢n viÃªn chÆ°a khÃ³a sá»•.`,
-        missingEmployeeIds: missingEmployees.map((item) => item.employeeId),
-      }, 409);
-    }
-    const finalizedAt = utcTimestamp();
-    const summary: PayrollSummary = { ...preview, status: "LOCKED", finalizedAt, finalizedBy: user.id };
-    const finalizeResult = await db.prepare(`UPDATE business_records
-      SET owner_id = ?, title = ?, data_json = ?, status = 'LOCKED', updated_at = ?
-      WHERE id = ? AND category = 'KPI_SUMMARY' AND status = 'CLOSING'
-        AND json_extract(data_json, '$.gateToken') = ?`)
-      .bind(user.id, `Tá»•ng káº¿t KPI ${period}`, JSON.stringify(summary), finalizedAt, id, gateToken).run();
-    if (affectedRows(finalizeResult) === 0) {
-      await releaseGate();
-      return json({ message: "KhÃ´ng thá»ƒ khÃ³a ká»³ lÆ°Æ¡ng vÃ¬ tráº¡ng thÃ¡i vá»«a Ä‘Æ°á»£c cáº­p nháº­t bá»Ÿi yÃªu cáº§u khÃ¡c." }, 409);
-    }
-    await writeAudit(user.id, "PAYROLL_FINALIZE", "KPI_SUMMARY", id, JSON.stringify({ storeId, period, profit: summary.profit, totalHours: summary.totalHours, kpiRate: summary.kpiRate, totalKpiBonus: summary.totalKpiBonus }));
-    return json({ locked: true, summary, message: "ÄÃ£ tá»•ng káº¿t vÃ  khÃ³a ká»³ lÆ°Æ¡ng thÆ°á»Ÿng" }, 201);
-  } catch (error) {
-    await releaseGate();
-    throw error;
-  }
-}
+    const closi×núöÚ$z{-®éÜj×·”FVfW'&VC¢V×Æ÷–VT6Æ÷6–æræ·”FVfW'&VBÀ¢Ò’“°¢&WGW&â§6öâ‡°¢V×Æ÷–VT6Æ÷6–ærÀ¢ÖW76vS¢7VÖÖ'’ç7FGW2ÓÓÒ$Äô4´TB ¢ò,I:2¶Œ;6<:2¶†şª6âÌkjærŒ:2I¸¶æ‚>ºvæŒ:&âfœ:¦ââµ’vºòF†Vò.ª6ærÌkjærN¹VærI:2¶Œ;6>ºv>ºÖŒ:ærâ ¢¢,I:2¶Œ;6Ìkjær<j.ª6âl:<:2¶†şª6âŒ:2I¸¶æ‚>ºvæŒ:&âfœ:¦ââµ’>«ÒIkº62L:Öæ‚6Œ:Öæ‚Œ:2¶†’6¹B¾»2>ºÖŒ:ærâ"À¢ÒÂ#“°¢Ò6F6‚†W'&÷"’°¢v—B&VÆV6TvFR‚“°¢F‡&÷rW'&÷#°¢Ğ¢Ğ¢–b†7F–öâÓÒ$d”äÄ•¤UôTÕÄõ”TR"’°¢6öç7BV×Æ÷–VU7VÖÖ'’Òv—BÆö6¶VE7VÖÖ'’†F"Â7F÷&T–BÂW&–öB“°¢–b‚V×Æ÷–VU7VÖÖ'’’&WGW&â§6öâ‡²ÖW76vS¢$Œ:7’6¹BÌkjærFŒk¹öæræŒ:&âfœ:¦âG,k¹¶2â"ÒÂC’“°¢6öç7B6÷fW&vT6öæfÆ–7BÒ6Æ'”Gfæ6T6÷fW&vT6öæfÆ–7B†V×Æ÷–VU7VÖÖ'’“°¢–b†6÷fW&vT6öæfÆ–7B’&WGW&â6÷fW&vT6öæfÆ–7C°¢6öç7BW†—7F–ærÒv—B—&öÆÄ6Æ÷6–ær†F"Â7F÷&T–BÂW&–öB“°¢6öç7Bæ÷rÒWF5F–ÖW7F×‚“° ¢–b†7F–öâÓÓÒ$d”äÄ•¤UôÔätU""’°¢–b†W†—7F–ær’&WGW&â§6öâ‡²6Æ÷6–æs¢W†—7F–ærÂÖW76vS¢$ÌkjærFŒk¹öær^ª6âÌ;ÒI:2Ikº626¹Bâ"Ò“°¢6öç7B6Æ÷6VDV×Æ÷–VW2ÒæWr6WB‚†v—BV×Æ÷–VU—&öÆÄ6Æ÷6–æw2†F"Â7F÷&T–BÂW&–öB’’æÖ‚†—FVÒ’Óâ—FVÒæV×Æ÷–VT–B’“°¢6öç7BÖ—76–ætV×Æ÷–VW2ÒV×Æ÷–VU7VÖÖ'’æ—FV×2æf–ÇFW"‚†—FVÒ’Óâ6Æ÷6VDV×Æ÷–VW2æ†2†—FVÒæV×Æ÷–VT–B’“°¢–b†Ö—76–ætV×Æ÷–VW2æÆVæwF‚â’°¢&WGW&â§6öâ‡°¢ÖW76vS¢Œ:7’6¹BÌkjær&œ:¦ær6†òNº¶æræŒ:&âfœ:¦âG,k¹¶2¶†’6¹BÌkjær^ª6âÌ;Òâ<;&âG¶Ö—76–ætV×Æ÷–VW2æÆVæwF‡ÒæŒ:&âfœ:¦â6Œk¶Œ;6>¹RæÀ¢Ö—76–ætV×Æ÷–VT–G3¢Ö—76–ætV×Æ÷–VW2æÖ‚†—FVÒ’Óâ—FVÒæV×Æ÷–VT–B’À¢ÒÂC’“°¢Ğ¢6öç7BÖævW%6Æ'’ÒV×Æ÷–VU7VÖÖ'’æÖævW%6Æ'’óòÔätU%ôÔôåD„Å•õ4Ä%•õdäC°¢6öç7BÖævW$&öçW2ÒV×Æ÷–VU7VÖÖ'’æÖævW$&öçW2óò°¢6öç7BÖævW%F÷FÂÒ7VÕfæB…¶ÖævW%6Æ'’ÂÖævW$&öçW5Ò“°¢6öç7B6Æ'”Gfæ6U–EF÷FÂÒ6fU—&öÆÅfæB†V×Æ÷–VU7VÖÖ'’çF÷FÅ6Æ'”Gfæ6U–B“°¢6öç7B6WGFÆVÖVçBÒ6Æ'”Gfæ6U6WGFÆVÖVçE7Æ—B‡°¢V×Æ÷–VT&6U6Æ'“¢V×Æ÷–VU7VÖÖ'’çF÷FÄ&6U6Æ'’À¢V×Æ÷–VUF÷FÅ“¢V×Æ÷–VU7VÖÖ'’çF÷FÅ’À¢ÖævW%6Æ'’À¢ÖævW$&öçW2À¢Gfæ6TÖ÷VçC¢6Æ'”Gfæ6U–EF÷FÂÀ¢Ò“°¢6öç7BV×Æ÷–VUF÷FÂÒ6fU—&öÆÅfæB‡6WGFÆVÖVçBæV×Æ÷–VU&VÖ–æ–ær“°¢6öç7B6Æ÷6–æs¢—&öÆÄ6Æ÷6–ærÒ°¢W&–öBÀ¢7F÷&T–BÀ¢7F÷&TæÖS¢V×Æ÷–VU7VÖÖ'’ç7F÷&TæÖRÀ¢V×Æ÷–VUF÷FÂÀ¢V×Æ÷–VTw&÷75F÷FÃ¢V×Æ÷–VU7VÖÖ'’çF÷FÅ’À¢6Æ'”Gfæ6U–EF÷FÂÀ¢ÖævW%6Æ'’À¢ÖævW$&öçW2À¢ÖævW%F÷FÂÀ¢6Æ'•F÷FÃ¢6WGFÆVÖVçBç6Æ'•F÷FÂÀ¢&Wv&DÆÆ÷væ6UF÷FÃ¢6WGFÆVÖVçBç&Wv&DÆÆ÷væ6UF÷FÂÀ¢w&æEF÷FÃ¢6WGFÆVÖVçBæw&æEF÷FÂÀ¢7FGW3¢$ÔätU%ôd”äÄ•¤TB"À¢ÖævW$f–æÆ—¦VDC¢æ÷rÀ¢ÖævW$f–æÆ—¦VD'“¢W6W"æ–BÀ¢Ó°¢6öç7B–BÒ6Æ÷6–æt–B‡7F÷&T–BÂW&–öB“°¢G'’°¢v—BF"ç&W&R‚$”å4U%B”åDò'W6–æW75÷&V6÷&G2†–BÂ6FVv÷'’Â7F÷&Uö–BÂ÷væW%ö–BÂF—FÆRÂFFö§6öâÂ7FGW2Â7&VFVEöBÂWFFVEöB’dÅTU2ƒòÂu•$ôÄÅô4Äõ4”ärrÂòÂòÂòÂòÂtÔätU%ôd”äÄ•¤TBrÂòÂò’"¢æ&–æB†–BÂ7F÷&T–BÂW6W"æ–BÂ¾«÷B>¹RÌkjærG·W&–öGÖÂ¥4ôâç7G&–æv–g’†6Æ÷6–ær’Âæ÷rÂæ÷r’ç'Vâ‚“°¢Ò6F6‚°¢6öç7B7W'&VçBÒv—B—&öÆÄ6Æ÷6–ær†F"Â7F÷&T–BÂW&–öB“°¢–b†7W'&VçB’&WGW&â§6öâ‡²6Æ÷6–æs¢7W'&VçBÂÖW76vS¢$ÌkjærFŒk¹öær^ª6âÌ;ÒI:2Ikº626¹Bâ"Ò“°¢&WGW&â§6öâ‡²ÖW76vS¢$¶Œ;FærF¸26¹BÌkjærFŒk¹öær^ª6âÌ;Òâ"ÒÂC’“°¢Ğ¢v—Bw&—FTVF—B‡W6W"æ–BÂ$ÔätU%õ•$ôÄÅôd”äÄ•¤R"Â%•$ôÄÅô4Äõ4”är"Â–BÂ¥4ôâç7G&–æv–g’‡²7F÷&T–BÂW&–öBÂÖævW%6Æ'’ÂÖævW$&öçW2Ò’“°¢&WGW&â§6öâ‡²6Æ÷6–ærÂÖW76vS¢,I:26¹BÌkjærFŒk¹öær^ª6âÌ;Òâ"ÒÂ#“°¢Ğ ¢–b‚W†—7F–ær’&WGW&â§6öâ‡²ÖW76vS¢$Œ:7’6¹BÌkjærFŒk¹öær^ª6âÌ;ÒG,k¹¶2â"ÒÂC’“°¢6öç7B–BÒ6Æ÷6–æt–B‡7F÷&T–BÂW&–öB“°¢–b†7F–öâÓÓÒ$4ôäd•$Õõ4Ä%’"’°¢–b…²%4Ä%•ô4ôäd•$ÔTB"Â%$Ut$E5ô4ôäd•$ÔTB"Â%”ÔTåEô4ôäd•$ÔTB"Â$Äô4´TB%Òæ–æ6ÇVFW2†W†—7F–ærç7FGW2’’&WGW&â§6öâ‡²6Æ÷6–æs¢W†—7F–ærÂÖW76vS¢$¶†şª6â6†’ÌkjærI:2Ikº62Œ:2æªÖââ"Ò“°¢–b†W†—7F–ærç7FGW2ÓÒ$ÔätU%ôd”äÄ•¤TB"’&WGW&â§6öâ‡²ÖW76vS¢%G.ªærFŒ:’¾»2Ìkjær¶Œ;Færº7Î¸rI¸2Œ:2æªÖâ6†’Ìkjærâ"ÒÂC’“°¢6öç7B6Æ÷6–æs¢—&öÆÄ6Æ÷6–ærÒ²ââæW†—7F–ærÂ7FGW3¢%4Ä%•ô4ôäd•$ÔTB"Â6Æ'”6öæf—&ÖVDC¢æ÷rÂ6Æ'”6öæf—&ÖVD'“¢W6W"æ–BÓ°¢6öç7B&W7VÇBÒv—BF"ç&W&R‚%UDDR'W6–æW75÷&V6÷&G24UBFFö§6öâÒòÂ7FGW2Òu4Ä%•ô4ôäd•$ÔTBrÂWFFVEöBÒòt„U$R–BÒòäB7FGW2ÒtÔätU%ôd”äÄ•¤TBr"¢æ&–æB„¥4ôâç7G&–æv–g’†6Æ÷6–ær’Âæ÷rÂ–B’ç'Vâ‚“°¢–b†ffV7FVE&÷w2‡&W7VÇB’ÓÓÒ’°¢6öç7B7W'&VçBÒv—B—&öÆÄ6Æ÷6–ær†F"Â7F÷&T–BÂW&–öB“°¢&WGW&â7W'&Vç@¢ò§6öâ‡²6Æ÷6–æs¢7W'&VçBÂÖW76vS¢%G.ªærFŒ:’¾»2ÌkjærI:2Ikº62>ª×æª×B.¹ö’Ş¹—Bœ:§R>ªwR¶Œ:2â"Ò¢¢§6öâ‡²ÖW76vS¢$¶Œ;FærF¸2Œ:2æªÖâ¶†şª6â6†’Ìkjærâ"ÒÂC’“°¢Ğ¢v—Bw&—FTVF—B‡W6W"æ–BÂ%•$ôÄÅõ4Ä%•ô4ôäd•$Ò"Â%•$ôÄÅô4Äõ4”är"Â–BÂ¥4ôâç7G&–æv–g’‡²7F÷&T–BÂW&–öBÂÖ÷VçC¢6Æ÷6–ærç6Æ'•F÷FÂÒ’“°¢&WGW&â§6öâ‡²6Æ÷6–ærÂÖW76vS¢,I:2Œ:2æªÖâ¶†şª6â6†’ÌkjæræŒ:&âfœ:¦âl:^ª6âÌ;Òâ"Ò“°¢Ğ¢–b†7F–öâÓÓÒ$4ôäd•$Õõ$Ut$E2"’°¢–b…²%$Ut$E5ô4ôäd•$ÔTB"Â%”ÔTåEô4ôäd•$ÔTB"Â$Äô4´TB%Òæ–æ6ÇVFW2†W†—7F–ærç7FGW2’’&WGW&â§6öâ‡²6Æ÷6–æs¢W†—7F–ærÂÖW76vS¢$¶†şª6âFŒk¹öærl:ºR>ªWI:2Ikº62Œ:2æªÖââ"Ò“°¢–b†W†—7F–ærç7FGW2ÓÒ%4Ä%•ô4ôäd•$ÔTB"’&WGW&â§6öâ‡²ÖW76vS¢$Œ:7’Œ:2æªÖâ¶†şª6â6†’ÌkjærG,k¹¶2â"ÒÂC’“°¢6öç7B6Æ÷6–æs¢—&öÆÄ6Æ÷6–ærÒ²ââæW†—7F–ærÂ7FGW3¢%$Ut$E5ô4ôäd•$ÔTB"Â&Wv&G46öæf—&ÖVDC¢æ÷rÂ&Wv&G46öæf—&ÖVD'“¢W6W"æ–BÓ°¢6öç7B&W7VÇBÒv—BF"ç&W&R‚%UDDR'W6–æW75÷&V6÷&G24UBFFö§6öâÒòÂ7FGW2Òu$Ut$E5ô4ôäd•$ÔTBrÂWFFVEöBÒòt„U$R–BÒòäB7FGW2Òu4Ä%•ô4ôäd•$ÔTBr"¢æ&–æB„¥4ôâç7G&–æv–g’†6Æ÷6–ær’Âæ÷rÂ–B’ç'Vâ‚“°¢–b†ffV7FVE&÷w2‡&W7VÇB’ÓÓÒ’°¢6öç7B7W'&VçBÒv—B—&öÆÄ6Æ÷6–ær†F"Â7F÷&T–BÂW&–öB“°¢&WGW&â7W'&Vç@¢ò§6öâ‡²6Æ÷6–æs¢7W'&VçBÂÖW76vS¢%G.ªærFŒ:’¾»2ÌkjærI:2Ikº62>ª×æª×B.¹ö’Ş¹—Bœ:§R>ªwR¶Œ:2â"Ò¢¢§6öâ‡²ÖW76vS¢$¶Œ;FærF¸2Œ:2æªÖâ¶†şª6âFŒk¹öærl:ºR>ªWâ"ÒÂC’“°¢Ğ¢v—Bw&—FTVF—B‡W6W"æ–BÂ%•$ôÄÅõ$Ut$E5ô4ôäd•$Ò"Â%•$ôÄÅô4Äõ4”är"Â–BÂ¥4ôâç7G&–æv–g’‡²7F÷&T–BÂW&–öBÂÖ÷VçC¢6Æ÷6–ærç&Wv&DÆÆ÷væ6UF÷FÂÒ’“°¢&WGW&â§6öâ‡²6Æ÷6–ærÂÖW76vS¢,I:2Œ:2æªÖâ¶†şª6â6†’FŒk¹öærl:ºR>ªWâ"Ò“°¢Ğ¢–b†7F–öâÓÓÒ$4ôäd•$Õõ”ÔTåB"’°¢–b†W†—7F–ærç7FGW2ÓÓÒ$Äô4´TB"’&WGW&â§6öâ‡²6Æ÷6–æs¢W†—7F–ærÂÖW76vS¢$¾»2ÌkjærI:2¾«÷B>¹Rl:¶Œ;6â"Ò“°¢–b†W†—7F–ærç7FGW2ÓÓÒ%”ÔTåEô4ôäd•$ÔTB"’&WGW&â§6öâ‡²6Æ÷6–æs¢W†—7F–ærÂÖW76vS¢,I:2v†’æªÖâ6†’G.ª2ÌkjærÂFŒk¹öærl:ºR>ªWâ"Ò“°¢–b†W†—7F–ærç7FGW2ÓÒ%$Ut$E5ô4ôäd•$ÔTB"’&WGW&â§6öâ‡²ÖW76vS¢$Œ:7’Œ:2æªÖâ&œ:¦ær¶†şª6â6†’Ìkjærl:¶†şª6âFŒk¹öærÂºR>ªWG,k¹¶2â"ÒÂC’“°¢6öç7B6Æ÷6–æs¢—&öÆÄ6Æ÷6–ærÒ²ââæW†—7F–ærÂ7FGW3¢%”ÔTåEô4ôäd•$ÔTB"Â–ÖVçD6öæf—&ÖVDC¢æ÷rÂ–ÖVçD6öæf—&ÖVD'“¢W6W"æ–BÓ°¢6öç7B&W7VÇBÒv—BF"ç&W&R‚%UDDR'W6–æW75÷&V6÷&G24UBFFö§6öâÒòÂ7FGW2Òu”ÔTåEô4ôäd•$ÔTBrÂWFFVEöBÒòt„U$R–BÒòäB7FGW2Òu$Ut$E5ô4ôäd•$ÔTBr"¢æ&–æB„¥4ôâç7G&–æv–g’†6Æ÷6–ær’Âæ÷rÂ–B’ç'Vâ‚“°¢–b†ffV7FVE&÷w2‡&W7VÇB’ÓÓÒ’°¢6öç7B7W'&VçBÒv—B—&öÆÄ6Æ÷6–ær†F"Â7F÷&T–BÂW&–öB“°¢&WGW&â7W'&Vç@¢ò§6öâ‡²6Æ÷6–æs¢7W'&VçBÂÖW76vS¢%G.ªærFŒ:’¾»2ÌkjærI:2Ikº62>ª×æª×B.¹ö’Ş¹—Bœ:§R>ªwR¶Œ:2â"Ò¢¢§6öâ‡²ÖW76vS¢$¶Œ;FærF¸2v†’æªÖâ6†’G.ª2ÌkjærFŒk¹öærâ"ÒÂC’“°¢Ğ¢v—Bw&—FTVF—B‡W6W"æ–BÂ%•$ôÄÅõ”ÔTåEô4ôäd•$Ò"Â%•$ôÄÅô4Äõ4”är"Â–BÂ¥4ôâç7G&–æv–g’‡²7F÷&T–BÂW&–öBÂw&æEF÷FÃ¢6Æ÷6–æræw&æEF÷FÂÒ’“°¢&WGW&â§6öâ‡²6Æ÷6–ærÂÖW76vS¢,I:26†’l:v†’æªÖâÎ¸¶6‚>ºÒ6†’ÌkjærÂFŒk¹öærÂºR>ªWâ"Ò“°¢Ğ ¢–b†W†—7F–ærç7FGW2ÓÓÒ$Äô4´TB"’&WGW&â§6öâ‡²6Æ÷6–æs¢W†—7F–ærÂÖW76vS¢$¾»2ÌkjærI:2¾«÷B>¹Rl:¶Œ;6â"Ò“°¢–b†7F–öâÓÒ$4Äõ4UõU$”ôB"’&WGW&â§6öâ‡²ÖW76vS¢%F†òL:26¹B¾»2Ìkjær¶Œ;Færº7Î¸râ"ÒÂC“°¢–b†W†—7F–ærç7FGW2ÓÒ%”ÔTåEô4ôäd•$ÔTB"’&WGW&â§6öâ‡²ÖW76vS¢$Œ:7’Œ:2æªÖâ6†’G,k¹¶2¶†’¾«÷B>¹Râ"ÒÂC’“°¢6öç7B6Æ÷6–æs¢—&öÆÄ6Æ÷6–ærÒ²ââæW†—7F–ærÂ7FGW3¢$Äô4´TB"Â6Æ÷6VDC¢æ÷rÂ6Æ÷6VD'“¢W6W"æ–BÓ°¢6öç7B&W7VÇBÒv—BF"ç&W&R‚%UDDR'W6–æW75÷&V6÷&G24UBFFö§6öâÒòÂ7FGW2ÒtÄô4´TBrÂWFFVEöBÒòt„U$R–BÒòäB7FGW2Òu”ÔTåEô4ôäd•$ÔTBr"¢æ&–æB„¥4ôâç7G&–æv–g’†6Æ÷6–ær’Âæ÷rÂ–B’ç'Vâ‚“°¢–b†ffV7FVE&÷w2‡&W7VÇB’ÓÓÒ’°¢6öç7B7W'&VçBÒv—B—&öÆÄ6Æ÷6–ær†F"Â7F÷&T–BÂW&–öB“°¢&WGW&â7W'&Vç@¢ò§6öâ‡²6Æ÷6–æs¢7W'&VçBÂÖW76vS¢%G.ªærFŒ:’¾»2ÌkjærI:2Ikº62>ª×æª×B.¹ö’Ş¹—Bœ:§R>ªwR¶Œ:2â"Ò¢¢§6öâ‡²ÖW76vS¢$¶Œ;FærF¸2¾«÷B>¹R¾»2Ìkjærâ"ÒÂC’“°¢Ğ¢v—Bw&—FTVF—B‡W6W"æ–BÂ%•$ôÄÅõU$”ôEô4Äõ4R"Â%•$ôÄÅô4Äõ4”är"Â–BÂ¥4ôâç7G&–æv–g’‡²7F÷&T–BÂW&–öBÂw&æEF÷FÃ¢6Æ÷6–æræw&æEF÷FÂÒ’“°¢&WGW&â§6öâ‡²6Æ÷6–ærÂÖW76vS¢,I:2¾«÷B>¹Rl:¶Œ;6¾»2ÌkjærFŒk¹öærâ"Ò“°¢Ğ ¢–b†v—BÆö6¶VE7VÖÖ'’†F"Â7F÷&T–BÂW&–öB’’&WGW&â§6öâ‡²ÖW76vS¢$¾»2Ìkjærì:’I:2Ikº62N¹Vær¾«÷Bl:¶Œ;6"ÒÂC’“°¢–b‚6ä6Æ÷6U—&öÆÅW&–öB‡W&–öB’’&WGW&â§6öâ‡²ÖW76vS¢$6¸’Ikº62N¹Vær¾«÷BÌkjærÂFŒk¹öærl:µ’Nº²æ|:’7^¹’<;–ær>ºvFŒ:ær†ş«v26RI;2â"ÒÂC’“°¢6öç7B²7F'EWF2ÂVæEWF2ÂÆö6Å7F'BÂÆö6ÄVæBÒÒW&–öD&÷VæG5WF2‡W&–öB“°¢6öç7B–BÒ6æ6†÷D–B‡7F÷&T–BÂW&–öB“°¢v—BF"ç&W&R†DTÄUDRe$ôÒ'W6–æW75÷&V6÷&G0¢t„U$R–BÒòäB6FVv÷'’Òtµ•õ5TÔÔ%’räB7FGW2Òt4Äõ4”ärräBWFFVEöBÂö¢æ&–æB†–BÂ7FÆU—&öÆÄvFT7WFöfb‚’’ç'Vâ‚“° ¢6öç7BvFU7F'FVDBÒWF5F–ÖW7F×‚“°¢6öç7BvFUFö¶VâÒ—&öÆÄvFUFö¶Vâ†7F÷&S¢G·7F÷&T–GÓ¢G·W&–öGÖ“°¢6öç7BvFTFFÒ¥4ôâç7G&–æv–g’‡²vFUFö¶VâÂW&–öBÂ7F÷&T–BÂ7FGW3¢$4Äõ4”är"Â7F'FVDC¢vFU7F'FVDBÒ“°¢6öç7BvFU&W7VÇBÒv—BF"ç&W&R†”å4U%Bõ"”täõ$R”åDò'W6–æW75÷&V6÷&G0¢†–BÂ6FVv÷'’Â7F÷&Uö–BÂ÷væW%ö–BÂF—FÆRÂFFö§6öâÂ7FGW2Â7&VFVEöBÂWFFVEöB¢4TÄT5BòÂtµ•õ5TÔÔ%’rÂòÂòÂòÂòÂt4Äõ4”ärrÂòÂğ¢t„U$RäõBU„•5E2€¢4TÄT5Be$ôÒ6†–gE÷6W76–öç0¢t„U$R7F÷&Uö–BÒòäB7FGW2Òt5D•dRräB€¢„åTÄÄ”b‡v÷&µöFFRÂrr’•2äõBåTÄÂäBv÷&µöFFRãÒòäBv÷&µöFFRÂò¢õ"„åTÄÄ”b‡v÷&µöFFRÂrr’•2åTÄÂäB7F'FVEöBãÒòäB7F'FVEöBÂò¢¢¢äBäõBU„•5E2€¢4TÄT5Be$ôÒV×Æ÷–VU÷—&öÆÅö6Æ÷6–æw0¢t„U$R7F÷&Uö–BÒòäBW&–öBÒòäB7FGW2Òt4Äõ4”ärp¢¢äBäõBU„•5E2€¢4TÄT5Be$ôÒ6Æ'•öGfæ6W0¢t„U$R7F÷&Uö–BÒòäBW&–öBÒòäB7FGW2ÒtE$eBp¢–¢æ&–æB€¢–BÂ7F÷&T–BÂW6W"æ–BÂIærN¹Vær¾«÷Bµ’G·W&–öGÖÂvFTFFÂvFU7F'FVDBÂvFU7F'FVDBÀ¢7F÷&T–BÂÆö6Å7F'BÂÆö6ÄVæBÂ7F'EWF2ÂVæEWF2À¢7F÷&T–BÂW&–öBÀ¢7F÷&T–BÂW&–öBÀ¢’ç'Vâ‚“° ¢–b†ffV7FVE&÷w2†vFU&W7VÇB’ÓÓÒ’°¢–b†v—BÆö6¶VE7VÖÖ'’†F"Â7F÷&T–BÂW&–öB’’&WGW&â§6öâ‡²ÖW76vS¢$¾»2Ìkjærì:’I:2Ikº62N¹Vær¾«÷Bl:¶Œ;6"ÒÂC’“°¢6öç7B÷Vå6†–gBÒv—BF"ç&W&R†4TÄT5B–Be$ôÒ6†–gE÷6W76–öç0¢t„U$R7F÷&Uö–BÒòäB7FGW2Òt5D•dRräB€¢„åTÄÄ”b‡v÷&µöFFRÂrr’•2äõBåTÄÂäBv÷&µöFFRãÒòäBv÷&µöFFRÂò¢õ"„åTÄÄ”b‡v÷&µöFFRÂrr’•2åTÄÂäB7F'FVEöBãÒòäB7F'FVEöBÂò¢’Ä”Ô•B¢æ&–æB‡7F÷&T–BÂÆö6Å7F'BÂÆö6ÄVæBÂ7F'EWF2ÂVæEWF2’æf—'7CÇ²–C¢7G&–ærÓâ‚“°¢–b†÷Vå6†–gB’&WGW&â§6öâ‡²ÖW76vS¢$>ºÖŒ:ær<;&â6Ì:ÒG&öær¾»26Œk¾«÷BFŒ;¦2âŒ:7’¾«÷B6G,k¹¶2¶†’6¹BÌkjærâ"ÒÂC’“°¢6öç7BVæF–ætGfæ6RÒv—BF"ç&W&R‚%4TÄT5B–Be$ôÒ6Æ'•öGfæ6W2t„U$R7F÷&Uö–BÒòäBW&–öBÒòäB7FGW2ÒtE$eBrÄ”Ô•B"¢æ&–æB‡7F÷&T–BÂW&–öB’æf—'7CÇ²–C¢7G&–ærÓâ‚“°¢–b‡VæF–ætGfæ6R’&WGW&â§6öâ‡²ÖW76vS¢$Œ:7’Œ:2æªÖâ6†’†ş«v26¸–æ‚>ºÖ<:2¶†şª6âº–ærÌkjærIær6¹ÒG,k¹¶2¶†’N¹Vær¾«÷BFŒ:ærâ"ÒÂC’“°¢&WGW&â§6öâ‡²ÖW76vS¢$¾»2ÌkjærIærIkº626¹B.¹ö’Ş¹—Bœ:§R>ªwR¶Œ:2âgV’Ì;&ærFºÒÎª’6Râ"ÒÂC’“°¢Ğ ¢6öç7B&VÆV6TvFRÒ7–æ2‚’Óâ°¢v—BF"ç&W&R†DTÄUDRe$ôÒ'W6–æW75÷&V6÷&G0¢t„U$R–BÒòäB6FVv÷'’Òtµ•õ5TÔÔ%’räB7FGW2Òt4Äõ4”ärp¢äB§6öåöW‡G&7B†FFö§6öâÂrBævFUFö¶Vâr’Òö¢æ&–æB†–BÂvFUFö¶Vâ’ç'Vâ‚“°¢Ó° ¢G'’°¢6öç7B&Wf–WrÒv—B'V–ÆE&Wf–Wr†F"Â7F÷&T–BÂW&–öB“°¢–b‚&Wf–Wr’°¢v—B&VÆV6TvFR‚“°¢&WGW&â§6öâ‡²ÖW76vS¢$¶Œ;FærL:ÆÒFªW’>ºÖŒ:ær"ÒÂCB“°¢Ğ¢6öç7B6÷fW&vT6öæfÆ–7BÒ6Æ'”Gfæ6T6÷fW&vT6öæfÆ–7B‡&Wf–Wr“°¢–b†6÷fW&vT6öæfÆ–7B’°¢v—B&VÆV6TvFR‚“°¢&WGW&â6÷fW&vT6öæfÆ–7C°¢Ğ¢6öç7B6Æ÷6VDV×Æ÷–VW2ÒæWr6WB‚†v—BV×Æ÷–VU—&öÆÄ6Æ÷6–æw2†F"Â7F÷&T–BÂW&–öB’’æÖ‚†—FVÒ’Óâ—FVÒæV×Æ÷–VT–B’“°¢6öç7BÖ—76–ætV×Æ÷–VW2Ò&Wf–Wræ—FV×2æf–ÇFW"‚†—FVÒ’Óâ6Æ÷6VDV×Æ÷–VW2æ†2†—FVÒæV×Æ÷–VT–B’“°¢–b†Ö—76–ætV×Æ÷–VW2æÆVæwF‚â’°¢v—B&VÆV6TvFR‚“°¢&WGW&â§6öâ‡°¢ÖW76vS¢Œ:7’6¹BÌkjær&œ:¦ær6†òNº¶æræŒ:&âfœ:¦âG,k¹¶2¶†’¶Œ;6.ª6ærÌkjær>ºÖŒ:ærâ<;&âG¶Ö—76–ætV×Æ÷–VW2æÆVæwF‡ÒæŒ:&âfœ:¦â6Œk¶Œ;6>¹RæÀ¢Ö—76–ætV×Æ÷–VT–G3¢Ö—76–ætV×Æ÷–VW2æÖ‚†—FVÒ’Óâ—FVÒæV×Æ÷–VT–B’À¢ÒÂC’“°¢Ğ¢6öç7Bf–æÆ—¦VDBÒWF5F–ÖW7F×‚“°¢6öç7B7VÖÖ'“¢—&öÆÅ7VÖÖ'’Ò²ââç&Wf–WrÂ7FGW3¢$Äô4´TB"Âf–æÆ—¦VDBÂf–æÆ—¦VD'“¢W6W"æ–BÓ°¢6öç7Bf–æÆ—¦U&W7VÇBÒv—BF"ç&W&R†UDDR'W6–æW75÷&V6÷&G0¢4UB÷væW%ö–BÒòÂF—FÆRÒòÂFFö§6öâÒòÂ7FGW2ÒtÄô4´TBrÂWFFVEöBÒğ¢t„U$R–BÒòäB6FVv÷'’Òtµ•õ5TÔÔ%’räB7FGW2Òt4Äõ4”ärp¢äB§6öåöW‡G&7B†FFö§6öâÂrBævFUFö¶Vâr’Òö¢æ&–æB‡W6W"æ–BÂN¹Vær¾«÷Bµ’G·W&–öGÖÂ¥4ôâç7G&–æv–g’‡7VÖÖ'’’Âf–æÆ—¦VDBÂ–BÂvFUFö¶Vâ’ç'Vâ‚“°¢–b†ffV7FVE&÷w2†f–æÆ—¦U&W7VÇB’ÓÓÒ’°¢v—B&VÆV6TvFR‚“°¢&WGW&â§6öâ‡²ÖW76vS¢$¶Œ;FærF¸2¶Œ;6¾»2Ìkjærl:ÂG.ªærFŒ:’nº¶Ikº62>ª×æª×B.¹ö’œ:§R>ªwR¶Œ:2â"ÒÂC’“°¢Ğ¢v—Bw&—FTVF—B‡W6W"æ–BÂ%•$ôÄÅôd”äÄ•¤R"Â$µ•õ5TÔÔ%’"Â–BÂ¥4ôâç7G&–æv–g’‡²7F÷&T–BÂW&–öBÂ&öf—C¢7VÖÖ'’ç&öf—BÂF÷FÄ†÷W'3¢7VÖÖ'’çF÷FÄ†÷W'2Â·•&FS¢7VÖÖ'’æ·•&FRÂF÷FÄ·”&öçW3¢7VÖÖ'’çF÷FÄ·”&öçW2Ò’“°¢&WGW&â§6öâ‡²Æö6¶VC¢G'VRÂ7VÖÖ'’ÂÖW76vS¢,I:2N¹Vær¾«÷Bl:¶Œ;6¾»2ÌkjærFŒk¹öær"ÒÂ#“°¢Ò6F6‚†W'&÷"’°¢v—B&VÆV6TvFR‚“°¢F‡&÷rW'&÷#°¢Ğ§Ğ 
