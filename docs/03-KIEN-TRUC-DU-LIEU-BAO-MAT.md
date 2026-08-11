@@ -18,7 +18,7 @@ Trình duyệt
 
 ### `stores`
 
-Thông tin cửa hàng, địa chỉ, các bộ đếm tương thích cũ, trạng thái và ngày tạo. Báo cáo hiện tại không đọc bộ đếm doanh thu/chi phí này mà tổng hợp theo kỳ từ ca và bản ghi nghiệp vụ. Trạng thái nghiệp vụ chỉ gồm `ACTIVE` và `INACTIVE`; cửa hàng không bị xóa vật lý hoặc chuyển sang `ARCHIVED`. Chuyển sang `INACTIVE` giữ toàn bộ khóa và quan hệ lịch sử.
+Thông tin cửa hàng, địa chỉ, các bộ đếm tương thích cũ, trạng thái và ngày tạo. Báo cáo hiện tại không đọc bộ đếm doanh thu/chi phí này mà tổng hợp theo kỳ từ ca và bản ghi nghiệp vụ. Trạng thái vận hành gồm `ACTIVE` và `INACTIVE`; `DELETED` là tombstone kết thúc chỉ quản trị cấp cao có thể tạo khi cửa hàng chưa từng có đơn. Cửa hàng không bị xóa vật lý hoặc chuyển sang `ARCHIVED`; toàn bộ khóa và quan hệ lịch sử được giữ nguyên.
 
 ### `employees`
 
@@ -93,7 +93,8 @@ Không cập nhật ngược cấu hình đã được dùng trong snapshot kỳ
 - Chỉ mục điều chuyển theo `(employee_id, start_date, end_date, status)` và `(target_store_id, start_date, end_date, status)`.
 - Bảng tổng kết tháng cần khóa duy nhất theo `(store_id, period)`.
 - `employees.store_id` và `users.store_id` của cùng tài khoản nhân viên phải đồng nhất; nên kiểm tra bằng service giao dịch và kiểm thử hồi quy vì SQLite không hỗ trợ trực tiếp ràng buộc chéo hai bảng.
-- Chỉ cho phép chuyển cửa hàng `ACTIVE ↔ INACTIVE`; thao tác `ACTIVE → INACTIVE` bị từ chối khi còn `shift_sessions.status = 'ACTIVE'`.
+- Vòng đời vận hành chỉ cho phép `ACTIVE ↔ INACTIVE`; thao tác `ACTIVE → INACTIVE` bị từ chối khi còn `shift_sessions.status = 'ACTIVE'`. `DELETED` là trạng thái kết thúc, không được khôi phục qua PATCH.
+- DELETE cửa hàng phải kiểm tra lại `NOT EXISTS orders` trong cùng batch ghi tombstone. Batch đó đóng ca còn mở bằng giờ server, đối soát doanh thu ca hỗ trợ vào cửa hàng nhận, thu hồi phiên liên quan và không xóa các bản ghi lịch sử.
 - Một nhân viên chỉ có tối đa một `shift_session` đang mở tại một thời điểm; `users.current_shift` phải trỏ đúng phiên đó.
 - Một ca chỉ được hưởng một phụ cấp TikTok cho mỗi nhân viên.
 - Tỷ lệ cổ đông của một kỳ phải có tổng bằng 100%.
@@ -105,7 +106,8 @@ Không cập nhật ngược cấu hình đã được dùng trong snapshot kỳ
 | `/api/auth/login` | POST | công khai | đăng nhập, khóa tạm và tạo phiên |
 | `/api/auth/logout` | POST | đã đăng nhập | hủy phiên |
 | `/api/auth/me` | GET | đã đăng nhập | lấy người dùng hiện tại |
-| `/api/stores` | GET/POST/PATCH | quản lý | danh sách, tạo, sửa và chuyển `ACTIVE/INACTIVE`; `DELETE` trả 405 |
+| `/api/stores` | GET/POST/PATCH | quản lý | danh sách, tạo, sửa và chuyển `ACTIVE/INACTIVE` |
+| `/api/stores` | DELETE | quản trị cấp cao | kiểm tra lại cửa hàng chưa từng có đơn, sau đó ghi tombstone `DELETED`, đóng ca và thu hồi truy cập trong cùng giao dịch |
 | `/api/employees` | GET/POST/PATCH | quản lý | danh sách, tạo/sửa/lưu trữ hồ sơ và tài khoản nhân viên |
 | `/api/uploads` | GET/POST | quản lý | tải lên và đọc ảnh CCCD riêng tư từ R2 |
 | `/api/shift` | POST | nhân viên | bắt đầu/kết ca và phụ cấp TikTok |
@@ -131,7 +133,7 @@ Mọi endpoint ghi theo cửa hàng phải kiểm tra `stores.status = 'ACTIVE'`
 
 - Đọc toàn chuỗi.
 - Ghi cấu hình, cửa hàng, nhân viên, ca, tài chính, lương, điều chuyển và cổ tức.
-- Không xóa cửa hàng; chỉ đổi trạng thái có audit và tuân thủ điều kiện không còn ca mở.
+- Quản lý thường không xóa cửa hàng. Quản trị cấp cao chỉ ghi tombstone có audit khi không có bất kỳ đơn hàng lịch sử nào; không xóa vật lý dữ liệu phụ thuộc.
 - Mọi truy vấn chi tiết cửa hàng vẫn phải có phạm vi rõ ràng để tránh cộng nhầm.
 
 ### Nhân viên

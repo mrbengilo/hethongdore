@@ -19,6 +19,8 @@ type ShiftRow = {
   hourlyRate: number;
   status: string;
   duration_seconds?: number;
+  admin_adjusted_duration_seconds?: number | null;
+  adminAdjustedDurationSeconds?: number | null;
   expense_amount?: number;
   cash_revenue?: number;
   transfer_revenue?: number;
@@ -145,7 +147,12 @@ function useShifts() {
 
 function shiftInfo(shift: ShiftRow) {
   const end = shift.ended_at ? new Date(shift.ended_at) : new Date();
-  const hours = shift.duration_seconds && shift.duration_seconds > 0 ? shift.duration_seconds / 3_600 : Math.max(0, (end.getTime() - new Date(shift.started_at).getTime()) / 3_600_000);
+  const adjustedSeconds = shift.adminAdjustedDurationSeconds ?? shift.admin_adjusted_duration_seconds;
+  const hours = adjustedSeconds != null
+    ? Math.max(0, Number(adjustedSeconds)) / 3_600
+    : shift.duration_seconds && shift.duration_seconds > 0
+      ? shift.duration_seconds / 3_600
+      : Math.max(0, (end.getTime() - new Date(shift.started_at).getTime()) / 3_600_000);
   const hourlyRate = Number(shift.appliedHourlyRate ?? shift.hourlyRate ?? 0);
   const wage = Math.round(hours * hourlyRate);
   // Phụ cấp hỗ trợ được phân bổ chính xác bởi API payroll theo toàn bộ ca

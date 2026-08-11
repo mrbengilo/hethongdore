@@ -79,6 +79,22 @@ test("Vietnam payroll periods have exact UTC boundaries", async () => {
   assert.equal(localPeriod(instant), "2026-08");
 });
 
+test("payroll closing opens on the final Vietnam calendar day across month boundaries", async () => {
+  const { canClosePayrollPeriod, payrollPeriodClosingDate } = await financeModule();
+
+  assert.equal(payrollPeriodClosingDate("2025-02"), "2025-02-28");
+  assert.equal(payrollPeriodClosingDate("2024-02"), "2024-02-29", "leap February must include day 29");
+  assert.equal(payrollPeriodClosingDate("2026-12"), "2026-12-31", "December must not roll into the next year");
+
+  assert.equal(canClosePayrollPeriod("2025-02", new Date("2025-02-27T16:59:59.999Z")), false);
+  assert.equal(canClosePayrollPeriod("2025-02", new Date("2025-02-27T17:00:00.000Z")), true, "00:00 on the last Vietnam day opens closing");
+  assert.equal(canClosePayrollPeriod("2024-02", new Date("2024-02-28T17:00:00.000Z")), true, "leap-day boundary opens closing");
+  assert.equal(canClosePayrollPeriod("2026-12", new Date("2026-12-30T17:00:00.000Z")), true, "year-end boundary opens closing");
+  assert.equal(canClosePayrollPeriod("2026-12", new Date("2026-12-31T17:00:00.000Z")), true, "day one of the next year remains open");
+  assert.equal(canClosePayrollPeriod("2027-01", new Date("2026-12-31T17:00:00.000Z")), false, "a future payroll month remains blocked");
+  assert.throws(() => payrollPeriodClosingDate("2026-13"), /không hợp lệ/u);
+});
+
 test("Vietnam report ranges include the end date and compare the exact preceding span", async () => {
   const {
     dateRangeBoundsUtc,

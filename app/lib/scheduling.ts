@@ -12,6 +12,18 @@ export type ShiftOccurrence = ShiftClockDefinition & {
   endAt: string;
 };
 
+export type OrderedShiftDefinition = ShiftClockDefinition & {
+  sortOrder?: number;
+};
+
+export type AttendanceStatus = "EARLY" | "ON_TIME" | "LATE";
+
+/** Employees may clock in up to two hours before the scheduled start. */
+export const ATTENDANCE_EARLY_WINDOW_MINUTES = 120;
+
+/** Clock-ins through exactly 15 minutes after the scheduled start are on time. */
+export const ATTENDANCE_ON_TIME_GRACE_MINUTES = 15;
+
 export const DEFAULT_SHIFT_DEFINITIONS: ShiftClockDefinition[] = [
   { name: "Ca 1", start: "07:00", end: "12:00" },
   { name: "Ca 2", start: "12:00", end: "17:00" },
@@ -20,6 +32,42 @@ export const DEFAULT_SHIFT_DEFINITIONS: ShiftClockDefinition[] = [
 
 const clockPattern = /^([01]\d|2[0-3]):([0-5]\d)$/;
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+const numberedShiftPattern = /^\s*ca\s*0*(\d+)(?:\D|$)/iu;
+const scheduleRequestPattern = /^[a-zA-Z0-9:_-]{16,200}$/;
+
+export function shiftNumber(name: string) {
+  const match = name.match(numberedShiftPattern);
+  return match ? Number(match[1]) : null;
+}
+
+/** Keep numbered shifts in the familiar Ca 1 -> Ca 2 -> Ca 3 order. */
+export function compareShiftDefinitions(left: OrderedShiftDefinition, right: OrderedShiftDefinition) {
+  const leftOrder = Number.isInteger(left.sortOrder) && Number(left.sortOrder) > 0
+    ? Number(left.sortOrder)
+    : shiftNumber(left.name);
+  const rightOrder = Number.isInteger(right.sortOrder) && Number(right.sortOrder) > 0
+    ? Number(right.sortOrder)
+    : shiftNumber(right.name);
+  if (leftOrder !== null || rightOrder !== null) {
+    if (leftOrder === null) return 1;
+    if (rightOrder === null) return -1;
+    if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+  }
+  return left.start.localeCompare(right.start) || left.name.localeCompare(right.name, "vi");
+}
+
+export function normalizeScheduleClientRequestId(value: unknown) {
+  const normalized = String(value ?? "").trim();
+  return scheduleRequestPattern.test(normalized) ? normalized : null;
+}
+
+/** A deterministic id makes a retried multi-shift save safe and idempotent. */
+export async function scheduleRecordId(storeId: string, clientRequestId: string) {
+  const source = new TextEncoder().encode(`schedule:${storeId}:${clientRequestId}`);
+  const digest = await crypto.subtle.digest("SHA-256", source);
+  const hash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `schedule-${hash}`;
+}
 
 export function validClock(value: string) {
   return clockPattern.test(value);
@@ -136,6 +184,107 @@ export function shiftOccurrenceAt(
   return occurrence;
 }
 
+/**
+ * Resolve the occurrence available for attendance. An occurrence already in
+ * progress wins; otherwise the next occurrence is available from exactly the
+ * configured early window before its scheduled start. The scheduled timestamps remain intact
+ * so payroll and attendance reports never replace actual clock-in time.
+ */
+export function attendanceOccurrenceAt(
+  now: Date | string,
+  definitions: ShiftClockDefinition[],
+  earlyWindowMinutes = ATTENDANCE_EARLY_WINDOW_MINUTES,
+) {
+  const instant = typeof now === "string" ? new Date(now) : now;
+  const instantTime = instant.getTime();
+  if (!Number.isFinite(instantTime)) return null;
+  const current = shiftOccurrenceAt(instant, definitions);
+  if (current) return current;
+  const next = nextShiftOccurrence(instant.toISOString(), definitions);
+  if (!next) return null;
+  const untilStart = new Date(next.startAt).getTime() - instantTime;
+  const earlyWindowMs = Math.max(0, earlyWindowMinutes) * 60_000;
+  return untilStart >= 0 && untilStart <= earlyWindowMs ? next : null;
+}
+
+export type AttendanceCandidate = ShiftOccurrence & {
+  selectionKind: "CURRENT" | "UPCOMING";
+  attendanceStatus: AttendanceStatus;
+  attendanceDeltaMinutes: number;
+};
+
+/**
+ * Return the server-authoritative attendance choices at an exact instant.
+ * A running occurrence is first. The immediately upcoming occurrence is also
+ * offered only while it is inside the early clock-in window. This lets the UI
+ * ask "current or next" near a shift boundary without ever trusting a client
+ * supplied clock or schedule.
+ */
+export function attendanceCandidatesAt(
+  now: Date | string,
+  definitions: ShiftClockDefinition[],
+  earlyWindowMinutes = ATTENDANCE_EARLY_WINDOW_MINUTES,
+): AttendanceCandidate[] {
+  const instant = typeof now === "string" ? new Date(now) : now;
+  const instantTime = instant.getTime();
+  if (!Number.isFinite(instantTime)) return [];
+
+  const candidates: AttendanceCandidate[] = [];
+  const current = shiftOccurrenceAt(instant, definitions);
+  if (current) {
+    const delta = attendanceDeltaMinutes(instant, current.startAt);
+    const status = attendanceStatusAt(instant, current.startAt);
+    if (delta !== null && status !== null) {
+      candidates.push({
+        ...current,
+        selectionKind: "CURRENT",
+        attendanceStatus: status,
+        attendanceDeltaMinutes: delta,
+      });
+    }
+  }
+
+  const next = nextShiftOccurrence(instant.toISOString(), definitions);
+  if (next && (!current || next.startAt !== current.startAt || next.endAt !== current.endAt)) {
+    const untilStart = new Date(next.startAt).getTime() - instantTime;
+    const earlyWindowMs = Math.max(0, earlyWindowMinutes) * 60_000;
+    if (untilStart > 0 && untilStart <= earlyWindowMs) {
+      const delta = attendanceDeltaMinutes(instant, next.startAt);
+      if (delta !== null) {
+        candidates.push({
+          ...next,
+          selectionKind: "UPCOMING",
+          attendanceStatus: "EARLY",
+          attendanceDeltaMinutes: delta,
+        });
+      }
+    }
+  }
+  return candidates;
+}
+
+/** Signed whole minutes: negative is early, positive is late. */
+export function attendanceDeltaMinutes(actualStartedAt: Date | string, scheduledStartAt: Date | string) {
+  const actual = new Date(actualStartedAt).getTime();
+  const scheduled = new Date(scheduledStartAt).getTime();
+  if (!Number.isFinite(actual) || !Number.isFinite(scheduled)) return null;
+  const difference = (actual - scheduled) / 60_000;
+  if (difference === 0) return 0;
+  return difference > 0 ? Math.ceil(difference) : Math.floor(difference);
+}
+
+export function attendanceStatusAt(
+  actualStartedAt: Date | string,
+  scheduledStartAt: Date | string,
+  graceMinutes = ATTENDANCE_ON_TIME_GRACE_MINUTES,
+): AttendanceStatus | null {
+  const actual = new Date(actualStartedAt).getTime();
+  const scheduled = new Date(scheduledStartAt).getTime();
+  if (!Number.isFinite(actual) || !Number.isFinite(scheduled)) return null;
+  if (actual < scheduled) return "EARLY";
+  return actual <= scheduled + Math.max(0, graceMinutes) * 60_000 ? "ON_TIME" : "LATE";
+}
+
 export function shiftsOverlap(
   firstDate: string,
   firstStart: string,
@@ -151,29 +300,8 @@ export function shiftsOverlap(
 }
 
 /**
- * The employee gets a full 60-minute grace period after the scheduled end. Once
- * that period has been exceeded, attendance is split at the scheduled end itself so
- * the old and new sessions remain continuous without overlapping.
- */
-export function shouldRollOverShift(
-  scheduledEndAt: string,
-  now: Date | string = new Date(),
-  graceMinutes = 60,
-) {
-  const end = new Date(scheduledEndAt).getTime();
-  const current = typeof now === "string" ? new Date(now).getTime() : now.getTime();
-  return Number.isFinite(end)
-    && Number.isFinite(current)
-    && Number.isFinite(graceMinutes)
-    && graceMinutes >= 0
-    && current > end + graceMinutes * 60_000;
-}
-
-/**
- * Find the next configured shift occurrence at or after an attendance split.
- * The actual next session may start earlier than its scheduled start when
- * configured shifts have a gap; its `started_at` is deliberately kept at the
- * split boundary by the caller to preserve continuous paid time.
+ * Find the next configured shift occurrence at or after an instant. This is
+ * used to preview an upcoming clock-in without changing an ACTIVE session.
  */
 export function nextShiftOccurrence(
   boundaryAt: string,

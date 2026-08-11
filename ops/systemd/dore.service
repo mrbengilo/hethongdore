@@ -1,0 +1,41 @@
+[Unit]
+Description=DORE store management web application
+Documentation=file:/opt/dore/current/ops/README.md
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/opt/dore/current/server.js
+
+[Service]
+Type=simple
+User=dore
+Group=dore
+WorkingDirectory=/opt/dore/current
+EnvironmentFile=/etc/dore/dore.env
+ExecStart=/usr/local/bin/node /opt/dore/current/server.js
+Restart=on-failure
+RestartSec=3s
+TimeoutStartSec=45s
+TimeoutStopSec=30s
+KillSignal=SIGTERM
+UMask=0027
+
+# The release tree and operating system stay read-only to the application.
+ReadWritePaths=/var/lib/dore
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectControlGroups=true
+ProtectHome=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectSystem=strict
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+TasksMax=256
+
+[Install]
+WantedBy=multi-user.target

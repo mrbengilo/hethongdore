@@ -2,15 +2,19 @@
 
 /* eslint-disable @next/next/no-img-element -- Ảnh CCCD dùng URL xem trước cục bộ hoặc API riêng tư, không phù hợp bộ tối ưu ảnh công khai. */
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { Edit3, IdCard, Plus, Power, Save, Search, Upload, UserRound, X } from "lucide-react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Edit3, Eye, EyeOff, IdCard, Plus, Power, Save, Search, Upload, UserRound, X } from "lucide-react";
 import { formatVndInput, parseVndInput } from "../lib/format";
+import styles from "./EmployeeManagement.module.css";
+import { useAccessibleModal } from "./useAccessibleModal";
 
 type EmployeeStore = {
   id: string;
   name: string;
   status?: string;
 };
+
+type EmployeeStatus = "ACTIVE" | "SUSPENDED" | "TERMINATED";
 
 type Employee = {
   id: string;
@@ -24,8 +28,10 @@ type Employee = {
   age: number;
   position: string;
   hourlyRate: number;
+  tiktokAllowance: number;
   username: string;
-  status: "ACTIVE" | "INACTIVE";
+  status: EmployeeStatus;
+  lifecycleVersion: number;
   cccdImageKey: string;
   cccdImageName: string;
 };
@@ -40,9 +46,10 @@ type EmployeeForm = {
   age: string;
   position: string;
   hourlyRate: string;
+  tiktokAllowance: string;
   username: string;
   password: string;
-  status: "ACTIVE" | "INACTIVE";
+  status: EmployeeStatus;
   cccdImageKey: string;
   cccdImageName: string;
 };
@@ -61,6 +68,7 @@ function emptyEmployeeForm(): EmployeeForm {
     age: "",
     position: "Nhân viên bán hàng",
     hourlyRate: "20,000",
+    tiktokAllowance: "25,000",
     username: "",
     password: "",
     status: "ACTIVE",
@@ -89,8 +97,12 @@ function normalizeEmployee(value: unknown): Employee | null {
     age: Number(row.age ?? 0),
     position: String(row.position ?? ""),
     hourlyRate: Number(row.hourly_rate ?? row.hourlyRate ?? 0),
+    tiktokAllowance: Number(row.tiktok_allowance ?? row.tiktokAllowance ?? 25_000),
     username: String(row.username ?? ""),
-    status: row.status === "INACTIVE" ? "INACTIVE" : "ACTIVE",
+    status: row.status === "SUSPENDED" ? "SUSPENDED"
+      : row.status === "TERMINATED" || row.status === "INACTIVE" ? "TERMINATED"
+        : "ACTIVE",
+    lifecycleVersion: Number(row.lifecycle_version ?? row.lifecycleVersion ?? 0),
     cccdImageKey: String(row.cccd_image_key ?? row.cccdImageKey ?? ""),
     cccdImageName: String(row.cccd_image_name ?? row.cccdImageName ?? ""),
   };
@@ -109,6 +121,24 @@ function fullAddress(employee: Pick<Employee, "province" | "ward" | "addressLine
   return [employee.addressLine, employee.ward, employee.province].filter(Boolean).join(", ") || "—";
 }
 
+function employeeStatusLabel(status: EmployeeStatus) {
+  if (status === "SUSPENDED") return "Tạm ngưng";
+  if (status === "TERMINATED") return "Đã nghỉ việc";
+  return "Đang làm việc";
+}
+
+function employeeStatusStyle(status: EmployeeStatus) {
+  if (status === "SUSPENDED") return styles.statusSuspended;
+  if (status === "TERMINATED") return styles.statusTerminated;
+  return styles.statusActive;
+}
+
+function employeeStatusControlStyle(status: EmployeeStatus) {
+  if (status === "SUSPENDED") return styles.statusControlSuspended;
+  if (status === "TERMINATED") return styles.statusControlTerminated;
+  return "";
+}
+
 function EmployeePhoto({ employee, size = 46 }: { employee: Employee; size?: number }) {
   if (!employee.cccdImageKey) return <span>Chưa có</span>;
   return <a href={imageUrl(employee.cccdImageKey)} target="_blank" rel="noreferrer" title={employee.cccdImageName || "Xem ảnh CCCD"}>
@@ -125,7 +155,7 @@ function EmployeePhoto({ employee, size = 46 }: { employee: Employee; size?: num
 export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "INACTIVE">("ALL");
+  const [statusFilter, setStatusFilter] = useState<"ALL" | EmployeeStatus>("ALL");
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Employee | null>(null);
   const [form, setForm] = useState<EmployeeForm>(emptyEmployeeForm);
@@ -139,7 +169,21 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
   const [listError, setListError] = useState("");
   const [formError, setFormError] = useState("");
   const [success, setSuccess] = useState("");
+  const [passwordVisible, setPasswordVisible] = useState(false);
+  const drawerRef = useRef<HTMLElement | null>(null);
+  const drawerInitialFocusRef = useRef<HTMLInputElement | null>(null);
+  const drawerTriggerRef = useRef<HTMLElement | null>(null);
   const inactive = store.status === "INACTIVE";
+
+  useAccessibleModal({
+    open,
+    rootRef: drawerRef,
+    dialogRef: drawerRef,
+    initialFocusRef: drawerInitialFocusRef,
+    returnFocusRef: drawerTriggerRef,
+    dismissDisabled: saving,
+    onDismiss: () => setOpen(false),
+  });
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -178,6 +222,7 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
   }, [employees, query, statusFilter]);
 
   function begin(employee?: Employee) {
+    drawerTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setEditing(employee ?? null);
     setForm(employee ? {
       code: employee.code,
@@ -189,6 +234,7 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
       age: employee.age ? String(employee.age) : "",
       position: employee.position,
       hourlyRate: formatVndInput(employee.hourlyRate),
+      tiktokAllowance: formatVndInput(employee.tiktokAllowance),
       username: employee.username,
       password: "",
       status: employee.status,
@@ -200,6 +246,7 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
     setFormError("");
     setSuccess("");
     setSavingLabel("");
+    setPasswordVisible(false);
     setOpen(true);
   }
 
@@ -234,6 +281,8 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
     if (!Number.isInteger(age) || age < 15 || age > 100) return "Tuổi nhân viên phải là số nguyên từ 15 đến 100.";
     const hourlyRate = parseVndInput(form.hourlyRate);
     if (!Number.isSafeInteger(hourlyRate) || hourlyRate <= 0) return "Lương theo giờ phải là số nguyên dương.";
+    const tiktokAllowance = parseVndInput(form.tiktokAllowance);
+    if (!Number.isSafeInteger(tiktokAllowance) || tiktokAllowance < 0) return "Phụ cấp TikTok phải là số nguyên từ 0 đồng trở lên.";
     if (!form.position.trim()) return "Vui lòng chọn chức vụ.";
     if (!form.username.trim()) return "Vui lòng nhập tên đăng nhập.";
     if (!editing && form.password.length < 6) return "Mật khẩu phải có ít nhất 6 ký tự.";
@@ -284,10 +333,12 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
           age: Number(form.age),
           position: form.position.trim(),
           hourlyRate: parseVndInput(form.hourlyRate),
+          tiktokAllowance: parseVndInput(form.tiktokAllowance),
           username: form.username.trim(),
           password: form.password,
           cccdImageKey: image.key,
           cccdImageName: image.name,
+          expectedVersion: editing?.lifecycleVersion,
         }),
       });
       const result = await response.json().catch(() => ({})) as { message?: string; storeId?: string };
@@ -305,11 +356,14 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
     }
   }
 
-  async function setEmployeeStatus(employee: Employee) {
-    const nextStatus: Employee["status"] = employee.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
-    if (nextStatus === "INACTIVE" && !window.confirm(
-      `Chuyển ${employee.name} sang ngưng làm việc? Tài khoản sẽ bị khóa ngay và quản lý cần chốt lương riêng cho nhân viên này.`,
-    )) return;
+  async function setEmployeeStatus(employee: Employee, nextStatus: EmployeeStatus) {
+    if (nextStatus === employee.status) return;
+    const warning = nextStatus === "ACTIVE"
+      ? `Chuyển ${employee.name} sang “Đang làm việc” và cho phép đăng nhập lại?`
+      : nextStatus === "SUSPENDED"
+        ? `Tạm ngưng ${employee.name}? Toàn bộ phiên đăng nhập sẽ bị thu hồi ngay; ca, đơn hàng và lịch sử lương vẫn được giữ nguyên.`
+        : `Chuyển ${employee.name} sang “Đã nghỉ việc”? Toàn bộ phiên đăng nhập sẽ bị thu hồi ngay; ca, đơn hàng và lịch sử lương vẫn được giữ nguyên.`;
+    if (!window.confirm(warning)) return;
     setStatusBusyId(employee.id);
     setListError("");
     setSuccess("");
@@ -317,7 +371,14 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
       const response = await fetch("/api/employees", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "SET_STATUS", id: employee.id, storeId: store.id, status: nextStatus }),
+        body: JSON.stringify({
+          action: "SET_STATUS",
+          id: employee.id,
+          storeId: store.id,
+          status: nextStatus,
+          expectedVersion: employee.lifecycleVersion,
+          reason: `Quản lý chuyển trạng thái sang ${employeeStatusLabel(nextStatus)}`,
+        }),
       });
       const result = await response.json().catch(() => ({})) as { message?: string };
       if (!response.ok) throw new Error(result.message ?? "Không thể cập nhật trạng thái nhân viên.");
@@ -343,13 +404,14 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
         <select aria-label="Lọc trạng thái" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}>
           <option value="ALL">Tất cả trạng thái</option>
           <option value="ACTIVE">Đang làm việc</option>
-          <option value="INACTIVE">Ngưng làm việc</option>
+          <option value="SUSPENDED">Tạm ngưng</option>
+          <option value="TERMINATED">Đã nghỉ việc</option>
         </select>
         <button type="button" className="primary-button employee-add-button" disabled={inactive} onClick={() => begin()}><Plus size={17}/> THÊM NHÂN VIÊN</button>
       </div>
     </div>
 
-    {inactive && <div className="form-message">Cửa hàng đang ngưng hoạt động. Bạn vẫn xem hồ sơ nhưng không thể thêm hoặc sửa nhân viên.</div>}
+    {inactive && <div className="form-message">Cửa hàng đang ngưng hoạt động. Bạn vẫn có thể cập nhật trạng thái làm việc; thao tác thêm và sửa hồ sơ đang tạm khóa.</div>}
     {listError && <div className="form-message">{listError}</div>}
     {success && !open && <div className="success-banner">{success}</div>}
 
@@ -357,13 +419,13 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
       <section className="table-card">
         <div className="table-head"><div><h2>Danh sách nhân viên</h2><p>{filteredEmployees.length} / {employees.length} nhân viên</p></div></div>
         <div className="data-table-wrap">
-          <table className="data-table employee-management-table" style={{ minWidth: 1510 }}>
+          <table className="data-table employee-management-table" style={{ minWidth: 1680 }}>
             <thead><tr>
               <th>Mã NV</th><th>Nhân viên</th><th>SĐT</th><th>Địa chỉ</th><th>Tuổi</th>
-              <th>Chức vụ</th><th>Lương/giờ</th><th>Username</th><th>Ảnh CCCD</th>
+              <th>Chức vụ</th><th>Lương/giờ</th><th>Phụ cấp TikTok</th><th>Username</th><th>Ảnh CCCD</th>
               <th>Trạng thái</th><th>Thao tác</th>
             </tr></thead>
-            <tbody>{loading ? <tr><td colSpan={11} className="empty-cell">Đang tải danh sách nhân viên...</td></tr> : filteredEmployees.length === 0 ? <tr><td colSpan={11} className="empty-cell">Không có nhân viên phù hợp.</td></tr> : filteredEmployees.map((employee) => <tr key={employee.id}>
+            <tbody>{loading ? <tr><td colSpan={12} className="empty-cell">Đang tải danh sách nhân viên...</td></tr> : filteredEmployees.length === 0 ? <tr><td colSpan={12} className="empty-cell">Không có nhân viên phù hợp.</td></tr> : filteredEmployees.map((employee) => <tr key={employee.id}>
               <td><b>{employee.code}</b></td>
               <td><div style={{ display: "flex", alignItems: "center", gap: 9 }}><i style={{ width: 35, height: 35, display: "grid", placeItems: "center", borderRadius: "50%", background: "#e7f5ea", color: "#087d36" }}><UserRound size={18}/></i><b>{employee.name}</b></div></td>
               <td>{employee.phone}</td>
@@ -371,11 +433,29 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
               <td>{employee.age || "—"}</td>
               <td>{employee.position}</td>
               <td><b>{formatMoney(employee.hourlyRate)}</b></td>
+              <td><b className="employee-tiktok-allowance">{formatMoney(employee.tiktokAllowance)}</b></td>
               <td>{employee.username || "—"}</td>
               <td><EmployeePhoto employee={employee}/></td>
-              <td><span className={`status-pill ${employee.status === "INACTIVE" ? "inactive" : ""}`}>● {employee.status === "ACTIVE" ? "Đang làm việc" : "Ngưng làm việc"}</span>{employee.status === "INACTIVE" && <small className="employee-payroll-reminder">Cần chốt lương riêng</small>}</td>
+              <td>
+                <span className={`status-pill ${employeeStatusStyle(employee.status)}`}>● {employeeStatusLabel(employee.status)}</span>
+                {employee.status === "SUSPENDED" && <small className={`employee-payroll-reminder ${styles.loginSuspendedNote}`}>Đã khóa đăng nhập</small>}
+                {employee.status === "TERMINATED" && <small className="employee-payroll-reminder">Lịch sử lương được giữ nguyên</small>}
+              </td>
               <td><div className="employee-row-actions">
-                <button type="button" disabled={inactive || Boolean(statusBusyId)} onClick={() => void setEmployeeStatus(employee)} className={`employee-status-button ${employee.status === "INACTIVE" ? "activate" : "deactivate"}`} aria-label={`${employee.status === "ACTIVE" ? "Ngưng làm việc" : "Đang làm việc lại"} cho ${employee.name}`}><Power size={15}/>{statusBusyId === employee.id ? "Đang lưu…" : employee.status === "ACTIVE" ? "Ngưng làm việc" : "Đang làm việc"}</button>
+                <label className={`${styles.statusControl} ${employeeStatusControlStyle(employee.status)}`}>
+                  <Power size={15} aria-hidden="true"/>
+                  <span className="sr-only">Trạng thái của {employee.name}</span>
+                  <select
+                    aria-label={`Trạng thái làm việc của ${employee.name}`}
+                    disabled={Boolean(statusBusyId)}
+                    value={employee.status}
+                    onChange={(event) => void setEmployeeStatus(employee, event.target.value as EmployeeStatus)}
+                  >
+                    <option value="ACTIVE">Đang làm việc</option>
+                    <option value="SUSPENDED">Tạm ngưng</option>
+                    <option value="TERMINATED">Đã nghỉ việc</option>
+                  </select>
+                </label>
                 <button type="button" disabled={inactive || Boolean(statusBusyId)} onClick={() => begin(employee)} aria-label={`Sửa ${employee.name}`}><Edit3 size={16}/></button>
               </div></td>
             </tr>)}</tbody>
@@ -383,22 +463,35 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
         </div>
       </section>
 
-      {open && <aside className="employee-drawer">
+      {open && <aside ref={drawerRef} className="employee-drawer" role="dialog" aria-modal="true" aria-labelledby="employee-drawer-title" tabIndex={-1}>
         <form onSubmit={saveEmployee}>
           <div className="drawer-title">
-            <div><h2>{editing ? "Cập nhật nhân viên" : "Thêm nhân viên"}</h2><span>{store.name}</span></div>
-            <button type="button" disabled={saving} onClick={() => setOpen(false)}><X size={19}/></button>
+            <div><h2 id="employee-drawer-title">{editing ? "Cập nhật nhân viên" : "Thêm nhân viên"}</h2><span>{store.name}</span></div>
+            <button type="button" aria-label="Đóng biểu mẫu nhân viên" disabled={saving} onClick={() => setOpen(false)}><X size={19}/></button>
           </div>
 
           <fieldset disabled={saving || inactive} style={{ border: 0, margin: 0, padding: 0 }}>
             <h3>Thông tin nhân viên</h3>
             <div className="form-grid two">
-              <label>Mã nhân viên *<input required value={form.code} onChange={(event) => updateForm("code", event.target.value)} placeholder="NV001"/></label>
+              <label>Mã nhân viên *<input ref={drawerInitialFocusRef} required value={form.code} onChange={(event) => updateForm("code", event.target.value)} placeholder="NV001"/></label>
               <label>Tên nhân viên *<input required value={form.name} onChange={(event) => updateForm("name", event.target.value)} placeholder="Họ và tên"/></label>
               <label>Số điện thoại *<input required inputMode="tel" value={form.phone} onChange={(event) => updateForm("phone", event.target.value)} placeholder="Số điện thoại"/></label>
               <label>Tuổi *<input type="number" min="15" max="100" step="1" required value={form.age} onChange={(event) => updateForm("age", event.target.value)}/></label>
               <label>Chức vụ *<select value={form.position} onChange={(event) => updateForm("position", event.target.value)}><option>Nhân viên bán hàng</option><option>Thu ngân</option><option>Kho</option><option>Quản lý ca</option></select></label>
               <label>Lương theo giờ *<input type="text" inputMode="numeric" required value={form.hourlyRate} onChange={(event) => updateForm("hourlyRate", formatVndInput(event.target.value))} placeholder="20,000"/><small>{formatMoney(parseVndInput(form.hourlyRate))}/giờ</small></label>
+              <label className="employee-tiktok-field">
+                Phụ cấp TikTok
+                <input
+                  id="employee-tiktok-allowance"
+                  type="text"
+                  inputMode="numeric"
+                  aria-describedby="employee-tiktok-allowance-help"
+                  value={form.tiktokAllowance}
+                  onChange={(event) => updateForm("tiktokAllowance", formatVndInput(event.target.value))}
+                  placeholder="25,000"
+                />
+                <small id="employee-tiktok-allowance-help">{formatMoney(parseVndInput(form.tiktokAllowance))} · áp dụng riêng cho mỗi ca có TikTok của nhân viên này</small>
+              </label>
             </div>
 
             <h3>Địa chỉ</h3>
@@ -417,8 +510,30 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
 
             <h3>Tài khoản đăng nhập</h3>
             <label>Tên đăng nhập *<input required autoComplete="off" value={form.username} onChange={(event) => updateForm("username", event.target.value)} placeholder="Tên đăng nhập"/></label>
-            <label>{editing ? "Mật khẩu mới (để trống nếu giữ nguyên)" : "Mật khẩu *"}<input type="password" minLength={6} required={!editing} autoComplete="new-password" value={form.password} onChange={(event) => updateForm("password", event.target.value)}/></label>
-            {editing && <div className="employee-status-edit-note"><b>Trạng thái: {form.status === "ACTIVE" ? "Đang làm việc" : "Ngưng làm việc"}</b><small>Dùng nút trạng thái tại danh sách nhân viên để khóa hoặc mở lại tài khoản.</small></div>}
+            <div className="employee-password-control">
+              <label htmlFor="employee-account-password">{editing ? "Mật khẩu mới (để trống nếu giữ nguyên)" : "Mật khẩu *"}</label>
+              <div className="employee-password-field">
+                <input
+                  id="employee-account-password"
+                  type={passwordVisible ? "text" : "password"}
+                  minLength={6}
+                  required={!editing}
+                  autoComplete="new-password"
+                  value={form.password}
+                  onChange={(event) => updateForm("password", event.target.value)}
+                />
+                <button
+                  type="button"
+                  aria-label={passwordVisible ? "Ẩn mật khẩu nhân viên" : "Hiện mật khẩu nhân viên"}
+                  aria-pressed={passwordVisible}
+                  title={passwordVisible ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+                  onClick={() => setPasswordVisible((current) => !current)}
+                >
+                  {passwordVisible ? <EyeOff size={18} aria-hidden="true"/> : <Eye size={18} aria-hidden="true"/>}
+                </button>
+              </div>
+            </div>
+            {editing && <div className="employee-status-edit-note"><b>Trạng thái: {employeeStatusLabel(form.status)}</b><small>Dùng ô trạng thái tại danh sách nhân viên để đổi quyền đăng nhập. Lịch sử ca, đơn hàng và lương không bị thay đổi.</small></div>}
           </fieldset>
 
           {formError && <div className="form-message">{formError}</div>}

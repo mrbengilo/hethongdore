@@ -264,6 +264,22 @@ export function localPeriod(now = new Date()) {
 }
 
 /**
+ * The payroll ledger can start closing at 00:00 Vietnam time on the final
+ * calendar day of its month. Keeping this calendar rule here makes the API and
+ * the manager UI agree across leap years and year boundaries.
+ */
+export function payrollPeriodClosingDate(period: string) {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period)) throw new Error("Kỳ lương không hợp lệ.");
+  const [year, month] = period.split("-").map(Number);
+  const day = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return `${period}-${String(day).padStart(2, "0")}`;
+}
+
+export function canClosePayrollPeriod(period: string, now = new Date()) {
+  return localDate(now) >= payrollPeriodClosingDate(period);
+}
+
+/**
  * Assign a shift to exactly one accounting day. New sessions use the persisted
  * schedule occurrence (`work_date`); legacy rows fall back to their local
  * start date so an overnight completion cannot move between payroll periods.

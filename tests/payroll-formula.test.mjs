@@ -210,3 +210,19 @@ test("mid-month offboarding freezes deterministic pay but defers KPI until perio
   assert.equal(employeePayWithKpi(lockedComponents, 0), 2_425_000);
   assert.equal(employeePayWithKpi(lockedComponents, 350_000), 2_775_000);
 });
+
+test("manual allowance and bonus remain explicit in preview and closing pay", async () => {
+  const { employeePayWithKpi, payrollAdjustmentTotals } = await payrollModule();
+  const adjustments = payrollAdjustmentTotals([
+    { kind: "ALLOWANCE", amount: 49_000 },
+    { kind: "BONUS", amount: 39_000 },
+  ]);
+
+  assert.deepEqual(adjustments, { manualAllowance: 49_000, manualBonus: 39_000 });
+  assert.equal(employeePayWithKpi({
+    baseSalary: 556,
+    tiktokAllowance: 25_000,
+    supportAllowance: 0,
+    ...adjustments,
+  }, 0), 113_556);
+});

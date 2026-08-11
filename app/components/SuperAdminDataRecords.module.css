@@ -1,0 +1,86 @@
+.panel { border: 1px solid #dbe7df; border-radius: 18px; background: #fff; overflow: hidden; }
+.header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 20px 22px 14px; border-bottom: 1px solid #e7eee9; }
+.header h2 { margin: 0 0 5px; color: #075b35; font-size: 22px; }
+.header p { margin: 0; color: #66756d; max-width: 920px; }
+.refresh, .tabs button, .rowActions button, .pagination button, .dialog button { min-height: 44px; border: 1px solid #cbd9d0; border-radius: 10px; background: #fff; color: #175a3b; font-weight: 750; cursor: pointer; }
+.refresh { display: inline-flex; align-items: center; gap: 7px; padding: 0 14px; white-space: nowrap; }
+.tabs { display: flex; gap: 8px; padding: 16px 22px 0; }
+.tabs button { padding: 0 17px; }
+.tabs .activeTab { border-color: #087a43; background: #e9f7ee; color: #056d3a; }
+.filters { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 12px; padding: 15px 22px; }
+.filters label, .fullLabel, .formGrid label { display: grid; gap: 6px; color: #22543d; font-size: 13px; font-weight: 750; }
+.pickerField { display: grid; gap: 6px; color: #22543d; font-size: 13px; font-weight: 750; }
+.pickerField > label { width: 100%; min-width: 0; }
+.filters input, .filters select, .fullLabel input, .fullLabel textarea, .formGrid input, .formGrid select { width: 100%; min-height: 44px; border: 1px solid #ccd9d1; border-radius: 10px; padding: 0 11px; background: #fff; color: #12261b; font: inherit; }
+.fullLabel textarea { padding-block: 10px; resize: vertical; }
+.search > span:last-child { display: flex; align-items: center; gap: 7px; min-height: 44px; border: 1px solid #ccd9d1; border-radius: 10px; padding-inline: 11px; }
+.search input { min-height: 40px; border: 0; padding: 0; outline: 0; }
+.tableWrap { overflow-x: auto; border-top: 1px solid #edf2ee; }
+.table { width: 100%; border-collapse: collapse; min-width: 1080px; }
+.table th, .table td { padding: 12px; border-bottom: 1px solid #e8eee9; text-align: left; vertical-align: top; font-size: 13px; }
+.table th { background: #f2f8f4; color: #1f6745; white-space: nowrap; }
+.table td b, .table td small { display: block; }
+.table td small { margin-top: 4px; color: #68776f; }
+.status { display: inline-flex; min-height: 28px; align-items: center; padding: 0 9px; border-radius: 999px; background: #edf8f1; color: #08713e; font-weight: 750; white-space: nowrap; }
+.status.early { border: 1px solid #addfbb; background: #e8f8ed; color: #087333; }
+.status.onTime { border: 1px solid #accbed; background: #e9f3ff; color: #1769d7; }
+.status.late { border: 1px solid #f0bbb5; background: #fff0ee; color: #c43b2d; }
+.status.unknown { border: 1px solid #d7dcda; background: #f1f3f2; color: #68736d; }
+.rowActions { display: flex; gap: 7px; }
+.rowActions button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-width: 78px; padding: 0 10px; }
+.rowActions .delete { color: #aa2525; border-color: #e6bcbc; }
+.rowActions button:disabled, .refresh:disabled, .pagination button:disabled, .dialog button:disabled { cursor: not-allowed; opacity: .48; }
+.pagination { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 22px; color: #64746b; }
+.pagination div { display: flex; gap: 7px; }
+.pagination button { width: 44px; padding: 0; }
+.empty { padding: 34px 20px; text-align: center; color: #718078; }
+.error, .message { margin: 0 22px 15px; padding: 12px 14px; border-radius: 10px; }
+.error { background: #fff0f0; color: #a31919; }
+.message { background: #eef8f1; color: #086a3a; }
+.backdrop { position: fixed; inset: 0; z-index: 1200; display: grid; place-items: center; padding: 18px; background: rgb(0 25 14 / .52); }
+.dialog { width: min(620px, 100%); max-height: calc(100dvh - 36px); overflow-y: auto; border-radius: 18px; background: #fff; padding: 20px; box-shadow: 0 20px 55px rgb(0 0 0 / .22); }
+.dialog header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.dialog h3 { margin: 0; color: #075b35; font-size: 21px; outline: none; }
+.dialog header button { width: 44px; padding: 0; }
+.dialog > p { color: #53685d; }
+.formGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-block: 14px; }
+.formHelp { grid-column: 1 / -1; color: #5e6e65; font-size: 12px; line-height: 1.5; }
+.fullLabel { margin-top: 14px; }
+.fullLabel small { color: #6d7972; font-weight: 500; }
+.dangerNote { margin-block: 14px; padding: 13px; border: 1px solid #efc0c0; border-radius: 11px; background: #fff6f6; color: #772323; }
+.dialogActions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 18px; }
+.dialogActions button { padding: 0 18px; }
+.dialogActions .confirmSave { border-color: #087a43; background: #078747; color: #fff; }
+.dialogActions .confirmDelete { border-color: #b51f1f; background: #c52b2b; color: #fff; }
+
+@media (max-width: 760px) {
+  .header { padding: 17px 15px 13px; }
+  .header h2 { font-size: 19px; }
+  .header p { font-size: 13px; }
+  .refresh { min-width: 44px; padding: 0 10px; font-size: 0; }
+  .refresh svg { width: 18px; height: 18px; }
+  .tabs { padding: 13px 15px 0; }
+  .tabs button { flex: 1; padding: 0 9px; font-size: 13px; }
+  .filters { grid-template-columns: 1fr 1fr; padding: 13px 15px; }
+  .tableWrap { overflow: visible; padding: 0 15px; }
+  .table { min-width: 0; display: block; }
+  .table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .table tbody { display: grid; gap: 12px; }
+  .table tr { display: block; overflow: hidden; border: 1px solid #dfe9e2; border-radius: 13px; }
+  .table td { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 10px; padding: 10px 12px; border-bottom: 1px solid #edf2ee; overflow-wrap: anywhere; }
+  .table td::before { content: attr(data-label); color: #276144; font-weight: 800; }
+  .table td:last-child { border-bottom: 0; }
+  .rowActions { width: 100%; }
+  .rowActions button { flex: 1; }
+  .pagination { padding: 14px 15px; }
+  .error, .message { margin-inline: 15px; }
+  .dialog { padding: 17px; }
+}
+
+@media (max-width: 430px) {
+  .filters { grid-template-columns: 1fr; }
+  .table td { grid-template-columns: 96px minmax(0, 1fr); }
+  .formGrid { grid-template-columns: 1fr; }
+  .dialogActions { flex-direction: column-reverse; }
+  .dialogActions button { width: 100%; }
+}

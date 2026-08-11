@@ -16,6 +16,11 @@ import {
 } from "../../lib/finance";
 import { getSessionUser, json } from "../_lib/auth";
 import {
+  MANAGER_STORE_SCOPE_MESSAGE,
+  managerHasGlobalStoreAccess,
+  resolveManagerStoreScope,
+} from "../_lib/manager-scope";
+import {
   storeDateRangeFinance,
   type StoreDateRangeFinance,
 } from "../_lib/store-finance";
@@ -351,24 +356,36 @@ export async function GET(request: Request) {
   }
   if (range.to > localDate()) return json({ message: "Không thể xem báo cáo cho ngày trong tương lai." }, 400);
   const previousRange = previousComparableDateRange(range, granularity);
-  const storeId = params.get("storeId") || null;
+  const scope = resolveManagerStoreScope(user, params.get("storeId"));
+  if (!scope.allowed) return json({ message: MANAGER_STORE_SCOPE_MESSAGE }, 403);
+  const storeId = scope.storeId;
+  const globalStoreAccess = managerHasGlobalStoreAccess(user);
   const db = await initDb();
-  const storeOptionsResult = await db.prepare(`
-    SELECT id, name, status, created_at AS createdAt
-    FROM stores WHERE status IN ('ACTIVE', 'INACTIVE') ORDER BY created_at
-  `).all<StoreOption>();
+  const storeOptionsResult = globalStoreAccess
+    ? await db.prepare(`
+      SELECT id, name, status, created_at AS createdAt
+      FROM stores WHERE status IN ('ACTIVE', 'INACTIVE') ORDER BY created_at
+    `).all<StoreOption>()
+    : await db.prepare(`
+      SELECT id, name, status, created_at AS createdAt
+      FROM stores WHERE id = ? AND status IN ('ACTIVE', 'INACTIVE') ORDER BY created_at
+    `).bind(storeId).all<StoreOption>();
   const storeOptions = storeOptionsResult.results;
   if (storeId && !storeOptions.some((store) => store.id === storeId)) {
     return json({ message: "Cửa hàng không tồn tại." }, 404);
   }
   const data = await reportRangeData(db, range, previousRange, granularity, storeId, storeOptions);
-  const historyRows = await db.prepare("SELECT data_json AS dataJson FROM business_records WHERE category = 'DIVIDEND' AND status = 'LOCKED' ORDER BY created_at DESC LIMIT 36")
-    .all<{ dataJson: string }>();
+  const historyRows = globalStoreAccess
+    ? await db.prepare("SELECT data_json AS dataJson FROM business_records WHERE category = 'DIVIDEND' AND status = 'LOCKED' ORDER BY created_at DESC LIMIT 36")
+      .all<{ dataJson: string }>()
+    : { results: [] as Array<{ dataJson: string }> };
   const profitSharingHistory = historyRows.results.flatMap((row) => {
     const item = parseProfitSharing(row.dataJson);
     return item ? [item] : [];
   });
-  const profitSharingPreview = profitSharingSnapshot(range.to.slice(0, 7), data.stores);
+  const profitSharingPreview = globalStoreAccess
+    ? profitSharingSnapshot(range.to.slice(0, 7), data.stores)
+    : null;
   return json({
     ...data,
     period: range.to.slice(0, 7),
@@ -387,7 +404,7 @@ export async function GET(request: Request) {
       monthlyAccrual: "Chi phí cố định được phân bổ theo ngày cửa hàng hoạt động; lương quản lý chỉ ghi nhận một lần vào ngày cuối kỳ sau khi xác nhận đã chi.",
       performanceRewards: "KPI nhân viên và quản lý chỉ được ghi nhận từ ảnh chụp kỳ đã khóa; kỳ chưa khóa có trạng thái PROVISIONAL.",
     },
-    profitSharingMembers: PROFIT_SHARING_MEMBERS,
+    profitSharingMembers: globalStoreAccess ? PROFIT_SHARING_MEMBERS : [],
     profitSharingPreview,
     profitSharingHistory,
     dividendHistory: profitSharingHistory,
@@ -397,6 +414,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const user = await getSessionUser(request);
   if (!user || user.role !== "MANAGER") return json({ message: "Không có quyền chốt chia lợi nhuận." }, 403);
+  if (!managerHasGlobalStoreAccess(user)) return json({ message: MANAGER_STORE_SCOPE_MESSAGE }, 403);
   const body = await request.json().catch(() => ({})) as { action?: string; period?: string };
   const period = body.period ?? "";
   const validAction = body.action === "CLOSE_PROFIT_SHARING" || body.action === "CLOSE_DIVIDEND";

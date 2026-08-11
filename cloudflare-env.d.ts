@@ -1,7 +1,14 @@
 interface D1Result<T = Record<string, unknown>> {
   results: T[];
   success: boolean;
-  meta: { changes?: number; [key: string]: unknown };
+  meta: {
+    changes?: number;
+    duration?: number;
+    last_row_id?: number;
+    rows_read?: number;
+    rows_written?: number;
+    [key: string]: unknown;
+  };
 }
 
 interface D1PreparedStatement {
@@ -37,6 +44,12 @@ interface R2Bucket {
     },
   ): Promise<unknown>;
   get(key: string): Promise<R2ObjectBody | null>;
+  list(options: { prefix: string; cursor?: string; limit?: number }): Promise<{
+    objects: Array<{ key: string }>;
+    truncated: boolean;
+    cursor?: string;
+  }>;
+  delete(keys: string | string[]): Promise<void>;
 }
 
 declare module "cloudflare:workers" {

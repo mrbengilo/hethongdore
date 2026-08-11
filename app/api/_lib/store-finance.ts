@@ -14,6 +14,10 @@ import {
   sumVnd,
 } from "../../lib/finance";
 import { distributeStoreKpiByPolicy } from "../../lib/payroll";
+import {
+  employeeFinancialStatusForPeriod,
+  employeeStatusAtInstantSql,
+} from "./employee-lifecycle";
 
 type Db = Awaited<ReturnType<typeof initDb>>;
 
@@ -27,7 +31,8 @@ type StoreRow = {
 
 type ShiftFinanceRow = {
   employeeId: string;
-  employeeStatus: string;
+  employeeStatusAtPeriodEnd: string;
+  hasLifecycleHistory: number;
   inactivePeriod: string | null;
   lockedEmploymentStatus: string | null;
   durationSeconds: number;
@@ -39,11 +44,6 @@ type ShiftFinanceRow = {
   transferId: string | null;
   supportAllowance: number | null;
 };
-
-function employeeStatusForFinancePeriod(status: string, inactivePeriod: string | null, period: string) {
-  if (status !== "INACTIVE") return "ACTIVE" as const;
-  return !inactivePeriod || inactivePeriod <= period ? "INACTIVE" as const : "ACTIVE" as const;
-}
 
 type RecordRow = { dataJson: string };
 
@@ -130,15 +130,19 @@ export async function storePeriodFinance(db: Db, storeId: string, period: string
   if (!store || !storeExistsInPeriod(store.createdAt, period)) return null;
 
   const { startUtc, endUtc, localStart, localEnd } = periodBoundsUtc(period);
+  const employeeStatusAtPeriodEndSql = employeeStatusAtInstantSql("e");
   const [shiftResult, fixedResult, incidentalResult, inventoryResult, adjustmentResult, snapshotRow, closingRow] = await Promise.all([
     db.prepare(`
       SELECT
         s.employee_id AS employeeId,
-        e.status AS employeeStatus,
+        ${employeeStatusAtPeriodEndSql} AS employeeStatusAtPeriodEnd,
+        EXISTS(SELECT 1 FROM employee_status_history lifecycle_any
+          WHERE lifecycle_any.employee_id = e.id) AS hasLifecycleHistory,
         strftime('%Y-%m', e.inactive_at, '+7 hours') AS inactivePeriod,
         employee_lock.employee_status_at_lock AS lockedEmploymentStatus,
-        CASE WHEN s.duration_seconds > 0 THEN s.duration_seconds
-          ELSE ROUND((julianday(s.ended_at) - julianday(s.started_at)) * 86400, 0) END AS durationSeconds,
+        COALESCE(s.admin_adjusted_duration_seconds,
+          CASE WHEN s.duration_seconds > 0 THEN s.duration_seconds
+            ELSE ROUND((julianday(s.ended_at) - julianday(s.started_at)) * 86400, 0) END) AS durationSeconds,
         COALESCE(s.applied_hourly_rate, e.hourly_rate) AS appliedHourlyRate,
         COALESCE(s.cash_revenue, 0) AS cashRevenue,
         COALESCE(s.transfer_revenue, 0) AS transferRevenue,
@@ -159,8 +163,8 @@ export async function storePeriodFinance(db: Db, storeId: string, period: string
           (NULLIF(s.work_date, '') IS NOT NULL AND s.work_date >= ? AND s.work_date < ?)
           OR (NULLIF(s.work_date, '') IS NULL AND s.started_at >= ? AND s.started_at < ?)
         )
-    `).bind(period, storeId, localStart, localEnd, startUtc, endUtc).all<ShiftFinanceRow>(),
-    db.prepare("SELECT data_json AS dataJson FROM business_records WHERE category = 'CHI_PHI_CO_DINH' AND store_id = ? AND status != 'DELETED' AND json_extract(data_json, '$.period') = ?")
+    `).bind(endUtc, period, storeId, localStart, localEnd, startUtc, endUtc).all<ShiftFinanceRow>(),
+    db.prepare("SELECT data_json AS dataJson FROM business_records WHERE category = 'CHI_PHI_CO_DINH' AND store_id = ? AND status NOT IN ('DELETED', 'VOID') AND json_extract(data_json, '$.period') = ?")
       .bind(storeId, period).all<RecordRow>(),
     db.prepare("SELECT data_json AS dataJson FROM business_records WHERE category = 'DONG_TIEN' AND store_id = ? AND status != 'DELETED' AND (json_extract(data_json, '$.period') = ? OR substr(json_extract(data_json, '$.date'), 1, 7) = ?)")
       .bind(storeId, period, period).all<RecordRow>(),
@@ -192,17 +196,23 @@ export async function storePeriodFinance(db: Db, storeId: string, period: string
     // never contributes hours or headcount to that store's KPI pool.
     if (!row.transferId) {
       secondsByEmployee.set(row.employeeId, (secondsByEmployee.get(row.employeeId) ?? 0) + seconds);
-      const currentKpiState = employeeKpiState.get(row.employeeId) ?? {
-        employmentStatus: row.lockedEmploymentStatus === "INACTIVE"
-          ? "INACTIVE" as const
-          : row.lockedEmploymentStatus === "ACTIVE"
-            ? "ACTIVE" as const
-            : employeeStatusForFinancePeriod(row.employeeStatus, row.inactivePeriod, period),
-        completedShiftCount: 0,
-      };
+      const currentKpiState = employeeKpiState.get(row.employeeId);
+      const lockedEmploymentStatus = row.lockedEmploymentStatus === "INACTIVE"
+        ? "INACTIVE" as const
+        : row.lockedEmploymentStatus === "ACTIVE"
+          ? "ACTIVE" as const
+          : null;
+      const employmentStatus = lockedEmploymentStatus
+        ?? currentKpiState?.employmentStatus
+        ?? employeeFinancialStatusForPeriod(
+          row.employeeStatusAtPeriodEnd,
+          row.hasLifecycleHistory,
+          row.inactivePeriod,
+          period,
+        );
       employeeKpiState.set(row.employeeId, {
-        ...currentKpiState,
-        completedShiftCount: currentKpiState.completedShiftCount + (seconds > 0 ? 1 : 0),
+        employmentStatus,
+        completedShiftCount: (currentKpiState?.completedShiftCount ?? 0) + (seconds > 0 ? 1 : 0),
       });
     }
     if (row.transferId && seconds > 0) supportByTransfer.set(row.transferId, safeVnd(row.supportAllowance));
@@ -435,8 +445,9 @@ export async function storeDateRangeFinance(
   const [shiftResult, recordResult, auditResult, monthlyFinances] = await Promise.all([
     db.prepare(`
       SELECT s.employee_id AS employeeId, s.work_date AS workDate, s.started_at AS startedAt,
-        CASE WHEN s.duration_seconds > 0 THEN s.duration_seconds
-          ELSE ROUND((julianday(s.ended_at) - julianday(s.started_at)) * 86400, 0) END AS durationSeconds,
+        COALESCE(s.admin_adjusted_duration_seconds,
+          CASE WHEN s.duration_seconds > 0 THEN s.duration_seconds
+            ELSE ROUND((julianday(s.ended_at) - julianday(s.started_at)) * 86400, 0) END) AS durationSeconds,
         COALESCE(s.applied_hourly_rate, e.hourly_rate) AS appliedHourlyRate,
         COALESCE(s.cash_revenue, 0) AS cashRevenue,
         COALESCE(s.transfer_revenue, 0) AS transferRevenue,

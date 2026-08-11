@@ -51,7 +51,7 @@ test("contains core role and finance rules", async () => {
   assert.match(login, /15 \* 60 \* 1000/u);
   assert.match(orders, /currentShift/u);
   assert.match(orders, /user\.employeeId/u);
-  assert.match(portal, /Quản lý danh sách đơn hàng/u);
+  assert.match(portal, /StoreOrdersManagement/u);
   assert.match(portal, /Tìm kiếm mã đơn hàng, tên khách hàng, SĐT/u);
   assert.match(portal, /THÊM ĐƠN HÀNG MỚI/u);
   assert.match(portal, /Xuất Excel/u);
@@ -207,7 +207,7 @@ test("provides reference-style store shift and schedule modules", async () => {
   assert.match(component, /Lịch theo tuần/u);
   assert.match(component, /Theo nhân viên/u);
   assert.match(component, /Chọn ca làm việc/u);
-  assert.match(component, /Chọn ngày, ca, nhân viên và ghi chú trên cùng một màn hình/u);
+  assert.match(component, /Chọn một hoặc nhiều ca, nhân viên và ghi chú trên cùng một màn hình/u);
   assert.match(component, /Chọn nhân viên/u);
   assert.match(component, /shiftsOverlap/u);
   assert.match(component, /startAt: utcRange\.startAt/u);

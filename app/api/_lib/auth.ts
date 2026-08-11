@@ -1,4 +1,7 @@
 import { initDb } from "../../../db/runtime";
+import {
+  addDays, attendanceOccurrenceAt, ATTENDANCE_EARLY_WINDOW_MINUTES, DEFAULT_SHIFT_DEFINITIONS, localDate, shiftUtcRange, type ShiftClockDefinition,
+} from "../../lib/scheduling";
 
 export type SessionUser = {
   id: string;
@@ -13,6 +16,7 @@ export type SessionUser = {
   employeeCode: string | null;
   employeePosition: string | null;
   employeePhone: string | null;
+  employeeTiktokAllowance: number | null;
   activeTransferId: string | null;
   isSupporting: boolean;
   shiftActive: number;
@@ -21,12 +25,94 @@ export type SessionUser = {
   currentShiftName: string | null;
   scheduledStart: string | null;
   scheduledEnd: string | null;
+  isSuperAdmin: number;
 };
 
 type BaseSessionUser = Omit<SessionUser, "storeId" | "storeName" | "activeTransferId" | "isSupporting" | "currentShiftName" | "scheduledStart" | "scheduledEnd"> & {
   employeeStatus: string | null;
   homeStoreStatus: string | null;
 };
+
+type TransferCandidate = {
+  id: string;
+  targetStoreId: string;
+  shiftsJson: string;
+};
+
+type CurrentTransferShift = {
+  name: string;
+  start: string;
+};
+
+export function transferShiftAllows(shiftsJson: string, currentShiftName: string, currentShiftStart: string) {
+  let allowed: string[] = [];
+  try {
+    const parsed = JSON.parse(shiftsJson) as unknown;
+    allowed = Array.isArray(parsed) ? parsed.map((value) => String(value).trim()).filter(Boolean) : [];
+  } catch {
+    allowed = [];
+  }
+  if (allowed.includes("Cả ngày") || allowed.includes(currentShiftName)) return true;
+
+  const numbered = currentShiftName.match(/(?:^|\s)([1-3])(?:\s|$)/u)?.[1];
+  const hour = Number(currentShiftStart.split(":")[0]);
+  const legacyLabel = numbered === "1" ? "Ca sáng"
+    : numbered === "2" ? "Ca chiều"
+      : numbered === "3" ? "Ca tối"
+        : Number.isFinite(hour) && hour < 12 ? "Ca sáng"
+          : Number.isFinite(hour) && hour < 18 ? "Ca chiều"
+            : "Ca tối";
+  return allowed.includes(legacyLabel);
+}
+
+async function currentTransferShift(
+  db: Awaited<ReturnType<typeof initDb>>,
+  storeId: string,
+  employeeId: string,
+  now: Date,
+): Promise<CurrentTransferShift | null> {
+  const workDate = localDate(now);
+  const previousDate = addDays(workDate, -1);
+  const nextDate = addDays(workDate, 1);
+  const nowTime = now.getTime();
+  const schedules = await db.prepare("SELECT data_json AS dataJson FROM business_records WHERE category = 'LICH_PHAN_CA' AND store_id = ? AND status != 'DELETED' ORDER BY updated_at DESC")
+    .bind(storeId).all<{ dataJson: string }>();
+  const assigned = schedules.results.flatMap((row): Array<CurrentTransferShift & { workDate: string; startAt: string; endAt: string }> => {
+    try {
+      const data = JSON.parse(row.dataJson) as { date?: string; employeeIds?: string[]; shiftName?: string; start?: string; end?: string };
+      if (![previousDate, workDate, nextDate].includes(data.date ?? "") || !data.employeeIds?.includes(employeeId) || !data.shiftName || !data.start || !data.end) return [];
+      const range = shiftUtcRange(data.date!, data.start, data.end);
+      return range ? [{ name: data.shiftName, start: data.start, workDate: data.date!, ...range }] : [];
+    } catch {
+      return [];
+    }
+  });
+  const assignedNow = assigned.find((shift) => nowTime >= new Date(shift.startAt).getTime() && nowTime < new Date(shift.endAt).getTime());
+  if (assignedNow) return { name: assignedNow.name, start: assignedNow.start };
+  const assignedEarly = assigned
+    .filter((shift) => {
+      const untilStart = new Date(shift.startAt).getTime() - nowTime;
+      return untilStart >= 0 && untilStart <= ATTENDANCE_EARLY_WINDOW_MINUTES * 60_000;
+    })
+    .sort((left, right) => new Date(left.startAt).getTime() - new Date(right.startAt).getTime())[0];
+  if (assignedEarly) return { name: assignedEarly.name, start: assignedEarly.start };
+  if (assigned.some((shift) => shift.workDate === workDate)) return null;
+
+  const rows = await db.prepare("SELECT title, data_json AS dataJson FROM business_records WHERE category = 'CA_LAM_VIEC' AND store_id = ? AND status != 'DELETED' ORDER BY created_at, id")
+    .bind(storeId).all<{ title: string; dataJson: string }>();
+  const configured = rows.results.flatMap((row): ShiftClockDefinition[] => {
+    try {
+      const data = JSON.parse(row.dataJson) as { start?: string; end?: string };
+      return typeof data.start === "string" && typeof data.end === "string"
+        ? [{ name: row.title, start: data.start, end: data.end }]
+        : [];
+    } catch {
+      return [];
+    }
+  });
+  const occurrence = attendanceOccurrenceAt(now, configured.length > 0 ? configured : DEFAULT_SHIFT_DEFINITIONS);
+  return occurrence ? { name: occurrence.name, start: occurrence.start } : null;
+}
 
 function bytesToBase64(bytes: Uint8Array) {
   let binary = "";
@@ -83,17 +169,43 @@ export function readCookie(request: Request, name: string) {
   return null;
 }
 
+function firstForwardedProtocol(request: Request) {
+  const forwardedProto = request.headers.get("x-forwarded-proto")
+    ?.split(",", 1)[0]
+    ?.trim()
+    .toLowerCase();
+  if (forwardedProto) return forwardedProto;
+  const forwarded = request.headers.get("forwarded") ?? "";
+  return forwarded.match(/(?:^|;)\s*proto=(?:"([^"]+)"|([^;,\s]+))/iu)?.slice(1).find(Boolean)?.toLowerCase();
+}
+
+export function shouldUseSecureSessionCookie(request: Request) {
+  const production = typeof process !== "undefined" && process.env.NODE_ENV === "production";
+  return production
+    || new URL(request.url).protocol === "https:"
+    || firstForwardedProtocol(request) === "https";
+}
+
+export function sessionCookieHeader(request: Request, token: string, maxAge: number) {
+  const secure = shouldUseSecureSessionCookie(request) ? "; Secure" : "";
+  return `dore_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure}`;
+}
+
 export async function getSessionUser(request: Request): Promise<SessionUser | null> {
   const token = readCookie(request, "dore_session");
   if (!token) return null;
   const db = await initDb();
   const tokenHash = await sha256(token);
-  const row = await db.prepare(`SELECT u.id, u.username, u.role, u.name, u.employee_id AS employeeId, u.store_id AS homeStoreId, hs.name AS homeStoreName, hs.status AS homeStoreStatus, e.code AS employeeCode, e.position AS employeePosition, e.phone AS employeePhone, e.status AS employeeStatus, u.shift_active AS shiftActive, u.current_shift AS currentShift, u.shift_started_at AS shiftStartedAt FROM sessions s JOIN users u ON u.id = s.user_id LEFT JOIN employees e ON e.id = u.employee_id LEFT JOIN stores hs ON hs.id = u.store_id WHERE s.token_hash = ? AND s.expires_at > ?`).bind(tokenHash, Date.now()).first<BaseSessionUser>();
+  const row = await db.prepare(`SELECT u.id, u.username, u.role, u.name, u.employee_id AS employeeId, u.store_id AS homeStoreId, hs.name AS homeStoreName, hs.status AS homeStoreStatus, e.code AS employeeCode, e.position AS employeePosition, e.phone AS employeePhone, e.tiktok_allowance AS employeeTiktokAllowance, e.status AS employeeStatus, u.shift_active AS shiftActive, u.current_shift AS currentShift, u.shift_started_at AS shiftStartedAt, COALESCE(u.is_super_admin, 0) AS isSuperAdmin FROM sessions s JOIN users u ON u.id = s.user_id LEFT JOIN employees e ON e.id = u.employee_id LEFT JOIN stores hs ON hs.id = u.store_id WHERE s.token_hash = ? AND s.expires_at > ?`).bind(tokenHash, Date.now()).first<BaseSessionUser>();
   if (!row) return null;
 
   // Status changes revoke an employee account immediately, including sessions
   // that were issued before the manager disabled the employee.
   if (row.role === "EMPLOYEE" && (row.employeeStatus !== "ACTIVE" || row.homeStoreStatus !== "ACTIVE")) {
+    await db.prepare("DELETE FROM sessions WHERE token_hash = ?").bind(tokenHash).run();
+    return null;
+  }
+  if (row.role === "MANAGER" && Number(row.isSuperAdmin) !== 1 && row.homeStoreId && row.homeStoreStatus === "DELETED") {
     await db.prepare("DELETE FROM sessions WHERE token_hash = ?").bind(tokenHash).run();
     return null;
   }
@@ -104,13 +216,14 @@ export async function getSessionUser(request: Request): Promise<SessionUser | nu
   let currentShiftName: string | null = null;
   let scheduledStart: string | null = null;
   let scheduledEnd: string | null = null;
+  let employeeTiktokAllowance = row.employeeTiktokAllowance;
 
   if (row.role === "EMPLOYEE" && row.employeeId) {
     // A running shift keeps its original store snapshot even if a transfer ends
     // while the employee is still closing the shift.
     const runningShift = row.currentShift
-      ? await db.prepare("SELECT store_id AS storeId, transfer_id AS transferId, shift_name AS shiftName, scheduled_start AS scheduledStart, scheduled_end AS scheduledEnd FROM shift_sessions WHERE shift_code = ? AND employee_id = ? AND status = 'ACTIVE' LIMIT 1")
-        .bind(row.currentShift, row.employeeId).first<{ storeId: string; transferId: string | null; shiftName: string | null; scheduledStart: string | null; scheduledEnd: string | null }>()
+      ? await db.prepare("SELECT store_id AS storeId, transfer_id AS transferId, shift_name AS shiftName, scheduled_start AS scheduledStart, scheduled_end AS scheduledEnd, applied_tiktok_allowance AS appliedTikTokAllowance FROM shift_sessions WHERE shift_code = ? AND employee_id = ? AND status = 'ACTIVE' LIMIT 1")
+        .bind(row.currentShift, row.employeeId).first<{ storeId: string; transferId: string | null; shiftName: string | null; scheduledStart: string | null; scheduledEnd: string | null; appliedTikTokAllowance: number | null }>()
       : null;
     if (runningShift) {
       storeId = runningShift.storeId;
@@ -118,14 +231,26 @@ export async function getSessionUser(request: Request): Promise<SessionUser | nu
       currentShiftName = runningShift.shiftName;
       scheduledStart = runningShift.scheduledStart;
       scheduledEnd = runningShift.scheduledEnd;
+      employeeTiktokAllowance = runningShift.appliedTikTokAllowance ?? employeeTiktokAllowance;
     } else {
-      const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh" }).format(new Date());
-      const transfer = await db.prepare("SELECT id, target_store_id AS targetStoreId FROM employee_transfers WHERE employee_id = ? AND start_date <= ? AND end_date >= ? AND status IN ('SCHEDULED', 'ACTIVE') ORDER BY start_date DESC, created_at DESC LIMIT 1")
-        .bind(row.employeeId, today, today).first<{ id: string; targetStoreId: string }>();
-      if (transfer) {
+      const now = new Date();
+      const today = localDate(now);
+      const candidates = await db.prepare(`SELECT t.id, t.target_store_id AS targetStoreId, t.shifts_json AS shiftsJson
+          FROM employee_transfers t
+          JOIN stores target ON target.id = t.target_store_id AND target.status = 'ACTIVE'
+          WHERE t.employee_id = ? AND t.start_date <= ? AND t.end_date >= ?
+            AND t.status IN ('SCHEDULED', 'ACTIVE')
+          ORDER BY t.start_date DESC, t.created_at DESC`)
+        .bind(row.employeeId, today, today).all<TransferCandidate>();
+      for (const transfer of candidates.results) {
+        const currentShift = await currentTransferShift(db, transfer.targetStoreId, row.employeeId, now);
+        if (!currentShift || !transferShiftAllows(transfer.shiftsJson, currentShift.name, currentShift.start)) continue;
         storeId = transfer.targetStoreId;
         activeTransferId = transfer.id;
-        await db.prepare("UPDATE employee_transfers SET status = 'ACTIVE', updated_at = ? WHERE id = ? AND status = 'SCHEDULED'").bind(new Date().toISOString(), transfer.id).run();
+        await db.prepare(`UPDATE employee_transfers SET status = 'ACTIVE', updated_at = ?
+            WHERE id = ? AND employee_id = ? AND start_date <= ? AND end_date >= ? AND status = 'SCHEDULED'`)
+          .bind(now.toISOString(), transfer.id, row.employeeId, today, today).run();
+        break;
       }
     }
     if (storeId && storeId !== row.homeStoreId) {
@@ -142,6 +267,7 @@ export async function getSessionUser(request: Request): Promise<SessionUser | nu
     currentShiftName,
     scheduledStart,
     scheduledEnd,
+    employeeTiktokAllowance,
   };
 }
 

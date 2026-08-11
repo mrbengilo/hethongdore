@@ -1,0 +1,71 @@
+.statusControl {
+  display: inline-flex;
+  min-width: 154px;
+  min-height: 36px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 8px;
+  border: 1px solid #c8dfcf;
+  border-radius: 9px;
+  background: #f6fbf7;
+  color: #087d36;
+}
+
+.statusControl select {
+  width: 100%;
+  min-height: 32px;
+  padding: 0 22px 0 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.statusControl:focus-within {
+  outline: 3px solid rgb(11 145 63 / 18%);
+  outline-offset: 1px;
+}
+
+.statusControlSuspended {
+  border-color: #f3cf89;
+  background: #fff9e9;
+  color: #9a5b00;
+}
+
+.statusControlTerminated {
+  border-color: #e1c4c4;
+  background: #fff4f3;
+  color: #b42318;
+}
+
+.statusActive {
+  border: 1px solid #b9dfc3;
+  background: #e9f8ed;
+  color: #087d36;
+}
+
+.statusSuspended {
+  border: 1px solid #f1d697;
+  background: #fff7df;
+  color: #9a5b00;
+}
+
+.statusTerminated {
+  border: 1px solid #efc5c2;
+  background: #fff0ef;
+  color: #b42318;
+}
+
+.loginSuspendedNote {
+  color: #9a5b00 !important;
+}
+
+@media (max-width: 700px) {
+  .statusControl {
+    min-width: 138px;
+    min-height: 34px;
+  }
+}

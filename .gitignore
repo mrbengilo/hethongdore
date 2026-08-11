@@ -12,6 +12,11 @@
 
 # testing
 /coverage
+/.qa-*/
+/.codex-dev/
+/.vps-access/
+*.sqlite*
+tsconfig.tsbuildinfo
 
 # next.js
 /.next/

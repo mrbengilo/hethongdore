@@ -142,7 +142,7 @@ export function ReferenceManagerTransfer({ stores }: { stores: ReferenceStore[] 
   useEffect(() => {
     if (!sourceStoreId) return;
     fetch(`/api/employees?storeId=${encodeURIComponent(sourceStoreId)}`).then((response) => response.json()).then((result) => {
-      const next = (result.employees ?? []).filter((item: Employee) => item.status !== "INACTIVE");
+      const next = (result.employees ?? []).filter((item: Employee) => item.status === "ACTIVE");
       setEmployees(next);
       setEmployeeId((current) => next.some((item: Employee) => item.id === current) ? current : next[0]?.id ?? "");
     });

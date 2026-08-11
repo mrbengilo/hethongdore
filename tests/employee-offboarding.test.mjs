@@ -6,9 +6,10 @@ async function source(path) {
   return readFile(new URL(path, import.meta.url), "utf8");
 }
 
-test("employee status changes use one audited endpoint and revoke existing login sessions", async () => {
-  const [employeesApi, auth, login, shiftApi, ui] = await Promise.all([
+test("employee lifecycle changes use one audited transition and revoke login sessions", async () => {
+  const [employeesApi, lifecycle, auth, login, shiftApi, ui] = await Promise.all([
     source("../app/api/employees/route.ts"),
+    source("../app/api/_lib/employee-lifecycle.ts"),
     source("../app/api/_lib/auth.ts"),
     source("../app/api/auth/login/route.ts"),
     source("../app/api/shift/route.ts"),
@@ -16,32 +17,38 @@ test("employee status changes use one audited endpoint and revoke existing login
   ]);
 
   assert.match(employeesApi, /action === "SET_STATUS"/u);
-  assert.match(employeesApi, /DELETE FROM sessions WHERE user_id IN/u);
-  assert.match(employeesApi, /EMPLOYEE_STATUS_CHANGE/u);
-  assert.match(employeesApi, /NOT EXISTS \(SELECT 1 FROM shift_sessions WHERE employee_id = \? AND status = 'ACTIVE'\)/u);
-  assert.match(employeesApi, /affectedRows\(transition\) === 0/u);
-  assert.match(employeesApi, /body\.status !== undefined && body\.status !== existing\.status/u);
+  assert.match(employeesApi, /transitionEmployeeStatus/u);
+  assert.match(lifecycle, /DELETE FROM sessions/u);
+  assert.match(lifecycle, /EMPLOYEE_STATUS_CHANGE/u);
+  assert.match(lifecycle, /lifecycle_version = lifecycle_version \+ 1/u);
+  assert.match(lifecycle, /"ACTIVE", "SUSPENDED", "TERMINATED"/u);
   assert.match(employeesApi, /body\.password !== ""/u);
-  assert.match(employeesApi, /SET status = 'INACTIVE', inactive_at = \?/u);
-  assert.match(employeesApi, /SET status = 'ACTIVE', inactive_at = NULL/u);
-  assert.match(employeesApi, /requiredOffboardingLock/u);
-  assert.match(employeesApi, /trước khi chuyển lại sang đang làm việc/u);
+  assert.doesNotMatch(employeesApi, /requiredOffboardingLock/u);
+  assert.doesNotMatch(employeesApi, /NOT EXISTS \(SELECT 1 FROM shift_sessions WHERE employee_id/u);
+  assert.doesNotMatch(employeesApi, /NOT EXISTS \(SELECT 1 FROM employee_transfers WHERE employee_id/u);
   assert.match(auth, /row\.employeeStatus !== "ACTIVE" \|\| row\.homeStoreStatus !== "ACTIVE"/u);
   assert.match(auth, /DELETE FROM sessions WHERE token_hash = \?/u);
   assert.match(login, /user\.employee_status !== "ACTIVE"/u);
-  assert.match(shiftApi, /EXISTS \(SELECT 1 FROM employees WHERE id = \? AND status = 'ACTIVE'\)/u);
+  assert.match(shiftApi, /EXISTS \(SELECT 1 FROM employees WHERE id = \? AND store_id = \? AND status = 'ACTIVE'\)/u);
   assert.match(ui, /action: "SET_STATUS"/u);
-  assert.match(ui, /Ngưng làm việc/u);
-  assert.doesNotMatch(ui, /<select value=\{form\.status\}/u);
+  assert.match(ui, /value="SUSPENDED"/u);
+  assert.match(ui, /value="TERMINATED"/u);
+  assert.match(ui, /row\.status === "TERMINATED" \|\| row\.status === "INACTIVE" \? "TERMINATED"/u);
+  assert.match(ui, /expectedVersion: editing\?\.lifecycleVersion/u);
+  assert.match(ui, /if \(status === "TERMINATED"\) return "Đã nghỉ việc"/u);
+  assert.doesNotMatch(employeesApi, /tiktok_allowance = CASE[^\n]+status = \?/u);
+  assert.match(employeesApi, /status = \?[\s\S]*COALESCE\(lifecycle_version, 0\) = \?[\s\S]*deleted_at IS NULL/u);
+  assert.match(employeesApi, /e\.status != 'ARCHIVED' AND e\.deleted_at IS NULL/u);
 });
 
 test("individual payroll locks are immutable, idempotent and preserve offboarding snapshots", async () => {
-  const [schema, runtime, migration, payroll, records, ui] = await Promise.all([
+  const [schema, runtime, migration, payroll, records, periodLock, ui] = await Promise.all([
     source("../db/schema.ts"),
     source("../db/runtime.ts"),
     source("../drizzle/0006_employee_payroll_closing.sql"),
     source("../app/api/payroll/route.ts"),
     source("../app/api/records/route.ts"),
+    source("../app/api/_lib/store-period-lock.ts"),
     source("../app/components/StorePayrollClosing.tsx"),
   ]);
 
@@ -49,20 +56,21 @@ test("individual payroll locks are immutable, idempotent and preserve offboardin
   assert.match(migration, /CREATE UNIQUE INDEX `idx_employee_payroll_closing_period`/u);
   assert.match(payroll, /"FINALIZE_SINGLE_EMPLOYEE"/u);
   assert.match(payroll, /INSERT OR IGNORE INTO employee_payroll_closings/u);
-  assert.match(payroll, /period === localPeriod\(\) && employee\.status !== "INACTIVE"/u);
+  assert.match(payroll, /!canClosePayrollPeriod\(period\) && employee\.status !== "TERMINATED" && employee\.status !== "INACTIVE"/u);
   assert.match(payroll, /const kpiDeferred = true/u);
   assert.doesNotMatch(payroll, /kpiDeferred = period === localPeriod\(\)/u);
   assert.match(payroll, /employeePayWithKpi\(item, allocation\.bonus\)/u);
   assert.match(payroll, /employeePayWithKpi\(sourceItem, 0\)/u);
-  assert.match(payroll, /\(e\.status = 'ACTIVE' AND e\.store_id = \?\)/u);
-  assert.match(payroll, /e\.status = 'INACTIVE'.*strftime\('%Y-%m', e\.inactive_at, '\+7 hours'\) = \?/su);
+  assert.match(payroll, /\(e\.statusAtPeriodEnd IN \('ACTIVE', 'SUSPENDED'\) AND e\.store_id = \?\)/u);
+  assert.match(payroll, /lifecycle_exit\.effective_at >= \? AND lifecycle_exit\.effective_at < \?[\s\S]*lifecycle_exit\.to_status IN \('TERMINATED', 'INACTIVE', 'ARCHIVED'\)/u);
+  assert.match(payroll, /e\.hasLifecycleHistory = 0 AND e\.status IN \('TERMINATED', 'INACTIVE'\)[\s\S]*e\.inactivePeriod = \?/u);
   assert.match(payroll, /SELECT 1 FROM employee_payroll_closings c/u);
   assert.match(payroll, /Hãy chốt lương riêng cho từng nhân viên/u);
-  assert.match(records, /isEmployeePayrollLocked/u);
-  assert.match(records, /đã khóa sổ riêng/u);
+  assert.match(records, /isStorePeriodLocked/u);
   assert.match(payroll, /UPDATE employee_payroll_closings[\s\S]*status = 'BASE_LOCKED'[\s\S]*status = 'CLOSING' AND locked_by = \?/u);
   assert.match(payroll, /DELETE FROM employee_payroll_closings[\s\S]*status = 'CLOSING' AND locked_by = \?/u);
-  assert.match(records, /employee_lock\.status IN \('CLOSING', 'BASE_LOCKED', 'LOCKED'\)/u);
+  assert.match(periodLock, /employee_period_lock\.period =/u);
+  assert.match(periodLock, /COALESCE\(employee_period_lock\.status, ''\) != 'DELETED'/u);
   assert.match(ui, /runAction\("FINALIZE_SINGLE_EMPLOYEE", item\)/u);
   assert.match(ui, /dateTime24\(employeeClosing\.lockedAt\)/u);
   assert.match(ui, /KPI chờ chốt kỳ/u);
@@ -70,9 +78,10 @@ test("individual payroll locks are immutable, idempotent and preserve offboardin
 });
 
 test("payroll closing gates serialize operational writes, active shifts and concurrent finalizers", async () => {
-  const [payroll, records] = await Promise.all([
+  const [payroll, records, periodLock] = await Promise.all([
     source("../app/api/payroll/route.ts"),
     source("../app/api/records/route.ts"),
+    source("../app/api/_lib/store-period-lock.ts"),
   ]);
 
   const singleStart = payroll.indexOf('if (action === "FINALIZE_SINGLE_EMPLOYEE")');
@@ -84,7 +93,7 @@ test("payroll closing gates serialize operational writes, active shifts and conc
   const singleGate = singleBranch.indexOf("INSERT OR IGNORE INTO employee_payroll_closings");
   const singlePreview = singleBranch.indexOf("const summary = await lockedSummary");
   assert.ok(singleGate >= 0 && singlePreview > singleGate, "employee CLOSING gate must be acquired before its snapshot is built");
-  assert.match(singleBranch, /SELECT \?, \?, \?, \?, \?, \?, 'CLOSING', \?, \?[\s\S]*NOT EXISTS \([\s\S]*shift_sessions[\s\S]*status = 'ACTIVE'/u);
+  assert.match(singleBranch, /SELECT \?, \?, \?, \?, \?, \?, 'CLOSING', \?, \?[\s\S]*NOT EXISTS \([\s\S]*shift_sessions[\s\S]*\(status = 'ACTIVE' OR ended_at IS NULL\)/u);
   assert.match(singleBranch, /NOT EXISTS \([\s\S]*category = 'KPI_SUMMARY'[\s\S]*status = 'CLOSING'[\s\S]*'\$\.period'/u);
   assert.match(singleBranch, /UPDATE employee_payroll_closings[\s\S]*status = 'BASE_LOCKED'[\s\S]*WHERE id = \? AND status = 'CLOSING' AND locked_by = \?/u);
   assert.match(singleBranch, /DELETE FROM employee_payroll_closings[\s\S]*id = \? AND status = 'CLOSING' AND locked_by = \?/u);
@@ -101,8 +110,9 @@ test("payroll closing gates serialize operational writes, active shifts and conc
   assert.match(payroll, /PAYROLL_GATE_STALE_MS = 10 \* 60 \* 1_000/u);
   assert.match(payroll, /status = 'CLOSING' AND locked_at < \?/u);
   assert.match(payroll, /status = 'CLOSING' AND updated_at < \?/u);
-  assert.match(records, /period_lock\.status IN \('CLOSING', 'LOCKED'\)/u);
-  assert.match(records, /employee_lock\.status IN \('CLOSING', 'BASE_LOCKED', 'LOCKED'\)/u);
+  assert.match(periodLock, /category IN \('KPI_SUMMARY', 'PAYROLL_CLOSING'\)/u);
+  assert.match(periodLock, /COALESCE\(store_period_lock\.status, ''\) != 'DELETED'/u);
+  assert.match(periodLock, /COALESCE\(employee_period_lock\.status, ''\) != 'DELETED'/u);
   assert.match(records, /affectedRows\(result\) === 0/u);
 });
 
@@ -115,19 +125,24 @@ test("previous-period individual closing defers KPI until the locked store summa
   assert.match(payroll, /single immutable KPI_SUMMARY created by FINALIZE_EMPLOYEE/u);
 });
 
-test("inactive_at includes an offboarded zero-pay employee only in the offboarding period", async () => {
-  const [schema, runtime, migration, employeesApi, payroll] = await Promise.all([
+test("legacy inactive rows remain byte-compatible and attributable to their offboarding period", async () => {
+  const [schema, runtime, migration, lifecycle, payroll] = await Promise.all([
     source("../db/schema.ts"),
     source("../db/runtime.ts"),
-    source("../drizzle/0006_employee_payroll_closing.sql"),
-    source("../app/api/employees/route.ts"),
+    source("../drizzle/0016_employee_lifecycle.sql"),
+    source("../app/api/_lib/employee-lifecycle.ts"),
     source("../app/api/payroll/route.ts"),
   ]);
-  for (const text of [schema, runtime, migration]) assert.match(text, /inactive_at/u);
-  assert.match(runtime, /status = 'INACTIVE' AND inactive_at IS NULL/u);
-  assert.match(employeesApi, /inactive_at = \?/u);
-  assert.match(employeesApi, /inactive_at = NULL/u);
-  assert.match(payroll, /e\.status = 'INACTIVE'.*e\.inactive_at.*= \?/su);
+  for (const text of [schema, runtime]) assert.match(text, /inactive_at/u);
+  assert.match(migration, /status_updated_at/u);
+  assert.doesNotMatch(runtime, /UPDATE employees SET[\s\S]*status = 'TERMINATED'/u);
+  assert.doesNotMatch(migration, /UPDATE `employees` SET[\s\S]*`status` = 'TERMINATED'/u);
+  assert.match(runtime, /Legacy INACTIVE rows remain/u);
+  assert.match(lifecycle, /CASE WHEN \? = 'TERMINATED' THEN \?/u);
+  assert.match(lifecycle, /employeeStatusAtInstantSql/u);
+  assert.match(lifecycle, /lifecycle_last\.effective_at < \?/u);
+  assert.match(lifecycle, /lifecycle_first\.from_status/u);
+  assert.match(payroll, /e\.hasLifecycleHistory = 0 AND e\.status IN \('TERMINATED', 'INACTIVE'\)[\s\S]*e\.inactivePeriod = \?/u);
 });
 
 test("offboarding KPI uses completed shift eligibility and keeps individual KPI deferred", async () => {
@@ -143,12 +158,13 @@ test("offboarding KPI uses completed shift eligibility and keeps individual KPI 
   assert.match(payroll, /const kpiDeferred = true/u);
   assert.match(payrollPolicy, /INACTIVE_EMPLOYEE_KPI_MIN_COMPLETED_SHIFTS = 15/u);
   assert.match(payrollPolicy, /employmentStatus === "ACTIVE"/u);
-  assert.match(payroll, /employeeStatusForPeriod/u);
+  assert.match(payroll, /employeeFinancialStatusForPeriod/u);
+  assert.match(payroll, /employeeStatusAtInstantSql/u);
   assert.doesNotMatch(payroll, /employeeStatusMap/u);
   assert.match(payroll, /const summary = snapshot \?\? await buildPreview/u);
 });
 
-test("transfer creation rejects inactive employees and closes the status-change race", async () => {
+test("transfer creation requires active employees while lifecycle changes never mutate transfer history", async () => {
   const [employeesApi, transfersApi] = await Promise.all([
     source("../app/api/employees/route.ts"),
     source("../app/api/transfers/route.ts"),
@@ -158,7 +174,8 @@ test("transfer creation rejects inactive employees and closes the status-change 
   assert.match(transfersApi, /NOT EXISTS \([\s\S]*t\.status IN \('SCHEDULED', 'ACTIVE'\)/u);
   assert.match(transfersApi, /affectedRows\(insert\) === 0/u);
   assert.match(transfersApi, /Nhân viên vừa chuyển sang ngưng làm việc/u);
-  assert.match(employeesApi, /NOT EXISTS \(SELECT 1 FROM employee_transfers WHERE employee_id = \? AND status IN \('SCHEDULED', 'ACTIVE'\)\)/u);
+  assert.doesNotMatch(employeesApi, /UPDATE employee_transfers/u);
+  assert.doesNotMatch(employeesApi, /NOT EXISTS \(SELECT 1 FROM employee_transfers WHERE employee_id/u);
 });
 
 test("employee form and payroll controls remain visible", async () => {

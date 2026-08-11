@@ -1,0 +1,7 @@
+* text=auto
+
+# Production scripts are executed by Linux on the VPS.
+*.sh text eol=lf
+ops/caddy/Caddyfile text eol=lf
+ops/ssh/*.conf text eol=lf
+ops/systemd/* text eol=lf

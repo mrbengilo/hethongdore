@@ -1,13 +1,21 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BarChart3, CheckCircle2, ChevronLeft, ChevronRight, Clock3,
-  Download, Edit3, Gift, PackageOpen, Plus, Search, Trash2, UserRound,
+  Download, Edit3, ExternalLink, Gift, MapPin, PackageOpen, Plus, Search, Trash2, UserRound,
   UsersRound, WalletCards, X,
 } from "lucide-react";
 import StorePayrollClosing from "./StorePayrollClosing";
-import { formatVndInput, parseVndInput } from "../lib/format";
+import { formatDateTime24, formatDateVn, formatMonthVn, formatVndInput, parseVndInput } from "../lib/format";
+import { PAYROLL_UPDATED_EVENT } from "../lib/payroll";
+import {
+  ATTENDANCE_ON_TIME_GRACE_MINUTES,
+  attendanceDeltaMinutes,
+  attendanceStatusAt,
+} from "../lib/scheduling";
+import { DatePickerControl } from "./DatePickerControl";
+import { useAccessibleModal } from "./useAccessibleModal";
 
 export type ReferenceStore = {
   id: string; name: string; address: string; revenue: number; expense: number;
@@ -27,7 +35,16 @@ type ShiftSession = {
   shiftName?: string | null; workDate?: string | null; appliedHourlyRate?: number | null; transfer_id?: string | null;
   tiktok_allowance?: number; cash_revenue?: number; transfer_revenue?: number;
   expense_amount?: number; expense_note?: string;
-  duration_seconds?: number; supportAllowance?: number | null; sourceStoreName?: string | null; targetStoreName?: string | null;
+  duration_seconds?: number; admin_adjusted_duration_seconds?: number | null; adminAdjustedDurationSeconds?: number | null; supportAllowance?: number | null; sourceStoreName?: string | null; targetStoreName?: string | null;
+  scheduled_start_at?: string | null; attendance_status?: "EARLY" | "ON_TIME" | "LATE" | null;
+  attendance_delta_minutes?: number | null;
+  clockInLatitude?: number | null; clockInLongitude?: number | null;
+  clockInAccuracyMeters?: number | null; clockInLocationCapturedAt?: string | null;
+  clock_in_latitude?: number | null; clock_in_longitude?: number | null;
+  clock_in_accuracy_meters?: number | null; clock_in_location_captured_at?: string | null;
+};
+type AttendanceLocation = {
+  latitude: number; longitude: number; accuracyMeters: number | null; capturedAt: string | null;
 };
 type PayrollItem = {
   employeeId: string; employeeCode: string; employeeName: string; position: string;
@@ -36,19 +53,54 @@ type PayrollItem = {
 };
 type PayrollSummary = {
   period: string; storeId: string; storeName: string; revenue: number; expense: number;
-  profit: number; totalHours: number; profitPerHour: number; kpiRate: number;
+  profit: number; netProfit?: number; totalHours: number; kpiEligibleHours?: number;
+  managerFixedHours?: number; totalKpiHours?: number; profitPerHour: number; profitPerKpiHour?: number; kpiRate: number;
   totalBaseSalary: number; totalTikTokAllowance: number; totalSupportAllowance: number; totalManualAllowance: number;
   totalManualBonus: number; totalKpiBonus: number; totalPay: number;
   items: PayrollItem[]; status: "PREVIEW" | "LOCKED"; finalizedAt?: string;
 };
+type PayrollScope = { storeId: string; period: string };
+type PayrollResponse = { period?: string; locked?: boolean; summary?: PayrollSummary; message?: string };
+
+const samePayrollScope = (left: PayrollScope, right: PayrollScope) => left.storeId === right.storeId && left.period === right.period;
 
 const money = (value: number) => new Intl.NumberFormat("en-US").format(Math.round(value)) + " đồng";
 const hourlyMoney = (value: number) => `${money(value)}/giờ`;
+const employeeStatusSuffix = (status: string) => status === "SUSPENDED"
+  ? " · Tạm ngưng"
+  : status === "TERMINATED" || status === "INACTIVE" ? " · Đã nghỉ việc" : "";
 const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh" }).format(new Date());
-const dateLabel = (value: string) => new Intl.DateTimeFormat("vi-VN", { dateStyle: "short", timeZone: "Asia/Ho_Chi_Minh" }).format(new Date(value + "T12:00:00+07:00"));
+const dateLabel = (value: string) => formatDateVn(value);
 const timeLabel = (value: string | null) => value ? new Intl.DateTimeFormat("vi-VN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Ho_Chi_Minh", hourCycle: "h23" }).format(new Date(value)) : "—";
+const locationTimeLabel = (value: string | null) => value && Number.isFinite(new Date(value).getTime())
+  ? formatDateTime24(value)
+  : "Chưa có thời điểm lấy";
+const finiteField = (primary: unknown, fallback: unknown) => {
+  const value = primary ?? fallback;
+  if (value === null || value === undefined || value === "") return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+};
+const sessionLocation = (shift: ShiftSession): AttendanceLocation | null => {
+  const latitude = finiteField(shift.clockInLatitude, shift.clock_in_latitude);
+  const longitude = finiteField(shift.clockInLongitude, shift.clock_in_longitude);
+  if (latitude === null || longitude === null || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return null;
+  const rawAccuracy = finiteField(shift.clockInAccuracyMeters, shift.clock_in_accuracy_meters);
+  return {
+    latitude,
+    longitude,
+    accuracyMeters: rawAccuracy !== null && rawAccuracy >= 0 ? rawAccuracy : null,
+    capturedAt: shift.clockInLocationCapturedAt ?? shift.clock_in_location_captured_at ?? null,
+  };
+};
+const locationMapUrl = (location: AttendanceLocation) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${location.latitude},${location.longitude}`)}`;
+const locationExportLabel = (locations: AttendanceLocation[]) => locations.length === 0
+  ? "Không có dữ liệu vị trí"
+  : locations.map((location) => `${location.latitude.toFixed(6)}, ${location.longitude.toFixed(6)} · ${location.accuracyMeters === null ? "chưa có độ chính xác" : `±${Math.round(location.accuracyMeters)} m`} · ${locationTimeLabel(location.capturedAt)}`).join("; ");
 const sessionRate = (shift: { hourlyRate: number; appliedHourlyRate?: number | null }) => Number(shift.appliedHourlyRate ?? shift.hourlyRate ?? 0);
 const sessionSeconds = (shift: ShiftSession) => {
+  const adjusted = shift.adminAdjustedDurationSeconds ?? shift.admin_adjusted_duration_seconds;
+  if (adjusted != null) return Math.max(0, Number(adjusted));
   if (Number(shift.duration_seconds) > 0) return Number(shift.duration_seconds);
   const start = new Date(shift.started_at).getTime();
   const end = shift.ended_at ? new Date(shift.ended_at).getTime() : Date.now();
@@ -56,6 +108,16 @@ const sessionSeconds = (shift: ShiftSession) => {
 };
 const sessionDate = (shift: ShiftSession) => shift.workDate
   ?? new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh" }).format(new Date(shift.started_at));
+const sessionAttendance = (shift: ShiftSession) => {
+  const persistedStatus = shift.attendance_status;
+  const persistedDelta = Number(shift.attendance_delta_minutes);
+  if (persistedStatus && shift.attendance_delta_minutes !== null && shift.attendance_delta_minutes !== undefined
+    && Number.isFinite(persistedDelta)) return { status: persistedStatus, delta: persistedDelta };
+  if (!shift.scheduled_start_at) return null;
+  const delta = attendanceDeltaMinutes(shift.started_at, shift.scheduled_start_at);
+  const status = attendanceStatusAt(shift.started_at, shift.scheduled_start_at);
+  return delta === null || status === null ? null : { status, delta };
+};
 type ShiftDisplay = { id: string; title: string; start: string; end: string; tone: string; record?: BusinessRecord };
 const defaultShifts: ShiftDisplay[] = [
   { id: "default-1", title: "Ca 1", start: "07:00", end: "12:00", tone: "s1" },
@@ -96,13 +158,17 @@ function useRecords(category: string, storeId: string) {
   return { records, reload };
 }
 
-function useEmployees(storeId: string) {
+function useEmployees(storeId: string, payrollPeriod?: string) {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const reload = useCallback(async () => {
-    const data = await (await fetch("/api/employees?storeId=" + encodeURIComponent(storeId) + "&includeSupport=1")).json();
+    const query = new URLSearchParams({ storeId, includeSupport: "1" });
+    if (payrollPeriod) query.set("payrollPeriod", payrollPeriod);
+    const response = await fetch("/api/employees?" + query);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || "Không thể tải danh sách nhân viên.");
     setEmployees(data.employees ?? []);
-  }, [storeId]);
-  useEffect(() => { reload(); }, [reload]);
+  }, [payrollPeriod, storeId]);
+  useEffect(() => { void reload(); }, [reload]);
   return { employees, reload };
 }
 
@@ -127,10 +193,20 @@ async function saveRecord(input: {
   if (!response.ok) throw new Error(result.message || "Không thể lưu dữ liệu");
 }
 
-async function deleteRecord(id: string) {
+async function deleteRecord(id: string, reportError: (message: string) => void = (message) => window.alert(message)) {
   if (!confirm("Bạn có chắc muốn xóa dữ liệu này?")) return false;
-  await fetch("/api/records?id=" + encodeURIComponent(id), { method: "DELETE" });
-  return true;
+  try {
+    const response = await fetch("/api/records?id=" + encodeURIComponent(id), { method: "DELETE" });
+    const result = await response.json().catch(() => ({})) as { message?: string };
+    if (!response.ok) {
+      reportError(result.message || "Không thể xóa dữ liệu.");
+      return false;
+    }
+    return true;
+  } catch {
+    reportError("Không thể kết nối để xóa dữ liệu. Vui lòng thử lại.");
+    return false;
+  }
 }
 
 function Metric({ icon: Icon, label, value, note, tone = "green" }: {
@@ -141,6 +217,28 @@ function Metric({ icon: Icon, label, value, note, tone = "green" }: {
 
 function Person({ name, position }: { name: string; position: string }) {
   return <div className="ref-person"><i>{name.slice(0, 1)}</i><span><b>{name}</b><small>{position}</small></span></div>;
+}
+
+function AttendanceLocationView({ locations, employeeName }: { locations: AttendanceLocation[]; employeeName: string }) {
+  if (locations.length === 0) return <span className="attendance-location-empty">Không có dữ liệu vị trí</span>;
+  const items = locations.map((location, index) => <div className="attendance-location-item" key={`${location.capturedAt ?? "legacy"}-${location.latitude}-${location.longitude}-${index}`}>
+    <a
+      href={locationMapUrl(location)}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={`Mở vị trí điểm danh của ${employeeName} trên Google Maps`}
+    >
+      <MapPin size={14} aria-hidden="true"/> Mở bản đồ <ExternalLink size={12} aria-hidden="true"/>
+    </a>
+    <span>{location.latitude.toFixed(6)}, {location.longitude.toFixed(6)}</span>
+    <small>{location.accuracyMeters === null ? "Chưa có độ chính xác" : `Độ chính xác ±${Math.round(location.accuracyMeters)} m`}</small>
+    <time dateTime={location.capturedAt ?? undefined}>Lấy lúc {locationTimeLabel(location.capturedAt)}</time>
+  </div>);
+  if (items.length === 1) return items[0];
+  return <details className="attendance-location-group">
+    <summary>{locations.length} vị trí điểm danh</summary>
+    <div>{items}</div>
+  </details>;
 }
 
 function MiniBars({ values = [13, 11, 15, 8, 17, 12, 18, 14, 10, 16, 13, 19, 15] }: { values?: number[] }) {
@@ -289,6 +387,8 @@ function AttendanceManagement({ store }: { store: ReferenceStore }) {
     shiftNames: string[]; startedAt: string | null; endedAt: string | null;
     durationSeconds: number; salary: number; rates: number[]; sessionCount: number;
     active: boolean; supporting: boolean; sourceStoreNames: string[];
+    attendanceStatuses: Array<"EARLY" | "ON_TIME" | "LATE">; attendanceDeltas: number[];
+    locations: AttendanceLocation[];
   };
   const { shifts } = useShiftSessions(store.id);
   const [mode, setMode] = useState<Mode>("shift");
@@ -311,8 +411,10 @@ function AttendanceManagement({ store }: { store: ReferenceStore }) {
       const current = groups.get(key) ?? {
         key, employeeCode: shift.employeeCode, employeeName: shift.employeeName, workDate: sessionDate(shift),
         shiftNames: [], startedAt: null, endedAt: null, durationSeconds: 0, salary: 0, rates: [], sessionCount: 0,
-        active: false, supporting: false, sourceStoreNames: [],
+        active: false, supporting: false, sourceStoreNames: [], attendanceStatuses: [], attendanceDeltas: [], locations: [],
       };
+      const attendance = sessionAttendance(shift);
+      const location = sessionLocation(shift);
       current.shiftNames = [...new Set([...current.shiftNames, shift.shiftName ?? shift.shift_code])];
       current.rates = [...new Set([...current.rates, rate])];
       current.sourceStoreNames = [...new Set([...current.sourceStoreNames, ...(shift.sourceStoreName ? [shift.sourceStoreName] : [])])];
@@ -323,6 +425,11 @@ function AttendanceManagement({ store }: { store: ReferenceStore }) {
       current.sessionCount += 1;
       current.active ||= !shift.ended_at || shift.status === "ACTIVE";
       current.supporting ||= Boolean(shift.transfer_id);
+      if (attendance) {
+        current.attendanceStatuses.push(attendance.status);
+        current.attendanceDeltas.push(attendance.delta);
+      }
+      if (location) current.locations.push(location);
       groups.set(key, current);
     }
     return [...groups.values()].sort((a, b) => b.workDate.localeCompare(a.workDate) || a.employeeCode.localeCompare(b.employeeCode, "vi"));
@@ -347,145 +454,350 @@ function AttendanceManagement({ store }: { store: ReferenceStore }) {
   const rowRate = (row: AttendanceRow) => row.rates.length === 1
     ? hourlyMoney(row.rates[0])
     : row.rates.map((rate) => money(rate)).join(" · ") + "/giờ";
+  const attendanceLabel = (row: AttendanceRow) => {
+    if (row.attendanceStatuses.length === 0) return "Chưa có mốc lịch";
+    if (row.attendanceStatuses.length === 1) {
+      const status = row.attendanceStatuses[0];
+      const delta = row.attendanceDeltas[0] ?? 0;
+      if (status === "EARLY") return `Sớm ${Math.abs(delta)} phút`;
+      if (status === "LATE") return `Trễ ${Math.max(0, delta)} phút`;
+      return delta > 0 ? `Đúng giờ (+${delta} phút)` : "Đúng giờ";
+    }
+    const early = row.attendanceStatuses.filter((status) => status === "EARLY").length;
+    const onTime = row.attendanceStatuses.filter((status) => status === "ON_TIME").length;
+    const late = row.attendanceStatuses.filter((status) => status === "LATE").length;
+    return `Sớm ${early} · Đúng ${onTime} · Trễ ${late}`;
+  };
+  const attendanceTone = (row: AttendanceRow) => {
+    if (row.attendanceStatuses.includes("LATE")) return "attendance-status attendance-late";
+    if (row.attendanceStatuses.includes("EARLY")) return "attendance-status attendance-early";
+    if (row.attendanceStatuses.includes("ON_TIME")) return "attendance-status attendance-on-time";
+    return "attendance-status attendance-unknown";
+  };
 
-  return <div className="reference-module attendance-page"><div className="ref-toolbar"><div><h2>Chấm công</h2><p>Danh sách ca và thống kê lương theo giờ làm thực tế</p></div><div className="ref-toolbar-actions">
-    {mode === "shift" ? <input aria-label="Ngày chấm công" type="date" value={date} onChange={(event) => { setDate(event.target.value); setMonth(event.target.value.slice(0, 7)); }}/>: <input aria-label="Tháng chấm công" type="month" value={month} onChange={(event) => setMonth(event.target.value)}/>}
-    <button onClick={() => csv("cham-cong.csv", [["Ngày", "Nhân viên", "Ca", "Số giờ", "Lương cứng/giờ", "Lương thực nhận"], ...rows.map((row) => [row.workDate, row.employeeName, row.shiftNames.join(", "), (row.durationSeconds / 3_600).toFixed(2), rowRate(row), row.salary])])}><Download size={16}/> Xuất Excel</button>
-  </div></div>
-    <div className="ref-metrics four"><Metric icon={UsersRound} label="Nhân viên có chấm công" value={employeeCount + " người"}/><Metric icon={Clock3} label="Tổng giờ làm thực tế" value={(totalSeconds / 3_600).toFixed(2) + " giờ"} note={`Từ ${rows.reduce((sum, row) => sum + row.sessionCount, 0)} ca làm`}/><Metric icon={WalletCards} label="Lương cứng" value="Theo mức / giờ" note="Quản lý thiết lập cho từng nhân viên"/><Metric icon={WalletCards} label="Tổng lương thực nhận" value={money(totalPay)} note="Lương cứng/giờ × giờ thực tế"/></div>
-    <section className="table-card"><div className="table-head"><div className="ref-tabs compact"><button className={mode === "shift" ? "active" : ""} onClick={() => setMode("shift")}>Theo ca</button><button className={mode === "day" ? "active" : ""} onClick={() => setMode("day")}>Theo ngày</button><button className={mode === "month" ? "active" : ""} onClick={() => setMode("month")}>Theo tháng · từng nhân viên</button></div><label className="ref-search"><Search size={16}/><input placeholder="Tìm nhân viên hoặc ca..." value={query} onChange={(event) => setQuery(event.target.value)}/></label></div><div className="data-table-wrap"><table className="data-table attendance-table"><thead><tr><th>STT</th>{mode !== "month" && <th>Ngày</th>}<th>Nhân viên</th><th>Ca làm việc</th>{mode === "shift" && <><th>Giờ vào</th><th>Giờ kết ca</th></>}<th>Số giờ thực tế</th><th>Lương cứng</th><th>Lương thực nhận</th><th>Trạng thái</th></tr></thead><tbody>
-      {rows.length === 0 ? <tr><td colSpan={mode === "shift" ? 10 : 8} className="empty-cell">Chưa có dữ liệu chấm công thực tế trong thời gian đã chọn.</td></tr> : rows.map((row, index) => <tr key={row.key}><td>{index + 1}</td>{mode !== "month" && <td>{dateLabel(row.workDate)}</td>}<td><Person name={row.employeeName} position={row.supporting ? `${row.employeeCode} · Hỗ trợ từ ${row.sourceStoreNames.join(", ") || "cửa hàng khác"}` : row.employeeCode}/></td><td><b className={`shift-text c${(index % 3) + 1}`}>{row.shiftNames.join(", ") || "—"}</b>{mode !== "shift" && <small className="support-note">{row.sessionCount} ca</small>}</td>{mode === "shift" && <><td>{timeLabel(row.startedAt)}</td><td>{row.active ? "Đang làm" : timeLabel(row.endedAt)}</td></>}<td>{(row.durationSeconds / 3_600).toFixed(2)} giờ</td><td>{rowRate(row)}</td><td className="money-green"><b>{money(row.salary)}</b></td><td><span className="status-pill">{row.active ? "Đang làm" : row.supporting ? "Ca hỗ trợ" : "Đã kết ca"}</span></td></tr>)}
-    </tbody></table></div></section>
+  return <div className="reference-module attendance-page">
+    <div className="ref-toolbar"><div><h2>Chấm công</h2><p>Danh sách ca và thống kê lương theo giờ làm thực tế</p></div><div className="ref-toolbar-actions">
+      {mode === "shift"
+        ? <DatePickerControl ariaLabel="Ngày chấm công" hint="Ngày chấm công" value={date} onChange={(value) => { setDate(value); setMonth(value.slice(0, 7)); }}/>
+        : <DatePickerControl ariaLabel="Tháng chấm công" hint="Tháng chấm công" type="month" value={month} onChange={setMonth}/>}
+      <button type="button" onClick={() => csv("cham-cong.csv", [["Ngày", "Nhân viên", "Ca", "Điểm danh", "Vị trí điểm danh", "Số giờ", "Lương cứng/giờ", "Lương thực nhận"], ...rows.map((row) => [row.workDate, row.employeeName, row.shiftNames.join(", "), attendanceLabel(row), locationExportLabel(row.locations), (row.durationSeconds / 3_600).toFixed(2), rowRate(row), row.salary])])}><Download size={16}/> Xuất Excel</button>
+    </div></div>
+    <div className="ref-metrics four"><Metric icon={UsersRound} label="Nhân viên có chấm công" value={employeeCount + " người"}/><Metric icon={Clock3} label="Tổng giờ làm thực tế" value={(totalSeconds / 3_600).toFixed(2) + " giờ"} note={`Từ ${rows.reduce((sum, row) => sum + row.sessionCount, 0)} ca làm`} tone="blue"/><Metric icon={WalletCards} label="Lương cứng" value="Theo mức / giờ" note="Quản lý thiết lập cho từng nhân viên" tone="purple"/><Metric icon={WalletCards} label="Tổng lương thực nhận" value={money(totalPay)} note="Lương cứng/giờ × giờ thực tế" tone="teal"/></div>
+    <section className="table-card attendance-records" aria-labelledby="attendance-records-title">
+      <div className="table-head attendance-table-head"><div className="attendance-table-controls"><h3 className="sr-only" id="attendance-records-title">Danh sách chấm công</h3><div className="ref-tabs compact attendance-mode-tabs" role="group" aria-label="Cách tổng hợp chấm công"><button type="button" className={mode === "shift" ? "active" : ""} aria-pressed={mode === "shift"} onClick={() => setMode("shift")}>Theo ca</button><button type="button" className={mode === "day" ? "active" : ""} aria-pressed={mode === "day"} onClick={() => setMode("day")}>Theo ngày</button><button type="button" className={mode === "month" ? "active" : ""} aria-pressed={mode === "month"} onClick={() => setMode("month")}>Theo tháng · từng nhân viên</button></div><p className="attendance-guidance">Đi sớm: trước giờ bắt đầu; đúng giờ: từ giờ bắt đầu đến đúng {ATTENDANCE_ON_TIME_GRACE_MINUTES} phút sau; đi trễ: sau {ATTENDANCE_ON_TIME_GRACE_MINUTES} phút kể từ giờ bắt đầu ca. Vị trí là ảnh chụp định vị tại thời điểm nhân viên xác nhận điểm danh.</p></div><label className="ref-search"><Search size={16} aria-hidden="true"/><input aria-label="Tìm nhân viên hoặc ca" placeholder="Tìm nhân viên hoặc ca..." value={query} onChange={(event) => setQuery(event.target.value)}/></label></div>
+      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Keyboard focus lets users scroll the wide attendance table. */}
+      <div className="data-table-wrap attendance-desktop-table" role="region" tabIndex={0} aria-label="Bảng chấm công, cuộn ngang để xem đầy đủ"><table className="data-table attendance-table"><thead><tr><th>STT</th>{mode !== "month" ? <th>Ngày</th> : null}<th>Nhân viên</th><th>Ca làm việc</th>{mode === "shift" ? <><th>Giờ vào</th><th>Giờ kết ca</th></> : null}<th>Điểm danh</th><th>Vị trí điểm danh</th><th>Số giờ thực tế</th><th>Lương cứng</th><th>Lương thực nhận</th><th>Trạng thái</th></tr></thead><tbody>
+        {rows.length === 0 ? <tr><td colSpan={mode === "shift" ? 12 : 10} className="empty-cell">Chưa có dữ liệu chấm công thực tế trong thời gian đã chọn.</td></tr> : rows.map((row, index) => <tr key={row.key}><td>{index + 1}</td>{mode !== "month" ? <td>{dateLabel(row.workDate)}</td> : null}<td><Person name={row.employeeName} position={row.supporting ? `${row.employeeCode} · Hỗ trợ từ ${row.sourceStoreNames.join(", ") || "cửa hàng khác"}` : row.employeeCode}/></td><td><b className={`shift-text c${(index % 3) + 1}`}>{row.shiftNames.join(", ") || "—"}</b>{mode !== "shift" ? <small className="support-note">{row.sessionCount} ca</small> : null}</td>{mode === "shift" ? <><td>{timeLabel(row.startedAt)}</td><td>{row.active ? "Đang làm" : timeLabel(row.endedAt)}</td></> : null}<td><span className={attendanceTone(row)}>{attendanceLabel(row)}</span></td><td className="attendance-location-cell"><AttendanceLocationView locations={row.locations} employeeName={row.employeeName}/></td><td>{(row.durationSeconds / 3_600).toFixed(2)} giờ</td><td>{rowRate(row)}</td><td className="money-green"><b>{money(row.salary)}</b></td><td><span className="status-pill">{row.active ? "Đang làm" : row.supporting ? "Ca hỗ trợ" : "Đã kết ca"}</span></td></tr>)}
+      </tbody></table></div>
+      {rows.length === 0 ? <p className="attendance-mobile-empty">Chưa có dữ liệu chấm công thực tế trong thời gian đã chọn.</p> : <ol className="attendance-mobile-list" aria-label="Danh sách chấm công">{rows.map((row, index) => <li className="attendance-mobile-card" key={row.key}><header><span className="attendance-mobile-index" aria-label={`Dòng ${index + 1}`}>{index + 1}</span><Person name={row.employeeName} position={row.supporting ? `${row.employeeCode} · Hỗ trợ từ ${row.sourceStoreNames.join(", ") || "cửa hàng khác"}` : row.employeeCode}/><span className="status-pill">{row.active ? "Đang làm" : row.supporting ? "Ca hỗ trợ" : "Đã kết ca"}</span></header><dl>{mode !== "month" ? <div><dt>Ngày</dt><dd>{dateLabel(row.workDate)}</dd></div> : null}<div><dt>Ca làm việc</dt><dd><b className={`shift-text c${(index % 3) + 1}`}>{row.shiftNames.join(", ") || "—"}</b>{mode !== "shift" ? <small className="support-note">{row.sessionCount} ca</small> : null}</dd></div>{mode === "shift" ? <><div><dt>Giờ vào</dt><dd>{timeLabel(row.startedAt)}</dd></div><div><dt>Giờ kết ca</dt><dd>{row.active ? "Đang làm" : timeLabel(row.endedAt)}</dd></div></> : null}<div><dt>Điểm danh</dt><dd><span className={attendanceTone(row)}>{attendanceLabel(row)}</span></dd></div><div className="attendance-mobile-location"><dt>Vị trí</dt><dd><AttendanceLocationView locations={row.locations} employeeName={row.employeeName}/></dd></div><div><dt>Giờ thực tế</dt><dd>{(row.durationSeconds / 3_600).toFixed(2)} giờ</dd></div><div><dt>Lương cứng</dt><dd>{rowRate(row)}</dd></div><div><dt>Thực nhận</dt><dd className="money-green"><b>{money(row.salary)}</b></dd></div></dl></li>)}</ol>}
+    </section>
     <div className="ref-bottom-grid"><article className="chart-card"><h3>Cách tính lương</h3><p>• Lương cứng là mức lương quản lý đặt theo giờ cho từng nhân viên.</p><p>• Lương thực nhận = Lương cứng/giờ × số giờ làm thực tế.</p></article><article className="chart-card"><h3>Tổng hợp theo ca · {month}</h3><div className="shift-info">{shiftSummary.length ? shiftSummary.map(([name, seconds]) => <span key={name}><b>{name}</b>{(seconds / 3_600).toFixed(2)} giờ</span>) : <p>Chưa có ca đã ghi nhận.</p>}</div></article><article className="chart-card donut-small"><div className="ref-donut attendance"><b>{employeeCount}</b><small>nhân viên</small></div><div><b>Thống kê tháng</b><p>{monthSessions.length} ca làm thực tế</p><p>{money(monthSessions.reduce((sum, shift) => sum + Math.round(sessionSeconds(shift) / 3_600 * sessionRate(shift)), 0))} tiền lương</p></div></article></div>
   </div>;
 }
 
 function PayrollManagement({ store }: { store: ReferenceStore }) {
   const { records, reload } = useRecords("LUONG_THUONG", store.id);
-  const { employees } = useEmployees(store.id);
   const [month, setMonth] = useState(today().slice(0, 7));
-  const [summary, setSummary] = useState<PayrollSummary | null>(null);
-  const [locked, setLocked] = useState(false);
+  const { employees } = useEmployees(store.id, month);
+  const [loadedSummary, setLoadedSummary] = useState<PayrollSummary | null>(null);
+  const [loadedLocked, setLoadedLocked] = useState(false);
+  const [loadedScope, setLoadedScope] = useState<PayrollScope | null>(null);
   const [loading, setLoading] = useState(true);
+  const [finalizing, setFinalizing] = useState(false);
   const [kind, setKind] = useState<"ALLOWANCE" | "BONUS">("ALLOWANCE");
   const [open, setOpen] = useState(false);
+  const [adjustmentScope, setAdjustmentScope] = useState<PayrollScope | null>(null);
   const [employeeId, setEmployeeId] = useState("");
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
   const [date, setDate] = useState(today());
   const [message, setMessage] = useState("");
+  const [savingAdjustment, setSavingAdjustment] = useState(false);
+  const [deletingAdjustmentId, setDeletingAdjustmentId] = useState<string | null>(null);
+  const savingAdjustmentRef = useRef(false);
+  const deletingAdjustmentRef = useRef<string | null>(null);
+  const payrollEmployeeSelectRef = useRef<HTMLSelectElement | null>(null);
+  const payrollBackdropRef = useRef<HTMLDivElement | null>(null);
+  const payrollDialogRef = useRef<HTMLFormElement | null>(null);
+  const payrollTriggerRef = useRef<HTMLElement | null>(null);
+  const loadRequest = useRef(0);
+  const loadController = useRef<AbortController | null>(null);
+  const selectedScopeRef = useRef<PayrollScope>({ storeId: store.id, period: month });
 
   const loadPayroll = useCallback(async () => {
+    const requestedScope = { storeId: store.id, period: month };
+    const requestId = ++loadRequest.current;
+    loadController.current?.abort();
+    const controller = new AbortController();
+    loadController.current = controller;
     setLoading(true);
     setMessage("");
+    setLoadedSummary(null);
+    setLoadedLocked(false);
+    setLoadedScope(null);
     try {
-      const query = new URLSearchParams({ storeId: store.id, period: month });
-      const response = await fetch("/api/payroll?" + query);
-      const result = await response.json();
+      const query = new URLSearchParams(requestedScope);
+      const response = await fetch("/api/payroll?" + query, { cache: "no-store", signal: controller.signal });
+      const result = await response.json() as PayrollResponse;
       if (!response.ok) throw new Error(result.message || "Không thể tải kỳ lương");
-      setSummary(result.summary ?? null);
-      setLocked(Boolean(result.locked));
-    } catch (error) {
-      setSummary(null);
-      setLocked(false);
-      setMessage((error as Error).message);
+      if (
+        result.period !== requestedScope.period
+        || !result.summary
+        || result.summary.period !== requestedScope.period
+        || result.summary.storeId !== requestedScope.storeId
+      ) {
+        throw new Error("Dữ liệu lương thưởng phản hồi không đúng cửa hàng hoặc kỳ đã chọn.");
+      }
+      if (requestId !== loadRequest.current || controller.signal.aborted) return;
+      setLoadedSummary(result.summary);
+      setLoadedLocked(Boolean(result.locked));
+      setLoadedScope(requestedScope);
+    } catch (cause) {
+      if (requestId !== loadRequest.current || controller.signal.aborted) return;
+      setLoadedSummary(null);
+      setLoadedLocked(false);
+      setLoadedScope(null);
+      setMessage(cause instanceof Error ? cause.message : "Không thể tải kỳ lương");
     } finally {
-      setLoading(false);
+      if (loadController.current === controller) loadController.current = null;
+      if (requestId === loadRequest.current && !controller.signal.aborted) setLoading(false);
     }
   }, [month, store.id]);
 
-  useEffect(() => { loadPayroll(); }, [loadPayroll]);
-  useEffect(() => { if (!employeeId && employees[0]) setEmployeeId(employees[0].id); }, [employeeId, employees]);
-
+  useEffect(() => {
+    selectedScopeRef.current = { storeId: store.id, period: month };
+  }, [month, store.id]);
+  useEffect(() => {
+    void loadPayroll();
+    return () => loadController.current?.abort();
+  }, [loadPayroll]);
+  useEffect(() => {
+    const handlePayrollUpdate = (event: Event) => {
+      const detail = (event as CustomEvent<{ storeId?: string; period?: string; source?: string }>).detail;
+      if (detail?.source === "closing" && detail.storeId === store.id && detail.period === month) {
+        void loadPayroll();
+      }
+    };
+    window.addEventListener(PAYROLL_UPDATED_EVENT, handlePayrollUpdate);
+    return () => window.removeEventListener(PAYROLL_UPDATED_EVENT, handlePayrollUpdate);
+  }, [loadPayroll, month, store.id]);
+  useEffect(() => {
+    if (!employees.some((employee) => employee.id === employeeId)) {
+      setEmployeeId(employees[0]?.id ?? "");
+    }
+  }, [employeeId, employees]);
+  const dataIsCurrent = Boolean(
+    loadedScope
+    && loadedScope.storeId === store.id
+    && loadedScope.period === month
+    && loadedSummary
+    && loadedSummary.storeId === loadedScope.storeId
+    && loadedSummary.period === loadedScope.period,
+  );
+  const summary = dataIsCurrent ? loadedSummary : null;
+  const locked = dataIsCurrent ? loadedLocked : false;
+  const adjustmentIsCurrent = Boolean(
+    adjustmentScope
+    && loadedScope
+    && dataIsCurrent
+    && samePayrollScope(adjustmentScope, loadedScope),
+  );
+  useAccessibleModal({
+    open: Boolean(open && adjustmentScope && adjustmentIsCurrent),
+    rootRef: payrollBackdropRef,
+    dialogRef: payrollDialogRef,
+    initialFocusRef: payrollEmployeeSelectRef,
+    returnFocusRef: payrollTriggerRef,
+    dismissDisabled: savingAdjustment,
+    onDismiss: closeAdjustmentDialog,
+  });
   const periodRecords = records.filter((record) => String(record.data.date ?? "").slice(0, 7) === month);
 
+  function selectMonth(value: string) {
+    selectedScopeRef.current = { storeId: store.id, period: value };
+    setOpen(false);
+    setAdjustmentScope(null);
+    setMonth(value);
+  }
+
   function begin(type: "ALLOWANCE" | "BONUS") {
+    const actionScope = loadedScope;
+    if (!actionScope || !dataIsCurrent) {
+      setMessage("Dữ liệu kỳ lương đang tải hoặc chưa khớp kỳ đã chọn. Vui lòng tải lại trước khi thao tác.");
+      return;
+    }
     if (locked) return setMessage("Kỳ lương đã khóa, không thể thêm khoản mới.");
+    payrollTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setAdjustmentScope(actionScope);
     setKind(type);
     setAmount("");
     setNote("");
-    setDate(month === today().slice(0, 7) ? today() : `${month}-01`);
+    setDate(actionScope.period === today().slice(0, 7) ? today() : `${actionScope.period}-01`);
     setMessage("");
     setOpen(true);
   }
 
+  function closeAdjustmentDialog() {
+    if (savingAdjustmentRef.current) return;
+    setOpen(false);
+    setAdjustmentScope(null);
+  }
+
   async function save(event: FormEvent) {
     event.preventDefault();
+    if (savingAdjustmentRef.current) return;
+    const actionScope = adjustmentScope;
+    if (!actionScope || !adjustmentIsCurrent || date.slice(0, 7) !== actionScope.period) {
+      setMessage("Kỳ lương đã thay đổi. Vui lòng đóng hộp thoại và tạo lại khoản điều chỉnh trong kỳ đang chọn.");
+      return;
+    }
     const employee = employees.find((item) => item.id === employeeId);
     const parsedAmount = parseVndInput(amount);
     if (!employee || !Number.isSafeInteger(parsedAmount) || parsedAmount <= 0) return setMessage("Vui lòng chọn nhân viên và nhập số tiền hợp lệ.");
+    savingAdjustmentRef.current = true;
+    setSavingAdjustment(true);
+    setMessage("");
     try {
       await saveRecord({
-        category: "LUONG_THUONG", storeId: store.id,
+        category: "LUONG_THUONG", storeId: actionScope.storeId,
         title: (kind === "ALLOWANCE" ? "Phụ cấp" : "Thưởng") + " · " + employee.name,
-        data: { kind, employeeId, employeeName: employee.name, amount: parsedAmount, note, date },
+        data: { kind, employeeId, employeeName: employee.name, amount: parsedAmount, note, date, period: actionScope.period },
       });
       setOpen(false);
-      await reload();
-      await loadPayroll();
-    } catch (error) { setMessage((error as Error).message); }
+      setAdjustmentScope(null);
+      if (samePayrollScope(selectedScopeRef.current, actionScope)) {
+        await reload();
+        if (samePayrollScope(selectedScopeRef.current, actionScope)) await loadPayroll();
+      }
+      window.dispatchEvent(new CustomEvent(PAYROLL_UPDATED_EVENT, {
+        detail: { storeId: actionScope.storeId, period: actionScope.period, source: "management" },
+      }));
+    } catch (error) {
+      // Keep the dialog and every entered field intact so the manager can
+      // correct or retry the same adjustment.
+      setMessage((error as Error).message);
+    } finally {
+      savingAdjustmentRef.current = false;
+      setSavingAdjustment(false);
+    }
   }
 
   async function remove(id: string) {
-    if (locked) return setMessage("Kỳ lương đã khóa, không thể xóa khoản đã tổng kết.");
-    if (await deleteRecord(id)) { await reload(); await loadPayroll(); }
+    const actionScope = loadedScope;
+    if (!actionScope || !dataIsCurrent || locked || deletingAdjustmentRef.current) {
+      if (locked) setMessage("Kỳ lương đã khóa, không thể xóa khoản đã tổng kết.");
+      else if (!dataIsCurrent) setMessage("Dữ liệu kỳ lương đang tải hoặc chưa khớp kỳ đã chọn. Vui lòng tải lại trước khi thao tác.");
+      return;
+    }
+    deletingAdjustmentRef.current = id;
+    setDeletingAdjustmentId(id);
+    setMessage("");
+    try {
+      if (await deleteRecord(id, setMessage)) {
+        if (samePayrollScope(selectedScopeRef.current, actionScope)) {
+          await reload();
+          if (samePayrollScope(selectedScopeRef.current, actionScope)) await loadPayroll();
+        }
+        window.dispatchEvent(new CustomEvent(PAYROLL_UPDATED_EVENT, {
+          detail: { storeId: actionScope.storeId, period: actionScope.period, source: "management" },
+        }));
+      }
+    } finally {
+      deletingAdjustmentRef.current = null;
+      setDeletingAdjustmentId(null);
+    }
   }
 
   async function finalize() {
-    if (locked || loading) return;
-    if (!confirm(`Tổng kết và khóa lương thưởng tháng ${month}? Dữ liệu KPI sẽ không tự thay đổi sau khi khóa.`)) return;
-    setLoading(true);
+    const actionScope = loadedScope;
+    if (!actionScope || !dataIsCurrent || locked || loading || finalizing) {
+      if (!dataIsCurrent) setMessage("Dữ liệu kỳ lương đang tải hoặc chưa khớp kỳ đã chọn. Vui lòng tải lại trước khi thao tác.");
+      return;
+    }
+    if (!confirm(`Tổng kết và khóa lương thưởng tháng ${actionScope.period}? Dữ liệu KPI sẽ không tự thay đổi sau khi khóa.`)) return;
+    setFinalizing(true);
     setMessage("");
     try {
       const response = await fetch("/api/payroll", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ storeId: store.id, period: month }),
+        body: JSON.stringify({ storeId: actionScope.storeId, period: actionScope.period }),
       });
-      const result = await response.json();
+      const result = await response.json() as PayrollResponse;
       if (!response.ok) throw new Error(result.message || "Không thể tổng kết kỳ lương");
-      setSummary(result.summary);
-      setLocked(true);
+      if (!result.summary || result.summary.storeId !== actionScope.storeId || result.summary.period !== actionScope.period) {
+        throw new Error("Dữ liệu tổng kết phản hồi không đúng cửa hàng hoặc kỳ đã chọn.");
+      }
+      window.dispatchEvent(new CustomEvent(PAYROLL_UPDATED_EVENT, {
+        detail: { storeId: actionScope.storeId, period: actionScope.period, source: "management" },
+      }));
+      if (!samePayrollScope(selectedScopeRef.current, actionScope)) return;
+      setLoadedSummary(result.summary);
+      setLoadedLocked(true);
+      setLoadedScope(actionScope);
       setMessage("✓ Đã tổng kết và khóa kỳ lương thưởng.");
-    } catch (error) { setMessage((error as Error).message); }
-    finally { setLoading(false); }
+    } catch (cause) {
+      if (samePayrollScope(selectedScopeRef.current, actionScope)) {
+        setMessage(cause instanceof Error ? cause.message : "Không thể tổng kết kỳ lương");
+      }
+    } finally {
+      setFinalizing(false);
+    }
+  }
+
+  function exportPayroll() {
+    const actionScope = loadedScope;
+    if (!actionScope || !dataIsCurrent || !summary) return;
+    csv(`luong-thuong-${actionScope.storeId}-${actionScope.period}.csv`, [
+      ["Nhân viên", "Lương cứng/giờ", "Giờ thực tế", "Lương thực nhận", "Phụ cấp", "Thưởng khác", "Thưởng KPI", "Tổng nhận"],
+      ...summary.items.map((item) => [item.employeeName, item.hourlyRate, item.hours.toFixed(2), item.baseSalary, item.tiktokAllowance + item.supportAllowance + item.manualAllowance, item.manualBonus, item.kpiBonus, item.totalPay]),
+    ]);
   }
 
   const items = summary?.items ?? [];
   const totalAllowance = (summary?.totalTikTokAllowance ?? 0) + (summary?.totalSupportAllowance ?? 0) + (summary?.totalManualAllowance ?? 0);
   const totalBonus = (summary?.totalManualBonus ?? 0) + (summary?.totalKpiBonus ?? 0);
   const rateLabel = `${Math.round((summary?.kpiRate ?? 0) * 100)}%`;
+  const managerFixedHours = summary?.managerFixedHours ?? 140;
+  const employeeKpiHours = summary?.kpiEligibleHours ?? summary?.totalHours ?? 0;
+  const totalKpiHours = summary?.totalKpiHours ?? (employeeKpiHours + managerFixedHours);
+  const profitPerKpiHour = summary?.profitPerKpiHour ?? summary?.profitPerHour ?? 0;
+  const allowanceNote = [
+    `Phụ cấp TikTok ${money(summary?.totalTikTokAllowance ?? 0)}`,
+    ...(summary?.totalSupportAllowance ? [`Phụ cấp hỗ trợ ${money(summary.totalSupportAllowance)}`] : []),
+    `Phụ cấp khác ${money(summary?.totalManualAllowance ?? 0)}`,
+  ].join("\n");
 
   return <div className="reference-module payroll-page">
-    <div className="ref-toolbar"><div><h2>Lương thưởng nhân viên</h2><p>Tổng kết lương và thưởng KPI theo giờ làm thực tế của từng cửa hàng</p></div><div className="ref-toolbar-actions">
-      <input aria-label="Tháng tổng kết" type="month" value={month} onChange={(event) => setMonth(event.target.value)}/>
-      <button onClick={() => csv("luong-thuong.csv", [["Nhân viên", "Lương cứng/giờ", "Giờ thực tế", "Lương thực nhận", "Phụ cấp", "Thưởng khác", "Thưởng KPI", "Tổng nhận"], ...items.map((item) => [item.employeeName, item.hourlyRate, item.hours.toFixed(2), item.baseSalary, item.tiktokAllowance + item.supportAllowance + item.manualAllowance, item.manualBonus, item.kpiBonus, item.totalPay])])}><Download size={16}/> Xuất Excel</button>
-      <button disabled={locked} onClick={() => begin("ALLOWANCE")}><Plus size={16}/> Tạo phụ cấp</button>
-      <button disabled={locked} onClick={() => begin("BONUS")}><Gift size={16}/> Tạo thưởng</button>
-      <button className="primary-button" disabled={locked || loading} onClick={finalize}><CheckCircle2 size={16}/>{locked ? "Đã khóa kỳ" : loading ? "Đang tính..." : "Tổng kết tháng"}</button>
+    <div className="ref-toolbar"><div><h2>Lương thưởng nhân viên</h2><p>Tổng kết lương và thưởng KPI theo giờ làm thực tế của từng cửa hàng</p></div><div className="ref-toolbar-actions payroll-compact-actions">
+      <DatePickerControl className="payroll-period-picker" ariaLabel="Tháng tổng kết" hint="Kỳ lương" type="month" value={month} onChange={selectMonth}/>
+      <button disabled={!dataIsCurrent} onClick={exportPayroll}><Download size={16}/> Xuất Excel</button>
+      <button disabled={locked || loading || finalizing || !dataIsCurrent} onClick={() => begin("ALLOWANCE")}><Plus size={16}/> Tạo phụ cấp</button>
+      <button disabled={locked || loading || finalizing || !dataIsCurrent} onClick={() => begin("BONUS")}><Gift size={16}/> Tạo thưởng</button>
+      <button className="primary-button" disabled={locked || loading || finalizing || !dataIsCurrent} onClick={finalize}><CheckCircle2 size={16}/>{locked ? "Đã khóa kỳ" : loading || finalizing ? "Đang tính..." : "Tổng kết tháng"}</button>
     </div></div>
 
     {message && <div className={message.startsWith("✓") ? "success-banner" : "form-message"}>{message}</div>}
-    <div className="report-profit-note"><CheckCircle2 size={18}/><span>Lợi nhuận cửa hàng <b>{money(summary?.profit ?? store.profit)}</b> · Tổng giờ <b>{(summary?.totalHours ?? 0).toFixed(2)}</b> · Lợi nhuận/giờ <b>{money(summary?.profitPerHour ?? 0)}</b> · Ngưỡng KPI <b>{rateLabel}</b></span></div>
+    <div className="report-profit-note"><CheckCircle2 size={18}/><span>Lợi nhuận cơ sở trước KPI <b>{money(summary?.profit ?? store.profit)}</b> · Tổng giờ xét KPI <b>{totalKpiHours.toFixed(2)} giờ</b> ({employeeKpiHours.toFixed(2)} giờ nhân viên đủ điều kiện + {managerFixedHours} giờ quản lý) · Lợi nhuận cơ sở/giờ xét KPI <b>{money(profitPerKpiHour)}</b> · Ngưỡng KPI <b>{rateLabel}</b>{typeof summary?.netProfit === "number" ? <> · Lợi nhuận sau cùng <b>{money(summary.netProfit)}</b></> : null}</span></div>
     <div className="ref-metrics six">
-      <Metric icon={Clock3} label="Tổng giờ làm" value={(summary?.totalHours ?? 0).toFixed(2) + " giờ"}/>
+      <Metric icon={Clock3} label="Tổng giờ làm" value={(summary?.totalHours ?? 0).toFixed(2) + " giờ"} tone="blue"/>
       <Metric icon={WalletCards} label="Tổng lương thực nhận" value={money(summary?.totalBaseSalary ?? 0)} note="Lương cứng/giờ × giờ thực tế"/>
       <Metric icon={Gift} label="Thưởng KPI" value={money(summary?.totalKpiBonus ?? 0)} note={`Một ngưỡng duy nhất: ${rateLabel}`} tone="orange"/>
-      <Metric icon={WalletCards} label="Tổng phụ cấp" value={money(totalAllowance)}/>
+      <Metric icon={WalletCards} label="Tổng phụ cấp" value={money(totalAllowance)} note={allowanceNote} tone="purple"/>
       <Metric icon={UsersRound} label="Tổng chi trả" value={money(summary?.totalPay ?? 0)} tone="teal"/>
       <Metric icon={UserRound} label="Tổng nhân viên" value={items.length + " nhân viên"}/>
     </div>
 
-    <section className="table-card"><div className="table-head"><div><h2>Chi tiết lương thưởng tháng {month}</h2><p>Lương thực nhận được tính từ lương cứng theo giờ và giờ làm thực tế.</p></div><span className={locked ? "status-pill" : "shift-pill s2"}>{locked ? "Đã tổng kết · Đã khóa" : "Bản xem trước"}</span></div><div className="data-table-wrap"><table className="data-table payroll-table"><thead><tr><th>Nhân viên</th><th>Lương cứng</th><th>Giờ thực tế</th><th>Lương thực nhận</th><th>Phụ cấp</th><th>Thưởng đã tạo</th><th>Thưởng KPI</th><th>Tổng nhận</th></tr></thead><tbody>
+    <section className="table-card"><div className="table-head"><div><h2>Chi tiết lương thưởng · {formatMonthVn(month)}</h2><p>Lương thực nhận được tính từ lương cứng theo giờ và giờ làm thực tế.</p></div><span className={locked ? "status-pill" : "shift-pill s2"}>{locked ? "Đã tổng kết · Đã khóa" : "Bản xem trước"}</span></div><div className="data-table-wrap"><table className="data-table payroll-table"><thead><tr><th>Nhân viên</th><th>Lương cứng</th><th>Giờ thực tế</th><th>Lương thực nhận</th><th>Phụ cấp</th><th>Thưởng khác</th><th>Thưởng KPI</th><th>Tổng nhận</th></tr></thead><tbody>
       {items.length ? items.map((item) => <tr key={item.employeeId}><td><Person name={item.employeeName} position={`${item.employeeCode} · ${item.position}`}/></td><td>{hourlyMoney(item.hourlyRate)}</td><td>{item.hours.toFixed(2)} giờ</td><td><b>{money(item.baseSalary)}</b></td><td className="money-green">{money(item.tiktokAllowance + item.supportAllowance + item.manualAllowance)}</td><td>{money(item.manualBonus)}</td><td className="money-green"><b>{money(item.kpiBonus)}</b></td><td><b>{money(item.totalPay)}</b></td></tr>) : <tr><td colSpan={8} className="empty-cell">{loading ? "Đang tổng hợp dữ liệu..." : "Chưa có nhân viên trong cửa hàng."}</td></tr>}
     </tbody></table></div></section>
 
-    <section className="table-card"><div className="table-head"><h2>Lịch sử tạo phụ cấp và thưởng tháng {month}</h2><span>{periodRecords.length} bản ghi</span></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>Thời gian</th><th>Nhân viên</th><th>Loại</th><th>Số tiền</th><th>Nội dung chi</th><th>Người tạo</th><th>Thao tác</th></tr></thead><tbody>
-      {periodRecords.length ? periodRecords.map((record) => <tr key={record.id}><td>{String(record.data.date)}</td><td><b>{String(record.data.employeeName)}</b></td><td><span className={record.data.kind === "BONUS" ? "bonus-pill" : "allowance-pill"}>{record.data.kind === "BONUS" ? "Thưởng" : "Phụ cấp"}</span></td><td className="money-green"><b>{money(Number(record.data.amount))}</b></td><td>{String(record.data.note || "—")}</td><td>Quản lý cửa hàng</td><td><button disabled={locked} className="danger-link" onClick={() => remove(record.id)}>Xóa</button></td></tr>) : <tr><td colSpan={7} className="empty-cell">Chưa phát sinh phụ cấp hoặc thưởng trong kỳ.</td></tr>}
+    <section className="table-card"><div className="table-head"><h2>Lịch sử tạo phụ cấp và thưởng · {formatMonthVn(month)}</h2><span>{periodRecords.length} bản ghi</span></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>Thời gian</th><th>Nhân viên</th><th>Loại</th><th>Số tiền</th><th>Nội dung chi</th><th>Người tạo</th><th>Thao tác</th></tr></thead><tbody>
+      {periodRecords.length ? periodRecords.map((record) => <tr key={record.id}><td>{dateLabel(String(record.data.date))}</td><td><b>{String(record.data.employeeName)}</b></td><td><span className={record.data.kind === "BONUS" ? "bonus-pill" : "allowance-pill"}>{record.data.kind === "BONUS" ? "Thưởng" : "Phụ cấp"}</span></td><td className="money-green"><b>{money(Number(record.data.amount))}</b></td><td>{String(record.data.note || "—")}</td><td>Quản lý cửa hàng</td><td><button disabled={locked || loading || finalizing || !dataIsCurrent || deletingAdjustmentId !== null} className="danger-link" onClick={() => void remove(record.id)}>{deletingAdjustmentId === record.id ? "Đang xóa…" : "Xóa"}</button></td></tr>) : <tr><td colSpan={7} className="empty-cell">Chưa phát sinh phụ cấp hoặc thưởng trong kỳ.</td></tr>}
     </tbody></table></div></section>
 
     <div className="ref-chart-row"><article className="chart-card donut-small"><div className="ref-donut payroll"><b>{money(summary?.totalPay ?? 0)}</b><small>Tổng chi trả</small></div><div><b>Cơ cấu chi trả</b><p>Lương theo giờ thực tế</p><p>Thưởng KPI không cộng dồn</p></div></article><article className="chart-card"><h3>Thống kê giờ làm theo ngày</h3><MiniBars/></article><article className="chart-card quick-total"><h3>Tóm tắt nhanh</h3><p><span>Lương thực nhận</span><b>{money(summary?.totalBaseSalary ?? 0)}</b></p><p><span>Phụ cấp</span><b>{money(totalAllowance)}</b></p><p><span>Thưởng khác</span><b>{money(summary?.totalManualBonus ?? 0)}</b></p><p><span>Thưởng KPI</span><b>{money(summary?.totalKpiBonus ?? 0)}</b></p><p><span>Tổng thưởng</span><b>{money(totalBonus)}</b></p></article></div>
 
-    {open && <div className="modal-backdrop"><form className="modal payroll-action-modal" onSubmit={save}><div className="modal-title"><div><h2>{kind === "ALLOWANCE" ? "Tạo phụ cấp" : "Tạo thưởng"}</h2><p>Khoản chi được ghi nhận đúng nhân viên, cửa hàng và tháng lương</p></div><button type="button" onClick={() => setOpen(false)}><X size={19}/></button></div><label>Nhân viên được nhận *<select value={employeeId} onChange={(event) => setEmployeeId(event.target.value)}>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.code} · {employee.name}</option>)}</select></label><label>Số tiền {kind === "ALLOWANCE" ? "phụ cấp" : "thưởng"} *<input inputMode="numeric" required value={amount} onChange={(event) => setAmount(formatVndInput(event.target.value))} placeholder="0"/><small>Nhập theo VND, ví dụ: 15000 sẽ hiển thị 15,000.</small></label><label>Ngày ghi nhận<input type="date" min={`${month}-01`} max={`${month}-31`} value={date} onChange={(event) => setDate(event.target.value)}/></label><label>Nội dung chi *<textarea required value={note} onChange={(event) => setNote(event.target.value)} placeholder={kind === "ALLOWANCE" ? "Ví dụ: Phụ cấp chuyên cần" : "Ví dụ: Thưởng hoàn thành công việc"}/></label>{message && <div className="form-message">{message}</div>}<div className="modal-actions"><button type="button" onClick={() => setOpen(false)}>Hủy</button><button className="primary-button">Lưu {kind === "ALLOWANCE" ? "phụ cấp" : "thưởng"}</button></div></form></div>}
+    {open && adjustmentScope && adjustmentIsCurrent && <div ref={payrollBackdropRef} className="modal-backdrop"><form ref={payrollDialogRef} className="modal payroll-action-modal" role="dialog" aria-modal="true" aria-labelledby="payroll-adjustment-dialog-title" aria-busy={savingAdjustment} tabIndex={-1} onSubmit={save}><div className="modal-title"><div><h2 id="payroll-adjustment-dialog-title">{kind === "ALLOWANCE" ? "Tạo phụ cấp" : "Tạo thưởng"}</h2><p>Khoản chi được ghi nhận đúng nhân viên, cửa hàng và tháng lương</p></div><button type="button" aria-label="Đóng hộp thoại tạo phụ cấp hoặc thưởng" disabled={savingAdjustment} onClick={closeAdjustmentDialog}><X size={19}/></button></div><label>Nhân viên được nhận *<select ref={payrollEmployeeSelectRef} disabled={savingAdjustment} value={employeeId} onChange={(event) => setEmployeeId(event.target.value)}>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.code} · {employee.name}{employeeStatusSuffix(employee.status)}</option>)}</select></label><label>Số tiền {kind === "ALLOWANCE" ? "phụ cấp" : "thưởng"} *<input inputMode="numeric" required disabled={savingAdjustment} value={amount} onChange={(event) => setAmount(formatVndInput(event.target.value))} placeholder="0"/><small>Nhập theo VND, ví dụ: 15000 sẽ hiển thị 15,000.</small></label><div className="app-date-picker-field"><span>Ngày ghi nhận</span><DatePickerControl ariaLabel="Ngày ghi nhận phụ cấp hoặc thưởng" min={`${adjustmentScope.period}-01`} max={`${adjustmentScope.period}-31`} disabled={savingAdjustment} value={date} onChange={setDate}/></div><label>Nội dung chi *<textarea required disabled={savingAdjustment} value={note} onChange={(event) => setNote(event.target.value)} placeholder={kind === "ALLOWANCE" ? "Ví dụ: Phụ cấp chuyên cần" : "Ví dụ: Thưởng hoàn thành công việc"}/></label>{message && <div className="form-message" role="alert">{message}</div>}<div className="modal-actions"><button type="button" disabled={savingAdjustment} onClick={closeAdjustmentDialog}>Hủy</button><button className="primary-button" disabled={savingAdjustment || !employeeId}>{savingAdjustment ? "Đang lưu…" : `Lưu ${kind === "ALLOWANCE" ? "phụ cấp" : "thưởng"}`}</button></div></form></div>}
   </div>;
 }
 
@@ -507,11 +819,11 @@ function CashflowManagement({ store }: { store: ReferenceStore }) {
 function ReportManagement({ store }: { store: ReferenceStore }) {
   const {employees}=useEmployees(store.id); const {shifts}=useShiftSessions(store.id); const payroll=useRecords("LUONG_THUONG",store.id).records; const [tab,setTab]=useState("Tổng quan"); const [from,setFrom]=useState(today().slice(0,8)+"01"); const [to,setTo]=useState(today()); const [periodPayroll,setPeriodPayroll]=useState<PayrollSummary|null>(null);
   useEffect(()=>{const period=from.slice(0,7);fetch(`/api/payroll?storeId=${encodeURIComponent(store.id)}&period=${encodeURIComponent(period)}`).then(r=>r.json()).then(data=>setPeriodPayroll(data.summary??null));},[from,store.id]);
-  const completed=shifts.filter(s=>s.ended_at); const hours=completed.reduce((sum,s)=>sum+(new Date(s.ended_at!).getTime()-new Date(s.started_at).getTime())/3600000,0); const shiftWages=completed.reduce((sum,s)=>sum+((new Date(s.ended_at!).getTime()-new Date(s.started_at).getTime())/3600000)*sessionRate(s),0); const wages=periodPayroll?.totalBaseSalary??shiftWages; const recordExtras=payroll.reduce((sum,r)=>sum+Number(r.data.amount??0),0); const extras=periodPayroll ? periodPayroll.totalTikTokAllowance+periodPayroll.totalSupportAllowance+periodPayroll.totalManualAllowance+periodPayroll.totalManualBonus+periodPayroll.totalKpiBonus : recordExtras;
+  const completed=shifts.filter(s=>s.ended_at); const hours=completed.reduce((sum,s)=>sum+sessionSeconds(s)/3600,0); const shiftWages=completed.reduce((sum,s)=>sum+(sessionSeconds(s)/3600)*sessionRate(s),0); const wages=periodPayroll?.totalBaseSalary??shiftWages; const recordExtras=payroll.reduce((sum,r)=>sum+Number(r.data.amount??0),0); const extras=periodPayroll ? periodPayroll.totalTikTokAllowance+periodPayroll.totalSupportAllowance+periodPayroll.totalManualAllowance+periodPayroll.totalManualBonus+periodPayroll.totalKpiBonus : recordExtras;
   return <div className="reference-module report-page"><div className="ref-toolbar"><div><h2>Báo cáo thống kê</h2><p>Tổng hợp dữ liệu hoạt động của cửa hàng</p></div><div className="ref-toolbar-actions"><input type="date" value={from} onChange={(e)=>setFrom(e.target.value)}/><span>−</span><input type="date" value={to} onChange={(e)=>setTo(e.target.value)}/><button className="primary-button" onClick={()=>csv("bao-cao-cua-hang.csv",[["Chỉ số","Giá trị"],["Nhân viên",employees.length],["Tổng giờ",hours.toFixed(2)],["Lương",Math.round(wages)],["Thưởng/phụ cấp",extras],["Doanh thu",store.revenue]])}><Download size={16}/> Xuất báo cáo</button></div></div>
     <div className="ref-report-tabs">{["Tổng quan","Chấm công","Lương thưởng","Ca làm việc","Nhân viên","Chi tiết"].map(item=><button key={item} className={tab===item?"active":""} onClick={()=>setTab(item)}>{item}</button>)}</div>
-    <div className="ref-metrics five"><Metric icon={UsersRound} label="Tổng nhân viên" value={(employees.length||3)+" người"} note="100% đang làm việc"/><Metric icon={Clock3} label="Tổng giờ làm" value={(hours||210).toFixed(2)+" giờ"} note="Theo kỳ đã chọn"/><Metric icon={WalletCards} label="Tổng lương cứng" value={money(wages||4200000)}/><Metric icon={Gift} label="Tổng thưởng" value={money(extras||900000)}/><Metric icon={WalletCards} label="Tổng lương nhận" value={money((wages||4200000)+(extras||900000))}/></div>
-    <div className="ref-report-charts"><article className="chart-card"><h2>Giờ làm việc theo ngày</h2><MiniBars/></article><article className="chart-card"><h2>Doanh thu theo ngày</h2><MiniLine/></article><article className="chart-card donut-small vertical"><h2>Cơ cấu lương nhận</h2><div className="ref-donut report"><b>{money((wages||4200000)+(extras||900000))}</b><small>Tổng lương nhận</small></div></article></div>
+    <div className="ref-metrics five"><Metric icon={UsersRound} label="Tổng nhân viên" value={employees.length+" người"} note="Theo dữ liệu hiện tại"/><Metric icon={Clock3} label="Tổng giờ làm" value={hours.toFixed(2)+" giờ"} note="Theo kỳ đã chọn"/><Metric icon={WalletCards} label="Tổng lương cứng" value={money(wages)}/><Metric icon={Gift} label="Tổng thưởng" value={money(extras)}/><Metric icon={WalletCards} label="Tổng lương nhận" value={money(wages+extras)}/></div>
+    <div className="ref-report-charts"><article className="chart-card"><h2>Giờ làm việc theo ngày</h2><MiniBars/></article><article className="chart-card"><h2>Doanh thu theo ngày</h2><MiniLine/></article><article className="chart-card donut-small vertical"><h2>Cơ cấu lương nhận</h2><div className="ref-donut report"><b>{money(wages+extras)}</b><small>Tổng lương nhận</small></div></article></div>
     <div className="ref-report-bottom"><section className="table-card"><div className="table-head"><h2>{tab === "Tổng quan" ? "Thống kê theo nhân viên" : "Chi tiết " + tab.toLocaleLowerCase("vi")}</h2></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>Nhân viên</th><th>Tổng giờ làm</th><th>Lương cứng</th><th>Thưởng</th><th>Phụ cấp</th><th>Lương nhận</th></tr></thead><tbody>{(employees.length?employees:samplePeople.slice(0,3).map((p,i)=>({id:"s"+i,name:p[0],position:p[1],hourly_rate:20000}))).map((employee,index)=>{const employeeHours=[75.5,68,66.5][index%3];const base=employeeHours*employee.hourly_rate;const extra=payroll.filter(r=>r.data.employeeId===employee.id).reduce((s,r)=>s+Number(r.data.amount),0);return <tr key={employee.id}><td><Person name={employee.name} position={employee.position}/></td><td>{employeeHours.toFixed(2)}</td><td>{money(base)}</td><td className="money-green">{money(extra)}</td><td>{money(100000)}</td><td className="money-green"><b>{money(base+extra+100000)}</b></td></tr>})}</tbody></table></div></section><aside className="chart-card"><h2>Thống kê ca làm việc</h2>{["Ca 1 · 62,50 giờ","Ca 2 · 71,00 giờ","Ca 3 · 76,50 giờ"].map((text,index)=><div className="progress-row" key={text}><span>{text}</span><i><b style={{width:[30,34,36][index]+"%"}}/></i><strong>{[29.8,33.8,36.4][index]}%</strong></div>)}</aside></div>
     <div className="report-profit-note"><CheckCircle2 size={18}/> Dữ liệu {tab.toLocaleLowerCase("vi")} của {store.name} trong kỳ {from} → {to} · Doanh thu <b>{money(store.revenue)}</b> · Lợi nhuận <b>{money(store.profit)}</b></div>
   </div>;

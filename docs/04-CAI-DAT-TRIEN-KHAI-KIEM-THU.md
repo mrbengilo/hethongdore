@@ -70,7 +70,8 @@ node --test tests/shift-rollover.test.mjs tests/requirements-contracts.test.mjs
 
 - Đăng nhập đúng/sai và khóa sau 10 lần.
 - Điều hướng quản lý/nhân viên.
-- Tạo/sửa cửa hàng, chuyển `ACTIVE/INACTIVE`, xác nhận API `DELETE` trả 405 và dữ liệu lịch sử không bị mất.
+- Tạo/sửa cửa hàng, chuyển `ACTIVE/INACTIVE`; xác nhận quản lý thường bị từ chối DELETE, quản trị cấp cao chỉ xóa mềm được cửa hàng chưa từng có đơn và dữ liệu lịch sử không bị mất.
+- Khi xóa cửa hàng có nhân viên đang hỗ trợ tại cửa hàng khác, xác nhận ca được đóng `STORE_DELETED`, tiền mặt/chuyển khoản khớp đơn và doanh thu/chi phí được cộng đúng một lần vào cửa hàng nhận.
 - Không cho chuyển cửa hàng sang `INACTIVE` khi còn ca mở; sau khi ngưng, các API ghi nhân viên/ca/đơn/công việc/lương/điều chuyển trả lỗi nhưng API đọc lịch sử vẫn hoạt động.
 - Tạo nhân viên ở từng cửa hàng và đăng nhập lại; xác nhận `employees.store_id = users.store_id` đúng cửa hàng đã chọn, không suy luận cửa hàng từ mã nhân viên/tên đăng nhập.
 - Kiểm tra bắt buộc tỉnh, phường, đường/ấp, tuổi 15–100 và ảnh CCCD; từ chối tệp không phải JPG/PNG/WebP hoặc lớn hơn 5 MB, đồng thời xác nhận ảnh được đọc từ binding R2 `UPLOADS`.
@@ -135,7 +136,7 @@ Bản build phải tạo entrypoint Worker tương thích và không còn lỗi 
 
 ## 9. Các luồng đã kết nối dữ liệu thực
 
-- Quản lý cửa hàng: thêm, sửa, chuyển `ACTIVE/INACTIVE` và tìm kiếm; không xóa cửa hàng.
+- Quản lý cửa hàng: thêm, sửa, chuyển `ACTIVE/INACTIVE` và tìm kiếm. Quản lý thường không xóa cửa hàng; quản trị cấp cao có nút xóa kèm xác nhận chỉ khi số đơn lịch sử bằng 0.
 - Quản lý nhân viên: tạo tài khoản, lưu đầy đủ địa chỉ/tuổi/ảnh CCCD, sửa hồ sơ/lương giờ, đặt lại mật khẩu và lưu trữ.
 - Giao việc: lưu theo cửa hàng, ngày, ca; nhân viên xem và xác nhận hoàn thành.
 - Ca làm: cấu hình riêng theo cửa hàng, lịch ngày/tuần, bắt đầu/kết thúc, tự chuyển ca sau thời gian ân hạn 60 phút, lịch sử ca và phụ cấp TikTok được lưu vào D1.

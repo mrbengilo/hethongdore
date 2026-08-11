@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { readFile, readdir } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 
@@ -118,7 +121,7 @@ test("latest reset migration preserves store identity and manager access while c
   assert.equal(db.prepare("PRAGMA integrity_check").get().integrity_check, "ok");
 });
 
-test("runtime fallback and migration keep the v2 reset one-time and CCCD cleanup retry-safe", async () => {
+test("runtime permanently retires automatic reset while historical migration remains auditable", async () => {
   const [runtime, schema, journal, resetMigration] = await Promise.all([
     readFile(new URL("../db/runtime.ts", import.meta.url), "utf8"),
     readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
@@ -126,21 +129,26 @@ test("runtime fallback and migration keep the v2 reset one-time and CCCD cleanup
     sql("0008_reset_operational_data_preserve_stores.sql"),
   ]);
 
-  assert.match(runtime, /DATA_RESET_KEY = "data_reset_2026_08_08_v2"/u);
-  assert.match(runtime, /ensureOneTimeDataReset/u);
-  assert.match(runtime, /DELETE FROM users WHERE role != 'MANAGER'/u);
-  assert.match(runtime, /NOT EXISTS \(SELECT 1 FROM users AS manager_user[\s\S]*manager_user\.role = 'MANAGER'/u);
-  assert.match(runtime, /UPDATE users SET employee_id = NULL, store_id = NULL, failed_attempts = 0, locked_until = NULL, shift_active = 0, current_shift = NULL, shift_started_at = NULL WHERE role = 'MANAGER'/u);
-  assert.match(runtime, /UPDATE stores SET revenue = 0, expense = 0/u);
-  assert.match(runtime, /INSERT OR IGNORE INTO system_state/u);
+  assert.doesNotMatch(runtime, /DATA_RESET_KEY|ensureOneTimeDataReset|verifyLegacyResetMarkerWithoutMutation/u);
+  assert.match(runtime, /Startup never reads[\s\S]*never deletes or zeroes existing operational data/u);
+  assert.match(runtime, /LEGACY_RESET_COMPATIBILITY_KEY = "data_reset_2026_08_08_v2"/u);
+  assert.match(runtime, /LEGACY_RESET_COMPLETE = "COMPLETE"/u);
+  assert.match(runtime, /INSERT OR IGNORE INTO system_state \(key, value, updated_at\)/u);
+  assert.ok(
+    runtime.indexOf("INSERT OR IGNORE INTO system_state (key, value, updated_at)")
+      < runtime.indexOf('PRAGMA table_info(users)'),
+    "the rollback compatibility marker must be persisted before later additive compatibility work",
+  );
+  assert.ok(
+    runtime.indexOf("INSERT OR IGNORE INTO system_state (key, value, updated_at)")
+      < runtime.indexOf("managerPasswordHash(platform.kind)"),
+    "configuration validation must not fail before the rollback guard is durable",
+  );
+  assert.doesNotMatch(runtime, /DELETE FROM users WHERE role != 'MANAGER'/u);
+  assert.doesNotMatch(runtime, /UPDATE stores SET revenue = 0, expense = 0/u);
   assert.doesNotMatch(runtime, /DELETE FROM stores/u);
   assert.match(runtime, /WHERE NOT EXISTS \(SELECT 1 FROM users WHERE role = 'MANAGER'\)/u);
-  assert.match(runtime, /storage\.list\(\{ prefix: "cccd\/"/u);
-  assert.match(runtime, /\.filter\(\(key\) => key\.startsWith\("cccd\/"\)\)/u);
-  assert.match(runtime, /await storage\.delete\(keys\)/u);
-  assert.match(runtime, /if \(!page\.cursor\) throw new Error/u);
-  assert.match(runtime, /state\?\.value !== RESET_UPLOADS_PENDING/u);
-  assert.match(runtime, /WHERE key = \? AND value = \?/u);
+  assert.doesNotMatch(runtime, /storage\.list|storage\.delete|finishResetUploads/u);
   assert.doesNotMatch(runtime, /initialStores|defaultStoreShifts|EMPLOYEE_HASH|user-employee|nv001/u);
   assert.doesNotMatch(runtime, /UPDATE users SET password_hash/u);
 
@@ -149,4 +157,91 @@ test("runtime fallback and migration keep the v2 reset one-time and CCCD cleanup
   assert.doesNotMatch(resetMigration, /DELETE FROM `stores`/u);
   assert.match(schema, /sqliteTable\("system_state"/u);
   assert.match(journal, /0008_reset_operational_data_preserve_stores/u);
+});
+
+test("new additive startup marker makes the prior release reset guard executable but inert", async () => {
+  const runtime = await readFile(new URL("../db/runtime.ts", import.meta.url), "utf8");
+  assert.match(runtime, /INSERT OR IGNORE INTO system_state[\s\S]*LEGACY_RESET_COMPATIBILITY_KEY, LEGACY_RESET_COMPLETE/u);
+
+  const db = new DatabaseSync(":memory:");
+  db.exec(`
+    CREATE TABLE system_state (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);
+    CREATE TABLE stores (id TEXT PRIMARY KEY, revenue INTEGER NOT NULL, expense INTEGER NOT NULL);
+    CREATE TABLE employees (id TEXT PRIMARY KEY);
+    CREATE TABLE orders (id TEXT PRIMARY KEY);
+    INSERT INTO stores VALUES ('store-live', 900000, 120000);
+    INSERT INTO employees VALUES ('employee-live');
+    INSERT INTO orders VALUES ('order-live');
+  `);
+
+  // This is the non-destructive statement executed by the new runtime.
+  db.prepare("INSERT OR IGNORE INTO system_state (key, value, updated_at) VALUES (?, ?, ?)")
+    .run("data_reset_2026_08_08_v2", "COMPLETE", "2026-08-10T00:00:00.000Z");
+
+  // Execute the guard used by the prior release. Its destructive body must be
+  // unreachable after the new runtime has initialized this database once.
+  const priorReleaseState = db.prepare(
+    "SELECT value FROM system_state WHERE key = ? LIMIT 1",
+  ).get("data_reset_2026_08_08_v2");
+  if (!priorReleaseState) {
+    db.exec("DELETE FROM orders; DELETE FROM employees; UPDATE stores SET revenue = 0, expense = 0;");
+  }
+
+  assert.deepEqual({ ...priorReleaseState }, { value: "COMPLETE" });
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM employees").get().count, 1);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM orders").get().count, 1);
+  assert.deepEqual(
+    { ...db.prepare("SELECT revenue, expense FROM stores WHERE id = 'store-live'").get() },
+    { revenue: 900000, expense: 120000 },
+  );
+});
+
+test("runtime persists the rollback guard even when later bootstrap validation fails", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "dore-reset-guard-"));
+  const databasePath = path.join(root, "dore.sqlite");
+  const runtimeUrl = new URL("../db/runtime.ts", import.meta.url).href;
+  try {
+    const pending = new DatabaseSync(databasePath);
+    pending.exec(`CREATE TABLE system_state (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);
+      INSERT INTO system_state VALUES ('data_reset_2026_08_08_v2', 'R2_PENDING', '2026-08-09T00:00:00.000Z');`);
+    pending.close();
+    const child = spawnSync(process.execPath, [
+      "--require",
+      "./tests/tsx-windows-userinfo.cjs",
+      "--import",
+      "tsx",
+      "--input-type=module",
+      "--eval",
+      `const { initDb } = await import(${JSON.stringify(runtimeUrl)});
+try {
+  await initDb();
+  process.exitCode = 91;
+} catch (error) {
+  if (!String(error).includes("DORE_MANAGER_PASSWORD_HASH")) process.exitCode = 92;
+}`,
+    ], {
+      cwd: new URL("..", import.meta.url),
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        DORE_DB_PLATFORM: "sqlite",
+        DORE_DATABASE_PATH: databasePath,
+        DORE_MANAGER_PASSWORD_HASH: "invalid-on-purpose",
+      },
+      timeout: 20_000,
+    });
+    assert.equal(child.status, 0, child.stderr);
+
+    const db = new DatabaseSync(databasePath);
+    try {
+      assert.deepEqual(
+        { ...db.prepare("SELECT value FROM system_state WHERE key = ?").get("data_reset_2026_08_08_v2") },
+        { value: "COMPLETE" },
+      );
+    } finally {
+      db.close();
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

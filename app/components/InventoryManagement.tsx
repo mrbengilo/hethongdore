@@ -2,6 +2,8 @@
 
 import { FormEvent, Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { Banknote, ChevronDown, ChevronRight, Download, PackageOpen, Plus, ReceiptText, Save, Trash2, Truck } from "lucide-react";
+import { formatDateVn } from "../lib/format";
+import { DatePickerControl } from "./DatePickerControl";
 
 type InventoryStore = {
   id: string;
@@ -41,9 +43,28 @@ type InventoryReceipt = {
   updatedAt: string;
 };
 
+type InventoryHistorySummary = {
+  receiptCount: number;
+  itemLines: number;
+  quantity: number;
+  weight: number;
+  goods: number;
+  shipping: number;
+  amount: number;
+};
+
 type DraftField = Exclude<keyof DraftInventoryItem, "id">;
 
 const VIETNAM_TIME_ZONE = "Asia/Ho_Chi_Minh";
+const EMPTY_HISTORY_SUMMARY: InventoryHistorySummary = {
+  receiptCount: 0,
+  itemLines: 0,
+  quantity: 0,
+  weight: 0,
+  goods: 0,
+  shipping: 0,
+  amount: 0,
+};
 let draftSequence = 0;
 
 function createDraftItem(): DraftInventoryItem {
@@ -152,7 +173,10 @@ function normalizeReceipt(value: unknown): InventoryReceipt | null {
   if (!id) return null;
 
   const data = asObject(row.data);
-  let items = Array.isArray(data.items) ? data.items.map((item) => normalizeItem(item)) : [];
+  let items = Array.isArray(data.items) ? data.items.flatMap((item) => {
+    const rawItem = asObject(item);
+    return Object.keys(rawItem).length > 0 ? [normalizeItem(rawItem)] : [];
+  }) : [];
 
   // Keep previously saved, single-item NHAP_HANG records readable as one receipt.
   if (items.length === 0 && (data.weight != null || data.quantity != null || data.unitPrice != null)) {
@@ -191,6 +215,36 @@ function receiptTotals(items: InventoryItem[]) {
   }), { itemLines: 0, quantity: 0, weight: 0, goods: 0, shipping: 0, amount: 0 });
 }
 
+function summarizeReceipts(receipts: InventoryReceipt[]): InventoryHistorySummary {
+  return receipts.reduce<InventoryHistorySummary>((summary, receipt) => {
+    const totals = receiptTotals(receipt.items);
+    return {
+      receiptCount: summary.receiptCount + 1,
+      itemLines: summary.itemLines + totals.itemLines,
+      quantity: summary.quantity + totals.quantity,
+      weight: summary.weight + totals.weight,
+      goods: summary.goods + totals.goods,
+      shipping: summary.shipping + totals.shipping,
+      amount: summary.amount + totals.amount,
+    };
+  }, EMPTY_HISTORY_SUMMARY);
+}
+
+function normalizeHistorySummary(value: unknown, fallback: InventoryHistorySummary): InventoryHistorySummary {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return fallback;
+  const source = value as Record<string, unknown>;
+  const number = (field: keyof InventoryHistorySummary) => Math.max(0, finiteNumber(source[field]));
+  return {
+    receiptCount: Math.round(number("receiptCount")),
+    itemLines: Math.round(number("itemLines")),
+    quantity: number("quantity"),
+    weight: number("weight"),
+    goods: Math.round(number("goods")),
+    shipping: Math.round(number("shipping")),
+    amount: Math.round(number("amount")),
+  };
+}
+
 function exportInventoryCsv(store: InventoryStore, receipts: InventoryReceipt[]) {
   const cell = (value: string | number) => {
     const raw = String(value);
@@ -226,8 +280,10 @@ export function StoreInventoryManagement({ store }: { store: InventoryStore }) {
   const [date, setDate] = useState(todayInVietnam());
   const [note, setNote] = useState("");
   const [receipts, setReceipts] = useState<InventoryReceipt[]>([]);
+  const [historySummary, setHistorySummary] = useState<InventoryHistorySummary>(EMPTY_HISTORY_SUMMARY);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [formError, setFormError] = useState("");
   const [historyError, setHistoryError] = useState("");
@@ -237,16 +293,19 @@ export function StoreInventoryManagement({ store }: { store: InventoryStore }) {
   const reloadHistory = useCallback(async () => {
     setLoadingHistory(true);
     setHistoryError("");
+    setReceipts([]);
+    setHistorySummary(EMPTY_HISTORY_SUMMARY);
     try {
       const query = new URLSearchParams({ category: "NHAP_HANG", storeId: store.id });
       const response = await fetch(`/api/records?${query.toString()}`);
-      const result = await response.json().catch(() => ({})) as { records?: unknown[]; message?: string };
+      const result = await response.json().catch(() => ({})) as { records?: unknown[]; historySummary?: unknown; message?: string };
       if (!response.ok) throw new Error(result.message ?? "Không thể tải lịch sử nhập hàng.");
       const normalized = (result.records ?? [])
         .map(normalizeReceipt)
         .filter((record): record is InventoryReceipt => record !== null)
         .sort((first, second) => (Date.parse(second.createdAt) || 0) - (Date.parse(first.createdAt) || 0));
       setReceipts(normalized);
+      setHistorySummary(normalizeHistorySummary(result.historySummary, summarizeReceipts(normalized)));
     } catch (error) {
       setHistoryError(error instanceof Error ? error.message : "Không thể tải lịch sử nhập hàng.");
     } finally {
@@ -255,6 +314,26 @@ export function StoreInventoryManagement({ store }: { store: InventoryStore }) {
   }, [store.id]);
 
   useEffect(() => { void reloadHistory(); }, [reloadHistory]);
+
+  async function exportAllHistory() {
+    setExporting(true);
+    setHistoryError("");
+    try {
+      const query = new URLSearchParams({ category: "NHAP_HANG", storeId: store.id, all: "1" });
+      const response = await fetch(`/api/records?${query.toString()}`);
+      const result = await response.json().catch(() => ({})) as { records?: unknown[]; message?: string };
+      if (!response.ok) throw new Error(result.message ?? "Không thể tải đầy đủ lịch sử để xuất CSV.");
+      const allReceipts = (result.records ?? [])
+        .map(normalizeReceipt)
+        .filter((record): record is InventoryReceipt => record !== null)
+        .sort((first, second) => (Date.parse(second.createdAt) || 0) - (Date.parse(first.createdAt) || 0));
+      exportInventoryCsv(store, allReceipts);
+    } catch (error) {
+      setHistoryError(error instanceof Error ? error.message : "Không thể xuất lịch sử nhập hàng.");
+    } finally {
+      setExporting(false);
+    }
+  }
 
   const draftTotals = useMemo(() => items.reduce((totals, item) => {
     const weight = Math.max(0, finiteNumber(item.weight));
@@ -364,28 +443,29 @@ export function StoreInventoryManagement({ store }: { store: InventoryStore }) {
 
     {inactive && <div className="form-message">Cửa hàng đang ngưng hoạt động. Lịch sử vẫn xem và xuất được nhưng không thể tạo phiếu mới.</div>}
 
-    <div className="ref-metrics four inventory-draft-metrics" aria-label="Tổng hợp phiếu nhập hiện tại">
-      <InventoryMetric icon={PackageOpen} label="Tổng mặt hàng" value={`${items.length} mặt hàng`}/>
-      <InventoryMetric icon={Truck} label="Chi phí vận chuyển" value={formatMoney(draftTotals.shipping)} tone="blue"/>
-      <InventoryMetric icon={Banknote} label="Tiền nhập hàng" value={formatMoney(draftTotals.goods)} tone="purple"/>
-      <InventoryMetric icon={ReceiptText} label="Tổng cộng" value={formatMoney(draftTotals.amount)} tone="orange"/>
+    <div className="ref-metrics four inventory-draft-metrics" aria-label="Tổng hợp lịch sử nhập hàng đã lưu">
+      <InventoryMetric icon={PackageOpen} label="Tổng mặt hàng đã nhập" value={loadingHistory ? "Đang tải..." : `${historySummary.itemLines} mặt hàng`}/>
+      <InventoryMetric icon={Truck} label="Tổng chi phí vận chuyển" value={loadingHistory ? "Đang tải..." : formatMoney(historySummary.shipping)} tone="blue"/>
+      <InventoryMetric icon={Banknote} label="Tổng tiền nhập hàng" value={loadingHistory ? "Đang tải..." : formatMoney(historySummary.goods)} tone="purple"/>
+      <InventoryMetric icon={ReceiptText} label="Tổng cộng đã nhập" value={loadingHistory ? "Đang tải..." : formatMoney(historySummary.amount)} tone="orange"/>
     </div>
 
-    <form className="table-card" onSubmit={saveReceipt}>
+    <form className="table-card inventory-receipt-form" onSubmit={saveReceipt}>
       <div className="table-head">
         <div>
           <h2>Phiếu nhập hàng mới</h2>
           <p>Danh sách nháp luôn được giữ lại cho đến khi lưu thành công.</p>
         </div>
-        <label>
-          Ngày nhập
-          <input type="date" required disabled={inactive || saving} value={date} onChange={(event) => setDate(event.target.value)}/>
-        </label>
+        <div className="inventory-date-field">
+          <span>Ngày nhập</span>
+          <DatePickerControl ariaLabel="Ngày nhập hàng" required disabled={inactive || saving} value={date} onChange={setDate}/>
+        </div>
       </div>
 
-      <fieldset disabled={inactive || saving} style={{ border: 0, margin: 0, padding: 0 }}>
-        <div className="data-table-wrap">
-          <table className="data-table inventory-draft-table" style={{ minWidth: 1180 }}>
+      <fieldset className="inventory-draft-fieldset" disabled={inactive || saving}>
+        <p id="inventory-draft-scroll-hint" className="inventory-scroll-hint">Vuốt ngang bảng để xem và nhập đầy đủ các cột.</p>
+        <div className="data-table-wrap inventory-table-scroll" role="region" aria-label="Danh sách hàng hóa trong phiếu nhập" aria-describedby="inventory-draft-scroll-hint">
+          <table className="data-table inventory-draft-table">
             <thead><tr>
               <th>STT</th><th>Tên hàng hóa</th><th>Số lượng</th><th>Đơn vị</th>
               <th>Cân nặng (kg)</th><th>Đơn giá nhập/kg</th><th>Phí vận chuyển</th>
@@ -417,33 +497,36 @@ export function StoreInventoryManagement({ store }: { store: InventoryStore }) {
             <Plus size={17}/> Thêm hàng hóa
           </button>
         </div>
-        <div style={{ display: "grid", gap: 8, padding: "18px 20px 0" }}>
+        <div className="inventory-note-field">
           <label>Ghi chú<textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Ghi chú chung cho phiếu nhập"/></label>
         </div>
       </fieldset>
 
-      {formError && <div className="form-message" style={{ margin: "16px 20px 0" }}>{formError}</div>}
-      {success && <div className="success-banner" style={{ margin: "16px 20px 0" }}>{success}</div>}
-      <div style={{ display: "flex", justifyContent: "flex-end", padding: 20 }}>
+      {formError && <div className="form-message inventory-form-feedback">{formError}</div>}
+      {success && <div className="success-banner inventory-form-feedback">{success}</div>}
+      <div className="inventory-save-actions">
         <button className="primary-button" disabled={inactive || saving}>
           <Save size={17}/> {saving ? "ĐANG LƯU..." : "LƯU PHIẾU"}
         </button>
       </div>
     </form>
 
-    <section className="table-card">
+    <section className="table-card inventory-history-card">
       <div className="table-head">
         <div>
           <h2>Lịch sử nhập hàng theo phiếu</h2>
-          <p>{receipts.length} phiếu đã ghi nhận</p>
+          <p>{receipts.length < historySummary.receiptCount
+            ? `${receipts.length} phiếu gần nhất · ${historySummary.receiptCount} phiếu đã ghi nhận`
+            : `${historySummary.receiptCount} phiếu đã ghi nhận`}</p>
         </div>
-        <button type="button" disabled={receipts.length === 0} onClick={() => exportInventoryCsv(store, receipts)}>
-          <Download size={16}/> Xuất CSV
+        <button type="button" disabled={historySummary.receiptCount === 0 || exporting} onClick={() => void exportAllHistory()}>
+          <Download size={16}/> {exporting ? "Đang chuẩn bị..." : "Xuất CSV"}
         </button>
       </div>
       {historyError && <div className="form-message" style={{ margin: 20 }}>{historyError}</div>}
-      <div className="data-table-wrap">
-        <table className="data-table inventory-history-table" style={{ minWidth: 1260 }}>
+      <p id="inventory-history-scroll-hint" className="inventory-scroll-hint">Vuốt ngang bảng để xem đầy đủ lịch sử phiếu.</p>
+      <div className="data-table-wrap inventory-table-scroll" role="region" aria-label="Lịch sử nhập hàng theo phiếu" aria-describedby="inventory-history-scroll-hint">
+        <table className="data-table inventory-history-table">
           <thead><tr>
             <th>Thời điểm lưu</th><th>Ngày nhập</th><th>Mã phiếu</th><th>Tổng hàng</th>
             <th>Khối lượng</th><th>Giá hàng</th><th>Vận chuyển</th><th>Tổng cộng</th>
@@ -456,7 +539,7 @@ export function StoreInventoryManagement({ store }: { store: InventoryStore }) {
               return <Fragment key={receipt.id}>
                 <tr>
                   <td>{formatTimestamp(receipt.createdAt)}</td>
-                  <td>{receipt.date || "—"}</td>
+                  <td>{formatDateVn(receipt.date)}</td>
                   <td><b>{receipt.receiptNo}</b></td>
                   <td><b>{totals.itemLines} mặt hàng</b><small style={{ display: "block" }}>{formatNumber(totals.quantity)} đơn vị</small></td>
                   <td>{formatNumber(totals.weight)} kg</td>
@@ -468,8 +551,10 @@ export function StoreInventoryManagement({ store }: { store: InventoryStore }) {
                 </tr>
                 {expanded && <tr>
                   <td colSpan={10} style={{ padding: 0, background: "#f8faf8" }}>
-                    <div className="data-table-wrap">
-                      <table className="data-table" style={{ minWidth: 980 }}>
+                    {/* A scrollable region must be keyboard-focusable so its off-screen columns remain reachable. */}
+                    {/* eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex */}
+                    <div className="data-table-wrap inventory-table-scroll" role="region" tabIndex={0} aria-label={`Chi tiết phiếu nhập ${receipt.receiptNo}`}>
+                      <table className="data-table inventory-history-detail-table">
                         <thead><tr><th>STT</th><th>Tên hàng hóa</th><th>Số lượng</th><th>Đơn vị</th><th>Cân nặng</th><th>Đơn giá nhập/kg</th><th>Giá hàng</th><th>Phí vận chuyển</th><th>Thành tiền</th></tr></thead>
                         <tbody>{receipt.items.map((item, index) => <tr key={`${receipt.id}-${index}`}>
                           <td>{index + 1}</td><td><b>{item.name || "—"}</b></td><td>{formatNumber(item.quantity)}</td><td>{item.unit}</td>

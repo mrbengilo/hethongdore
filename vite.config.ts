@@ -1,12 +1,34 @@
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import vinext from "vinext";
 import { defineConfig } from "vite";
-import hostingConfig from "./.openai/hosting.json";
 import { sites } from "./build/sites-vite-plugin";
 
 const SITE_CREATOR_PLACEHOLDER_DATABASE_ID =
   "00000000-0000-4000-8000-000000000000";
 
-const { d1, r2 } = hostingConfig;
+type HostingBindings = {
+  d1?: string;
+  r2?: string;
+};
+
+function loadHostingBindings(): HostingBindings {
+  // Vite bundles this config into a temporary directory before evaluating it,
+  // so import.meta.url is not a stable anchor for project-owned metadata.
+  const configPath = resolve(process.cwd(), ".openai", "hosting.json");
+  if (!existsSync(configPath)) return {};
+
+  const parsed = JSON.parse(readFileSync(configPath, "utf8")) as Record<string, unknown>;
+  return {
+    d1: typeof parsed.d1 === "string" && parsed.d1.trim() ? parsed.d1 : undefined,
+    r2: typeof parsed.r2 === "string" && parsed.r2.trim() ? parsed.r2 : undefined,
+  };
+}
+
+// Sites supplies these logical bindings through .openai/hosting.json. A
+// self-host source package intentionally omits .openai, so its Next.js build
+// must still be type-checkable without copying hosting metadata or secrets.
+const { d1, r2 } = loadHostingBindings();
 
 // macOS Seatbelt blocks FSEvents, so Codex previews need polling for HMR.
 const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === "seatbelt";

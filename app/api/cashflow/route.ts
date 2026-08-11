@@ -12,6 +12,11 @@ import {
   validateFinanceDateRange,
 } from "../../lib/finance";
 import { getSessionUser, json } from "../_lib/auth";
+import {
+  MANAGER_STORE_SCOPE_MESSAGE,
+  managerHasGlobalStoreAccess,
+  resolveManagerStoreScope,
+} from "../_lib/manager-scope";
 import { storeDateRangeFinance } from "../_lib/store-finance";
 
 type Granularity = "day" | "month";
@@ -155,7 +160,8 @@ async function collectEntries(
     JOIN stores s ON s.id = r.store_id
     WHERE r.category IN ('DONG_TIEN', 'NHAP_HANG', 'CHI_PHI_CO_DINH', 'PAYROLL_CLOSING')
       AND s.status IN ('ACTIVE', 'INACTIVE')
-      AND r.status != 'DELETED'${recordStoreSql}
+      AND r.status != 'DELETED'
+      AND NOT (r.category = 'CHI_PHI_CO_DINH' AND r.status = 'VOID')${recordStoreSql}
       AND (
         (r.category IN ('DONG_TIEN', 'NHAP_HANG')
           AND json_extract(r.data_json, '$.date') >= ? AND json_extract(r.data_json, '$.date') < ?)
@@ -303,7 +309,9 @@ export async function GET(request: Request) {
     return json({ message: "Mức tổng hợp dòng tiền không hợp lệ." }, 400);
   }
   const granularity: Granularity = requestedGranularity;
-  const storeId = params.get("storeId") || null;
+  const scope = resolveManagerStoreScope(user, params.get("storeId"));
+  if (!scope.allowed) return json({ message: MANAGER_STORE_SCOPE_MESSAGE }, 403);
+  const storeId = scope.storeId;
   if (!periodPattern.test(period)) return json({ message: "Kỳ dòng tiền không hợp lệ." }, 400);
   let range: LocalDateRange;
   try {
@@ -314,8 +322,11 @@ export async function GET(request: Request) {
   const previousRange = previousComparableDateRange(range, granularity);
 
   const db = await initDb();
-  const storesPromise = db.prepare(`SELECT id, name, status, created_at AS createdAt
-    FROM stores WHERE status IN ('ACTIVE', 'INACTIVE') ORDER BY created_at`).all<StoreRow>();
+  const storesPromise = managerHasGlobalStoreAccess(user)
+    ? db.prepare(`SELECT id, name, status, created_at AS createdAt
+      FROM stores WHERE status IN ('ACTIVE', 'INACTIVE') ORDER BY created_at`).all<StoreRow>()
+    : db.prepare(`SELECT id, name, status, created_at AS createdAt
+      FROM stores WHERE id = ? AND status IN ('ACTIVE', 'INACTIVE') ORDER BY created_at`).bind(storeId).all<StoreRow>();
   const [storesResult, currentEntries, previousEntries] = await Promise.all([
     storesPromise,
     collectEntries(db, range, storeId),

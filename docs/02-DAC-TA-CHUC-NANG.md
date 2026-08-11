@@ -27,12 +27,13 @@
 
 - Click thẻ/nút cửa hàng để đặt ngữ cảnh `selectedStore` và mở dashboard cửa hàng.
 - Thêm cửa hàng tạo bản ghi cửa hàng và ba định nghĩa ca mặc định trong cùng một batch; các module dùng chung hoạt động ngay theo `store_id` mới.
-- Không có thao tác xóa cửa hàng. Quản lý chỉ chuyển trạng thái giữa `ACTIVE` (đang hoạt động) và `INACTIVE` (ngưng hoạt động).
+- Quản lý thường chỉ chuyển trạng thái giữa `ACTIVE` (đang hoạt động) và `INACTIVE` (ngưng hoạt động). Riêng quản trị cấp cao được xóa mềm cửa hàng chưa từng phát sinh bất kỳ đơn hàng nào; hệ thống không xóa vật lý dữ liệu lịch sử.
 
 ### Vòng đời cửa hàng
 
 - Cửa hàng mới luôn được tạo ở trạng thái `ACTIVE`.
 - Trước khi chuyển `ACTIVE → INACTIVE`, backend phải xác nhận cửa hàng không còn ca đang hoạt động; nếu còn, trả lỗi và giữ nguyên trạng thái.
+- Xóa cửa hàng là chuyển sang trạng thái kết thúc `DELETED` trong giao dịch có kiểm tra lại `NOT EXISTS orders`. Mọi ca còn mở của cửa hàng hoặc của nhân viên thuộc cửa hàng phải được đóng tại giờ server, đối soát đơn hàng vào đúng cửa hàng nhận; phiên đăng nhập liên quan bị thu hồi ngay.
 - Cửa hàng `INACTIVE` vẫn xuất hiện trên tổng quan và cho phép quản lý/nhân viên được phân quyền đọc lịch sử ca, đơn hàng, dòng tiền, lương và báo cáo.
 - Mọi thao tác phát sinh dữ liệu mới tại cửa hàng `INACTIVE` phải bị từ chối ở backend, gồm nhân viên, lịch/ca làm, đơn hàng, giao việc, nhập hàng, chấm công, dòng tiền, lương thưởng và điều chuyển mới. Việc ẩn hoặc khóa nút trên giao diện chỉ là lớp hỗ trợ.
 - Kích hoạt lại chuyển `INACTIVE → ACTIVE` và không làm thay đổi dữ liệu lịch sử. Mỗi lần đổi trạng thái phải được ghi audit với trạng thái trước/sau.
@@ -229,7 +230,7 @@ Ca làm tại cửa hàng nhận hỗ trợ chịu lương, thưởng và phụ 
 - Nhân viên chưa vào ca không tạo được đơn cả ở UI và API.
 - Không thể dùng API để đọc/sửa/hủy đơn của người khác hoặc ca khác.
 - Thêm cửa hàng mới xuất hiện ở tổng quan và có đầy đủ không gian quản lý.
-- Không thể xóa cửa hàng; cửa hàng `INACTIVE` đọc được lịch sử nhưng mọi API ghi nghiệp vụ trả lỗi. Không thể ngưng cửa hàng khi còn ca hoạt động.
+- Quản lý thường không thể xóa cửa hàng; quản trị cấp cao chỉ xóa mềm được cửa hàng chưa từng có đơn. Cửa hàng `DELETED` biến mất khỏi danh sách vận hành và tài khoản liên quan không thể tiếp tục sử dụng; dữ liệu phụ và lịch sử vẫn được giữ. Cửa hàng `INACTIVE` đọc được lịch sử nhưng mọi API ghi nghiệp vụ trả lỗi. Không thể ngưng cửa hàng khi còn ca hoạt động.
 - Nhân viên mới đăng nhập chỉ thấy đúng cửa hàng nơi tài khoản được tạo; mã/tên đăng nhập không được dùng để suy luận hoặc làm thay đổi `store_id`.
 - Hồ sơ thiếu tỉnh, phường, đường/ấp, tuổi hợp lệ hoặc ảnh CCCD phải bị từ chối; tệp sai loại hoặc lớn hơn 5 MB không được tải lên.
 - Mọi báo cáo cửa hàng khớp tổng chi tiết cùng bộ lọc.

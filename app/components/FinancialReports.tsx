@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   BadgeDollarSign,
   BarChart3,
+  Calendar,
   CheckCircle2,
   Download,
   LockKeyhole,
@@ -305,6 +306,34 @@ function Metric({ icon: Icon, label, value, note, tone = "green" }: {
   return <article className={`manager-metric ${tone}`}><i><Icon size={24}/></i><div><span>{label}</span><strong>{value}</strong>{note && <small>{note}</small>}</div></article>;
 }
 
+function showMonthPicker(input: HTMLInputElement) {
+  if (typeof input.showPicker !== "function") return false;
+  try {
+    input.showPicker();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function MonthPickerControl({ period, setPeriod }: { period: string; setPeriod: (period: string) => void }) {
+  return <label className="date-control month-picker-control report-month-control">
+    <Calendar size={18} aria-hidden="true"/>
+    <span aria-hidden="true">{periodLabel(period)}</span>
+    <input
+      className="month-picker-native"
+      aria-label="Kỳ báo cáo"
+      type="month"
+      value={period}
+      onChange={(event) => setPeriod(event.target.value)}
+      onClick={(event) => showMonthPicker(event.currentTarget)}
+      onKeyDown={(event) => {
+        if ((event.key === "Enter" || event.key === " ") && showMonthPicker(event.currentTarget)) event.preventDefault();
+      }}
+    />
+  </label>;
+}
+
 function ReportToolbar({ title, description, period, setPeriod, onRefresh, onExport, loading, exportDisabled = false }: {
   title: string;
   description: string;
@@ -316,7 +345,7 @@ function ReportToolbar({ title, description, period, setPeriod, onRefresh, onExp
   exportDisabled?: boolean;
 }) {
   return <div className="ref-toolbar"><div><h2>{title}</h2><p>{description}</p></div><div className="ref-toolbar-actions">
-    <input aria-label="Kỳ báo cáo" type="month" value={period} onChange={(event) => setPeriod(event.target.value)}/>
+    <MonthPickerControl period={period} setPeriod={setPeriod}/>
     <button onClick={onRefresh} disabled={loading}><RefreshCw size={16}/> {loading ? "Đang tải…" : "Làm mới"}</button>
     <button onClick={onExport} disabled={exportDisabled}><Download size={16}/> Xuất CSV</button>
   </div></div>;
@@ -412,8 +441,10 @@ export function ManagerFinancialReports({ initialPeriod }: { initialPeriod?: str
   </div>;
 }
 
-export function StoreFinancialReport({ store, initialPeriod }: { store: StoreRef; initialPeriod?: string }) {
-  const [period, setPeriod] = useState(initialPeriod ?? currentPeriod());
+export function StoreFinancialReport({ store, initialPeriod, onPeriodChange }: { store: StoreRef; initialPeriod?: string; onPeriodChange?: (period: string) => void }) {
+  const [localPeriod, setLocalPeriod] = useState(initialPeriod ?? currentPeriod());
+  const period = onPeriodChange ? (initialPeriod ?? localPeriod) : localPeriod;
+  const setPeriod = onPeriodChange ?? setLocalPeriod;
   const { data, loading, error, reload } = useFinancialReport(period, store.id);
   const report = data?.stores.find((item) => item.current.id === store.id) ?? data?.stores[0];
 

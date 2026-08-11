@@ -4,7 +4,7 @@ import test from "node:test";
 
 const source = (path) => readFile(new URL(path, import.meta.url), "utf8");
 
-test("stores use ACTIVE/INACTIVE lifecycle and cannot be deleted", async () => {
+test("stores use ACTIVE/INACTIVE lifecycle and superadmin-only transactional tombstones", async () => {
   const [storesApi, portal] = await Promise.all([
     source("../app/api/stores/route.ts"),
     source("../app/components/Portal.tsx"),
@@ -12,11 +12,17 @@ test("stores use ACTIVE/INACTIVE lifecycle and cannot be deleted", async () => {
   assert.match(storesApi, /status IN \('ACTIVE', 'INACTIVE'\)/u);
   assert.match(storesApi, /STORE_STATUS_CHANGE/u);
   assert.match(storesApi, /activeShifts/u);
-  assert.match(storesApi, /Không hỗ trợ xóa cửa hàng/u);
-  assert.match(storesApi, /405/u);
+  assert.match(storesApi, /Number\(user\.isSuperAdmin\) !== 1/u);
+  assert.match(storesApi, /NOT EXISTS \(SELECT 1 FROM orders existing_order WHERE existing_order\.store_id = target\.id\)/u);
+  assert.match(storesApi, /UPDATE stores SET status = 'DELETED'/u);
+  assert.match(storesApi, /close_reason = 'STORE_DELETED', close_status = 'ADMIN_CLOSED'/u);
+  assert.match(storesApi, /UPDATE stores[\s\S]*linked_order\.status = 'COMPLETED'[\s\S]*UPDATE shift_sessions/u);
+  assert.match(storesApi, /DELETE FROM sessions/u);
   assert.match(portal, /Ngưng hoạt động/u);
   assert.match(portal, /Kích hoạt lại/u);
-  assert.doesNotMatch(portal, /onClick=\{\(\) => archive\(store\)\}/u);
+  assert.match(portal, /isSuperAdmin \? <button className="danger store-delete-button"/u);
+  assert.match(portal, /role="alertdialog"/u);
+  assert.match(portal, /Chỉ xóa được cửa hàng chưa từng phát sinh đơn hàng/u);
 });
 
 test("inactive stores reject operational writes while reads remain available", async () => {
@@ -77,7 +83,7 @@ test("system documentation locks store, money, cost and timezone contracts", asy
   assert.match(functionalSpec, /employees\.store_id/u);
   assert.match(functionalSpec, /users\.store_id/u);
   assert.match(functionalSpec, /marketing/u);
-  assert.match(architecture, /DELETE.*405/u);
+  assert.match(architecture, /DELETE.*tombstone/u);
   assert.match(architecture, /stores\.status = 'ACTIVE'/u);
   assert.match(operations, /tests\/store-lifecycle\.test\.mjs/u);
   assert.match(operations, /employees\.store_id = users\.store_id/u);
@@ -96,7 +102,7 @@ test("latest store, transfer and employee operating flows stay wired end to end"
 
   assert.match(employees, /status = \?/u);
   assert.match(employees, /405/u);
-  assert.match(employees, /DELETE FROM sessions WHERE user_id/u);
+  assert.match(employees, /DELETE FROM sessions\s+WHERE user_id/u);
   assert.match(login, /employee_status/u);
   assert.match(login, /store_status/u);
   assert.match(shifts, /supportAllowance/u);

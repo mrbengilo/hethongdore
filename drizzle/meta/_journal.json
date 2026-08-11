@@ -29,6 +29,97 @@
       "when": 1786208400000,
       "tag": "0008_reset_operational_data_preserve_stores",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1786251600000,
+      "tag": "0009_employee_tiktok_allowance",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1786320000000,
+      "tag": "0010_order_notifications",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1786410000000,
+      "tag": "0011_super_admin_reset",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1786492800000,
+      "tag": "0012_attendance_status",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1786579200000,
+      "tag": "0013_attendance_location",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1786665600000,
+      "tag": "0014_super_admin_record_management",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1786752000000,
+      "tag": "0015_order_code_sequence",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1786838400000,
+      "tag": "0016_employee_lifecycle",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1786924800000,
+      "tag": "0017_cccd_privacy_cleanup",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1787011200000,
+      "tag": "0018_cccd_upload_registry",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1787097600000,
+      "tag": "0019_store_order_code_sequence",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1787184000000,
+      "tag": "0020_daily_shift_definitions",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1787270400000,
+      "tag": "0021_attendance_grace_period",
+      "breakpoints": true
     }
   ]
 }
