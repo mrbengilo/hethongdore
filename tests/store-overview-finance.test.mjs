@@ -22,8 +22,10 @@ const db = await runtime.initDb();
 const token = "store-overview-finance-token";
 const storeId = "overview-fixed-cost-store";
 const secondStoreId = "overview-fixed-cost-second-store";
+const thotNotStoreId = "overview-thot-not-exact-expense";
 const period = finance.localPeriod();
 const priorPeriod = storeFinance.previousPeriod(period);
+const today = finance.localDate();
 const currentManagerSalary = 4_500_000;
 const lockedManagerSalary = 1_250_000;
 const lockedEmployeeKpi = 125_000;
@@ -48,6 +50,9 @@ before(async () => {
     db.prepare(`INSERT INTO stores (id, name, address, revenue, expense, status, created_at)
       VALUES (?, 'DORE KIỂM THỬ CẦN THƠ', 'Test', 0, 0, 'ACTIVE', ?)`)
       .bind(secondStoreId, createdAt),
+    db.prepare(`INSERT INTO stores (id, name, address, revenue, expense, status, created_at)
+      VALUES (?, 'DORE THỐT NỐT KIỂM THỬ BÁO CÁO', 'Test', 0, 0, 'ACTIVE', ?)`)
+      .bind(thotNotStoreId, createdAt),
     db.prepare(`INSERT INTO users (id, username, password_hash, role, name, is_super_admin)
       VALUES ('overview-finance-manager', 'overview-finance-manager', ?, 'MANAGER', 'Quản trị', 1)`)
       .bind(process.env.DORE_MANAGER_PASSWORD_HASH),
@@ -61,6 +66,11 @@ before(async () => {
       VALUES ('overview-fixed-cost-second-record', 'CHI_PHI_CO_DINH', ?, 'overview-finance-manager',
         'Chi phí cố định', ?, 'ACTIVE', ?, ?)`)
       .bind(secondStoreId, JSON.stringify({ period, total: 3_250_000 }), now, now),
+    db.prepare(`INSERT INTO business_records
+        (id, category, store_id, owner_id, title, data_json, status, created_at, updated_at)
+      VALUES ('overview-thot-not-fixed-cost', 'CHI_PHI_CO_DINH', ?, 'overview-finance-manager',
+        'Chi phí cố định Thốt Nốt', ?, 'ACTIVE', ?, ?)`)
+      .bind(thotNotStoreId, JSON.stringify({ period, total: 8_050_000 }), now, now),
     db.prepare(`INSERT INTO business_records
         (id, category, store_id, owner_id, title, data_json, status, created_at, updated_at)
       VALUES ('report-fixed-cost-prior-record', 'CHI_PHI_CO_DINH', ?, 'overview-finance-manager',
@@ -117,6 +127,27 @@ before(async () => {
         period,
         amount: 1_300_000,
         shipping: 100_000,
+      }), now, now),
+    db.prepare(`INSERT INTO business_records
+        (id, category, store_id, owner_id, title, data_json, status, created_at, updated_at)
+      VALUES ('overview-thot-not-inventory', 'NHAP_HANG', ?, 'overview-finance-manager',
+        'Phiếu nhập Thốt Nốt', ?, 'ACTIVE', ?, ?)`)
+      .bind(thotNotStoreId, JSON.stringify({
+        date: today,
+        period,
+        goodsTotal: 6_000_000,
+        shippingTotal: 570_000,
+        total: 6_570_000,
+      }), now, now),
+    db.prepare(`INSERT INTO business_records
+        (id, category, store_id, owner_id, title, data_json, status, created_at, updated_at)
+      VALUES ('overview-thot-not-kpi-snapshot', 'KPI_SUMMARY', ?, 'overview-finance-manager',
+        'Kỳ lương Thốt Nốt đã khóa', ?, 'LOCKED', ?, ?)`)
+      .bind(thotNotStoreId, JSON.stringify({
+        period,
+        managerSalary: 3_000_000,
+        totalKpiBonus: 790_688,
+        managerBonus: 0,
       }), now, now),
   ]);
   await db.prepare(`INSERT INTO sessions (id, user_id, token_hash, expires_at, created_at)
@@ -292,8 +323,10 @@ test("financial report recognizes full fixed costs for every store and the compa
   const body = await response.json();
   const store = body.stores.find((item) => item.current.id === storeId);
   const secondStore = body.stores.find((item) => item.current.id === secondStoreId);
+  const thotNotStore = body.stores.find((item) => item.current.id === thotNotStoreId);
   assert.ok(store?.previous);
   assert.ok(secondStore?.previous);
+  assert.ok(thotNotStore);
 
   assert.equal(store.current.expenseBreakdown.fixedCosts, 7_400_000);
   assert.equal(store.current.expenseBreakdown.managerSalary, currentManagerSalary);
@@ -324,7 +357,7 @@ test("financial report recognizes full fixed costs for every store and the compa
 
   const expectedCurrentTotal = body.stores.reduce((sum, item) => sum + item.current.expense, 0);
   const expectedPriorTotal = body.stores.reduce((sum, item) => sum + (item.previous?.expense ?? 0), 0);
-  assert.ok(body.stores.filter((item) => item.current.id !== secondStoreId)
+  assert.ok(body.stores.filter((item) => item.current.id !== secondStoreId && item.current.id !== thotNotStoreId)
     .every((item) => item.current.expenseBreakdown.managerSalary === currentManagerSalary));
   assert.deepEqual(body.totals, { revenue: 0, expense: expectedCurrentTotal, profit: -expectedCurrentTotal });
   assert.deepEqual(body.previousTotals, { revenue: 0, expense: expectedPriorTotal, profit: -expectedPriorTotal });
@@ -391,6 +424,32 @@ test("Thot Not total-expense regression preserves the exact 18,410,688 VND ledge
   assert.equal(totals.profit, totals.revenue - totals.expense);
 });
 
+test("month-to-date manager report reconciles Thot Not to the exact monthly expense for store and all-store scopes", async () => {
+  const query = `period=${encodeURIComponent(period)}&from=${period}-01&to=${today}&granularity=day`;
+  const storeResponse = await reportsRoute.GET(request(`/api/reports?${query}&storeId=${encodeURIComponent(thotNotStoreId)}`));
+  assert.equal(storeResponse.status, 200);
+  const storeBody = await storeResponse.json();
+  assert.equal(storeBody.stores.length, 1);
+  assert.equal(storeBody.stores[0].current.expenseBreakdown.fixedCosts, 8_050_000);
+  assert.equal(storeBody.stores[0].current.expenseBreakdown.inventoryGoods, 6_000_000);
+  assert.equal(storeBody.stores[0].current.expenseBreakdown.inventoryShipping, 570_000);
+  assert.equal(storeBody.stores[0].current.expenseBreakdown.managerSalary, 3_000_000);
+  assert.equal(storeBody.stores[0].current.expenseBreakdown.employeeKpiBonus, 790_688);
+  assert.equal(storeBody.stores[0].current.expense, 18_410_688);
+  assert.equal(storeBody.byStore[0].expense, 18_410_688);
+  assert.equal(storeBody.totals.expense, 18_410_688);
+  assert.equal(storeBody.timeline.reduce((sum, day) => sum + day.expense, 0), 18_410_688);
+
+  const allResponse = await reportsRoute.GET(request(`/api/reports?${query}`));
+  assert.equal(allResponse.status, 200);
+  const allBody = await allResponse.json();
+  const thotNot = allBody.byStore.find((store) => store.storeId === thotNotStoreId);
+  assert.equal(thotNot?.expense, 18_410_688);
+  assert.equal(allBody.byStore.reduce((sum, store) => sum + store.expense, 0), allBody.totals.expense);
+  assert.equal(allBody.timeline.reduce((sum, day) => sum + day.expense, 0), allBody.totals.expense);
+  assert.equal(allBody.totals.profit, allBody.totals.revenue - allBody.totals.expense);
+});
+
 test("financial report keeps daily accrual semantics for an explicit custom date range", async () => {
   const selectedDate = `${period}-01`;
   const response = await reportsRoute.GET(request(
@@ -400,8 +459,10 @@ test("financial report keeps daily accrual semantics for an explicit custom date
   const body = await response.json();
   const store = body.stores.find((item) => item.current.id === storeId);
   const secondStore = body.stores.find((item) => item.current.id === secondStoreId);
+  const thotNotStore = body.stores.find((item) => item.current.id === thotNotStoreId);
   assert.ok(store?.previous);
   assert.ok(secondStore?.previous);
+  assert.ok(thotNotStore?.previous);
 
   const accruedForDate = (total, date) => {
     const dates = finance.localDateRangeKeys(finance.localMonthRange(date.slice(0, 7)));
@@ -415,6 +476,9 @@ test("financial report keeps daily accrual semantics for an explicit custom date
   const expectedSecondManagerCurrent = accruedForDate(lockedManagerSalary, selectedDate);
   const expectedSecondEmployeeKpi = accruedForDate(lockedEmployeeKpi, selectedDate);
   const expectedSecondManagerKpi = accruedForDate(lockedManagerKpi, selectedDate);
+  const expectedThotNotFixedCosts = accruedForDate(8_050_000, selectedDate);
+  const expectedThotNotManagerSalary = accruedForDate(3_000_000, selectedDate);
+  const expectedThotNotEmployeeKpi = accruedForDate(790_688, selectedDate);
   const previousDate = body.previousRange.to;
   const expectedPrevious = accruedForDate(6_200_000, previousDate);
   const expectedSecondPrevious = accruedForDate(2_800_000, previousDate);
@@ -428,6 +492,9 @@ test("financial report keeps daily accrual semantics for an explicit custom date
   assert.equal(secondStore.current.expenseBreakdown.managerSalary, expectedSecondManagerCurrent);
   assert.equal(secondStore.current.expenseBreakdown.employeeKpiBonus, expectedSecondEmployeeKpi);
   assert.equal(secondStore.current.expenseBreakdown.managerBonus, expectedSecondManagerKpi);
+  assert.equal(thotNotStore.current.expenseBreakdown.fixedCosts, expectedThotNotFixedCosts);
+  assert.equal(thotNotStore.current.expenseBreakdown.managerSalary, expectedThotNotManagerSalary);
+  assert.equal(thotNotStore.current.expenseBreakdown.employeeKpiBonus, expectedThotNotEmployeeKpi);
   assert.equal(store.previous.expenseBreakdown.managerSalary, expectedManagerPrevious);
   assert.equal(secondStore.previous.expenseBreakdown.managerSalary, expectedManagerPrevious);
   assert.ok(store.current.expenseBreakdown.fixedCosts < 7_400_000);
@@ -435,14 +502,16 @@ test("financial report keeps daily accrual semantics for an explicit custom date
   assert.deepEqual(body.totals, {
     revenue: 0,
     expense: expectedCurrent + expectedManagerCurrent + expectedSecondCurrent
-      + expectedSecondManagerCurrent + expectedSecondEmployeeKpi + expectedSecondManagerKpi,
+      + expectedSecondManagerCurrent + expectedSecondEmployeeKpi + expectedSecondManagerKpi
+      + expectedThotNotFixedCosts + expectedThotNotManagerSalary + expectedThotNotEmployeeKpi,
     profit: -(expectedCurrent + expectedManagerCurrent + expectedSecondCurrent
-      + expectedSecondManagerCurrent + expectedSecondEmployeeKpi + expectedSecondManagerKpi),
+      + expectedSecondManagerCurrent + expectedSecondEmployeeKpi + expectedSecondManagerKpi
+      + expectedThotNotFixedCosts + expectedThotNotManagerSalary + expectedThotNotEmployeeKpi),
   });
   assert.deepEqual(body.previousTotals, {
     revenue: 0,
-    expense: expectedPrevious + expectedManagerPrevious + expectedSecondPrevious + expectedManagerPrevious,
-    profit: -(expectedPrevious + expectedManagerPrevious + expectedSecondPrevious + expectedManagerPrevious),
+    expense: expectedPrevious + expectedSecondPrevious + (expectedManagerPrevious * 3),
+    profit: -(expectedPrevious + expectedSecondPrevious + (expectedManagerPrevious * 3)),
   });
   assert.equal(body.timeline.reduce((sum, day) => sum + day.expense, 0), body.totals.expense);
   assert.match(body.recognitionPolicy.monthlyAccrual, /phân bổ theo ngày trong phạm vi tùy chọn/u);

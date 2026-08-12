@@ -119,12 +119,6 @@ function localIsoDate() {
   }).format(new Date());
 }
 
-function shiftDate(value: string, days: number) {
-  const [year, month, day] = value.split("-").map(Number);
-  const date = new Date(Date.UTC(year, month - 1, day + days));
-  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
-}
-
 function shiftMonth(value: string, months: number) {
   const [year, month] = value.split("-").map(Number);
   const date = new Date(Date.UTC(year, month - 1 + months, 1));
@@ -139,7 +133,11 @@ function lastDayOfMonth(value: string) {
 
 function initialDayRange(): RangeValue {
   const to = localIsoDate();
-  return { from: shiftDate(to, -6), to };
+  // The main financial report is a period-accounting view. Start on the first
+  // day of the current month so its headline and per-store totals reconcile
+  // with each store's monthly financial report. Managers can still select a
+  // shorter custom range when they explicitly need daily accrual figures.
+  return { from: `${to.slice(0, 7)}-01`, to };
 }
 
 function initialMonthRange(): RangeValue {

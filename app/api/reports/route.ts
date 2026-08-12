@@ -218,12 +218,11 @@ type StoreOption = { id: string; name: string; status: string; createdAt: string
 function fixedCostRecognitionForRange(params: URLSearchParams, range: LocalDateRange): FixedCostRecognition {
   if (!params.has("from") && !params.has("to")) return "FULL_ENDING_PERIOD";
 
-  // The manager report always sends an explicit range, including for a whole
-  // calendar month and for the current month-to-date. Those views must agree
-  // with the store financial report: monthly fixed costs and the payroll
-  // preview are recognized in full once the selection covers the ending month
-  // from its first day through its final available day. A genuinely partial
-  // slice (for example one day or one week) keeps daily accrual semantics.
+  // The main report opens on the current month-to-date. That whole-period
+  // selection must agree with each store's monthly financial view: fixed
+  // costs, manager salary and KPI are recognized in full. A genuinely partial
+  // custom range (for example one day or one week) keeps daily accrual
+  // semantics so revenue and expense always describe the same date window.
   const endingMonth = localMonthRange(range.to.slice(0, 7));
   const today = localDate();
   const finalAvailableDay = endingMonth.to > today ? today : endingMonth.to;

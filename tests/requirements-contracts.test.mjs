@@ -468,6 +468,12 @@ test("website and store cards use logo.jpg as the canonical favicon and brand as
   assert.doesNotMatch(`${layout}\n${login}\n${portal}`, /\/dore-logo\.jpg/u);
 });
 
+test("manager financial report opens on the current month-to-date accounting period", async () => {
+  const source = await readFile(new URL("../app/components/ManagerFinanceViews.tsx", import.meta.url), "utf8");
+  assert.match(source, /function initialDayRange\(\)[\s\S]*?const to = localIsoDate\(\);[\s\S]*?from: `\$\{to\.slice\(0, 7\)\}-01`, to/u);
+  assert.doesNotMatch(source, /function initialDayRange\(\)[\s\S]{0,180}shiftDate\(to, -6\)/u);
+});
+
 test("migration upgrades existing employee and shift tables without recreating them", async () => {
   const migration = await readFile(new URL("../drizzle/0005_employee_profile_shift_rollover.sql", import.meta.url), "utf8");
   for (const column of [
