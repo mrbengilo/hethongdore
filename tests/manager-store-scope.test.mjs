@@ -232,6 +232,7 @@ test("unsafe VND inputs and unsafe order aggregates are rejected without partial
   const profile = {
     id: "scope-employee-a", storeId: "scope-store-a", code: "SCOPE-A", name: "Nhân viên A",
     position: "Bán hàng", phone: "0900000101", province: "A", ward: "A", addressLine: "A", age: 25,
+    cccdNumber: "092000000101",
     cccdImageKey: "cccd/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jpg", cccdImageName: "a.jpg", expectedVersion: 0,
   };
   assert.equal((await employees.PATCH(request("/api/employees", tokens.scoped, "PATCH", {

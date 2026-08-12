@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Edit3, Eye, KeyRound, RefreshCw, Search, ShieldAlert, Trash2, X } from "lucide-react";
+import { formatVndInput, parseVndInput } from "../lib/format";
 import { useAccessibleModal } from "./useAccessibleModal";
 import styles from "./SuperAdminEmployeeDirectory.module.css";
 
@@ -10,20 +11,18 @@ type AccountStatus = "ENABLED" | "DISABLED" | "LOCKED" | "NO_ACCOUNT";
 type EmployeeRow = {
   id: string; storeId: string; storeName: string; storeStatus: string; code: string; name: string;
   position: string; phone: string; province: string; ward: string; addressLine: string; age: number | null;
-  cccdImageKey: string | null; hourlyRate: number; tiktokAllowance: number; status: EmployeeStatus;
+  cccdNumber: string | null; cccdImageKey: string | null; hourlyRate: number; tiktokAllowance: number; status: EmployeeStatus;
   statusLabel: string; username: string | null; hasLogin: boolean; accountStatus: AccountStatus;
   activeShiftCount: number; orderCount: number; shiftCount: number; payrollClosingCount: number;
   versionToken: string;
 };
 type ListResponse = { rows: EmployeeRow[]; pagination: { page: number; pageSize: number; total: number; pages: number } };
 type EditDraft = Pick<EmployeeRow, "name" | "position" | "phone" | "province" | "ward" | "addressLine"> & {
-  age: string; hourlyRate: string; tiktokAllowance: string; username: string;
+  age: string; cccdNumber: string; hourlyRate: string; tiktokAllowance: string; username: string;
 };
 type Action = { kind: "EDIT" | "RESET_PASSWORD" | "DELETE"; row: EmployeeRow };
 
 const money = (value: number) => `${new Intl.NumberFormat("vi-VN").format(Math.round(value))} đồng`;
-const numberText = (value: number) => new Intl.NumberFormat("vi-VN").format(Math.round(value));
-const parseNumber = (value: string) => Number(value.replace(/[^0-9]/gu, ""));
 const accountLabels: Record<AccountStatus, string> = {
   ENABLED: "Được phép đăng nhập", DISABLED: "Đã khóa theo trạng thái", LOCKED: "Tạm khóa bảo mật", NO_ACCOUNT: "Chưa có tài khoản",
 };
@@ -32,7 +31,8 @@ function draftFor(row: EmployeeRow): EditDraft {
   return {
     name: row.name, position: row.position, phone: row.phone, province: row.province,
     ward: row.ward, addressLine: row.addressLine, age: row.age == null ? "" : String(row.age),
-    hourlyRate: numberText(row.hourlyRate), tiktokAllowance: numberText(row.tiktokAllowance), username: row.username ?? "",
+    cccdNumber: row.cccdNumber ?? "", hourlyRate: formatVndInput(row.hourlyRate),
+    tiktokAllowance: formatVndInput(row.tiktokAllowance), username: row.username ?? "",
   };
 }
 
@@ -93,8 +93,9 @@ export function SuperAdminEmployeeDirectory() {
     name: draft.name, position: draft.position, phone: draft.phone, province: draft.province,
     ward: draft.ward, addressLine: draft.addressLine,
   }).every((value) => value.trim()) && Number(draft.age) >= 15 && Number(draft.age) <= 100
-    && parseNumber(draft.hourlyRate) > 0 && Number.isSafeInteger(parseNumber(draft.hourlyRate))
-    && Number.isSafeInteger(parseNumber(draft.tiktokAllowance)) && (!action.row.hasLogin || Boolean(draft.username.trim()));
+    && /^\d{12}$/.test(draft.cccdNumber)
+    && parseVndInput(draft.hourlyRate) > 0 && Number.isSafeInteger(parseVndInput(draft.hourlyRate))
+    && Number.isSafeInteger(parseVndInput(draft.tiktokAllowance)) && (!action.row.hasLogin || Boolean(draft.username.trim()));
   const validPassword = password.length >= 10 && password.length <= 128 && /[A-Za-z]/u.test(password) && /\d/u.test(password)
     && password === passwordConfirmation;
   const canSubmit = reason.trim().length >= 3 && (action?.kind === "EDIT" ? Boolean(validEdit)
@@ -108,8 +109,8 @@ export function SuperAdminEmployeeDirectory() {
       storeId: action.row.storeId, id: action.row.id, versionToken: action.row.versionToken, reason: reason.trim(),
     };
     if (action.kind === "EDIT" && draft) Object.assign(body, {
-      action: "EDIT_PROFILE", ...draft, age: Number(draft.age), hourlyRate: parseNumber(draft.hourlyRate),
-      tiktokAllowance: parseNumber(draft.tiktokAllowance), username: draft.username.trim(),
+      action: "EDIT_PROFILE", ...draft, age: Number(draft.age), hourlyRate: parseVndInput(draft.hourlyRate),
+      tiktokAllowance: parseVndInput(draft.tiktokAllowance), username: draft.username.trim(),
     });
     if (action.kind === "RESET_PASSWORD") Object.assign(body, { action: "RESET_PASSWORD", password, passwordConfirmation });
     if (action.kind === "DELETE") body.confirmation = confirmation.trim();
@@ -135,7 +136,7 @@ export function SuperAdminEmployeeDirectory() {
         <button type="button" onClick={() => void load()} disabled={loading}><RefreshCw size={17}/> Làm mới</button>
       </header>
       <div className={styles.toolbar}>
-        <label><span>Tìm nhân viên</span><span className={styles.search}><Search size={17}/><input type="search" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="Tên, mã, SĐT hoặc tài khoản"/></span></label>
+        <label><span>Tìm nhân viên</span><span className={styles.search}><Search size={17}/><input type="search" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="Tên, mã, SĐT, CCCD hoặc tài khoản"/></span></label>
         <div><b>{pagination.total}</b><span> nhân viên</span></div>
       </div>
       {error && !action ? <p className={styles.error} role="alert">{error}</p> : null}
@@ -145,7 +146,7 @@ export function SuperAdminEmployeeDirectory() {
           <thead><tr><th>Cửa hàng / nhân viên</th><th>Liên hệ / hồ sơ</th><th>Lương / phụ cấp</th><th>Tài khoản</th><th>Đối soát</th><th>Thao tác</th></tr></thead>
           <tbody>{rows.map((row) => <tr key={row.id}>
             <td data-label="Cửa hàng / nhân viên"><span className={styles.store}>{row.storeName}</span><b>{row.code} · {row.name}</b><small>{row.position}{row.age ? ` · ${row.age} tuổi` : ""}</small></td>
-            <td data-label="Liên hệ / hồ sơ"><b>{row.phone || "Không có SĐT"}</b><small>{[row.addressLine, row.ward, row.province].filter(Boolean).join(", ") || "Chưa có địa chỉ"}</small>{row.cccdImageKey ? <a href={`/api/uploads?key=${encodeURIComponent(row.cccdImageKey)}`} target="_blank" rel="noopener noreferrer"><Eye size={14}/> Xem ảnh CCCD</a> : <small>Chưa có ảnh CCCD</small>}</td>
+            <td data-label="Liên hệ / hồ sơ"><b>{row.phone || "Không có SĐT"}</b><small>CCCD: {row.cccdNumber || "Chưa cập nhật"}</small><small>{[row.addressLine, row.ward, row.province].filter(Boolean).join(", ") || "Chưa có địa chỉ"}</small>{row.cccdImageKey ? <a href={`/api/uploads?key=${encodeURIComponent(row.cccdImageKey)}`} target="_blank" rel="noopener noreferrer"><Eye size={14}/> Xem ảnh CCCD</a> : <small>Chưa có ảnh CCCD</small>}</td>
             <td data-label="Lương / phụ cấp"><b>{money(row.hourlyRate)}/giờ</b><small>Phụ cấp TikTok {money(row.tiktokAllowance)}</small></td>
             <td data-label="Tài khoản"><b>{row.username || "Chưa có tài khoản"}</b><span className={`${styles.account} ${styles[row.accountStatus.toLowerCase()]}`}>{accountLabels[row.accountStatus]}</span><small>Mật khẩu: đã mã hóa, không hiển thị</small></td>
             <td data-label="Đối soát"><b>{row.shiftCount} ca · {row.orderCount} đơn</b><small>{row.payrollClosingCount} kỳ lương · {row.activeShiftCount} ca đang mở</small><span className={`${styles.status} ${styles[row.status.toLowerCase()]}`}>{row.statusLabel}</span></td>
@@ -169,8 +170,9 @@ export function SuperAdminEmployeeDirectory() {
           <label>Tỉnh/thành phố<input value={draft.province} onChange={(event) => setDraft({ ...draft, province: event.target.value })}/></label>
           <label>Phường/xã<input value={draft.ward} onChange={(event) => setDraft({ ...draft, ward: event.target.value })}/></label>
           <label className={styles.full}>Địa chỉ<input value={draft.addressLine} onChange={(event) => setDraft({ ...draft, addressLine: event.target.value })}/></label>
-          <label>Lương/giờ<input inputMode="numeric" value={draft.hourlyRate} onChange={(event) => setDraft({ ...draft, hourlyRate: numberText(parseNumber(event.target.value)) })}/></label>
-          <label>Phụ cấp TikTok<input inputMode="numeric" value={draft.tiktokAllowance} onChange={(event) => setDraft({ ...draft, tiktokAllowance: numberText(parseNumber(event.target.value)) })}/></label>
+          <label className={styles.full}>Số CCCD<input required inputMode="numeric" autoComplete="off" pattern="[0-9]{12}" minLength={12} maxLength={12} value={draft.cccdNumber} onChange={(event) => setDraft({ ...draft, cccdNumber: event.target.value.replace(/\D/g, "").slice(0, 12) })}/><small>Phải gồm chính xác 12 chữ số.</small></label>
+          <label>Lương/giờ<input inputMode="numeric" value={draft.hourlyRate} onChange={(event) => setDraft({ ...draft, hourlyRate: formatVndInput(event.target.value) })}/></label>
+          <label>Phụ cấp TikTok<input inputMode="numeric" value={draft.tiktokAllowance} onChange={(event) => setDraft({ ...draft, tiktokAllowance: formatVndInput(event.target.value) })}/></label>
           <label className={styles.full}>Tên đăng nhập<input value={draft.username} disabled={!action.row.hasLogin} onChange={(event) => setDraft({ ...draft, username: event.target.value })}/></label>
         </div> : null}
         {action.kind === "RESET_PASSWORD" ? <div className={styles.resetBox}><ShieldAlert size={20}/><p>Hệ thống không lưu mật khẩu dạng đọc được. Mật khẩu mới sẽ thay thế mật khẩu cũ và toàn bộ phiên đăng nhập hiện tại bị thu hồi.</p><label>Mật khẩu mới<input ref={initialFocusRef} type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)}/><small>10–128 ký tự, có ít nhất một chữ và một số.</small></label><label>Nhập lại mật khẩu<input type="password" autoComplete="new-password" value={passwordConfirmation} onChange={(event) => setPasswordConfirmation(event.target.value)}/></label></div> : null}

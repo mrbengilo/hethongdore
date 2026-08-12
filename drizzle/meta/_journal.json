@@ -141,6 +141,13 @@
       "when": 1787529600000,
       "tag": "0024_payroll_policy",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1787616000000,
+      "tag": "0025_employee_cccd_number",
+      "breakpoints": true
     }
   ]
 }

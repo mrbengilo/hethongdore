@@ -160,6 +160,7 @@ test("CCCD reads require a live attached employee and replacements securely reti
     ward: "A",
     addressLine: "A",
     age: 25,
+    cccdNumber: "092000000001",
     cccdImageKey: keys.replacement,
     cccdImageName: "replacement.jpg",
     expectedVersion: 0,
@@ -183,6 +184,7 @@ test("CCCD reads require a live attached employee and replacements securely reti
     ward: "A",
     addressLine: "A",
     age: 25,
+    cccdNumber: "092000000001",
     cccdImageKey: keys.orphan,
     cccdImageName: "orphan.jpg",
     username: "must-not-persist",
@@ -203,12 +205,12 @@ test("CCCD reads require a live attached employee and replacements securely reti
   const raceBodies = [
     {
       id: "cccd-live-a", storeId: "cccd-store-a", code: "CCCD-A", name: "Race Winner A1",
-      position: "Nhân viên", phone: "0900000001", province: "A", ward: "A", addressLine: "A", age: 25,
+      position: "Nhân viên", phone: "0900000001", province: "A", ward: "A", addressLine: "A", age: 25, cccdNumber: "092000000011",
       cccdImageKey: keys.race, cccdImageName: "race.jpg", username: "cccd-race-a1", password: "Race-secret-a1", expectedVersion: 0,
     },
     {
       id: "cccd-live-a2", storeId: "cccd-store-a", code: "CCCD-A2", name: "Race Winner A2",
-      position: "Nhân viên", phone: "0900000005", province: "A", ward: "A", addressLine: "A", age: 24,
+      position: "Nhân viên", phone: "0900000005", province: "A", ward: "A", addressLine: "A", age: 24, cccdNumber: "092000000012",
       cccdImageKey: keys.race, cccdImageName: "race.jpg", username: "cccd-race-a2", password: "Race-secret-a2", expectedVersion: 0,
     },
   ];
@@ -283,6 +285,8 @@ test("CCCD reads require a live attached employee and replacements securely reti
   const purgeBody = await purgeResponse.json();
   assert.equal(typeof purgeBody.warning, "string");
   assert.equal(await db.prepare("SELECT status FROM employees WHERE id = 'cccd-live-b'").first("status"), "ARCHIVED");
+  assert.equal(await db.prepare("SELECT cccd_number FROM employees WHERE id = 'cccd-live-b'").first("cccd_number"), null,
+    "purge must erase the government identifier from the live employee row");
   assert.equal((await getImage(keys.liveB, tokens.super)).status, 404,
     "purged CCCD must be denied before the failed physical delete is retried");
   assert.equal(await db.prepare("SELECT COUNT(*) FROM cccd_deletion_outbox WHERE key = ?")

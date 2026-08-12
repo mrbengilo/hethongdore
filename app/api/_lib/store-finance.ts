@@ -95,17 +95,37 @@ function safeVnd(value: unknown) {
 }
 
 function inventoryTotals(data: Record<string, unknown>) {
+  const storedGoodsTotal = safeVnd(data.goodsTotal);
+  const storedShippingTotal = safeVnd(data.shippingTotal);
+  if (data.goodsTotal === 0 || storedGoodsTotal > 0 || data.shippingTotal === 0 || storedShippingTotal > 0) {
+    const storedTotal = safeVnd(data.total);
+    if (storedTotal > 0 || data.total === 0) {
+      // Canonical receipt payloads persist both component totals. Trust those
+      // server-calculated integers so the financial report cannot reinterpret
+      // historical item shapes differently from the inventory ledger.
+      return { goods: storedGoodsTotal, shipping: storedShippingTotal };
+    }
+  }
+
   const rawItems = Array.isArray(data.items) ? data.items : [data];
   return rawItems.reduce((total, item) => {
     if (!item || typeof item !== "object" || Array.isArray(item)) return total;
     const row = item as Record<string, unknown>;
-    const weight = Number(row.weight ?? 0);
-    const unitPrice = safeVnd(row.unitPrice);
     const shipping = safeVnd(row.shipping);
+    const storedAmount = safeVnd(row.amount);
+    const hasStoredAmount = storedAmount > 0 || row.amount === 0;
+    const storedGoods = safeVnd(row.goodsAmount);
+    const hasStoredGoods = storedGoods > 0 || row.goodsAmount === 0;
+    const weight = Number(row.weight);
+    const unitPrice = safeVnd(row.unitPrice);
     const calculatedGoods = Number.isFinite(weight) && weight >= 0
-      ? Math.round(weight * unitPrice)
-      : Math.max(0, safeVnd(row.amount) - shipping);
-    const goods = safeVnd(row.goodsAmount ?? calculatedGoods);
+      ? safeVnd(Math.round(weight * unitPrice))
+      : 0;
+    const goods = hasStoredGoods
+      ? storedGoods
+      : hasStoredAmount
+        ? Math.max(0, storedAmount - shipping)
+        : calculatedGoods;
     total.goods = sumVnd([total.goods, goods]);
     total.shipping = sumVnd([total.shipping, shipping]);
     return total;

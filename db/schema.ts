@@ -22,6 +22,7 @@ export const employees = sqliteTable("employees", {
   ward: text("ward").notNull().default(""),
   addressLine: text("address_line").notNull().default(""),
   age: integer("age"),
+  cccdNumber: text("cccd_number"),
   cccdImageKey: text("cccd_image_key"),
   cccdImageName: text("cccd_image_name"),
   hourlyRate: integer("hourly_rate").notNull().default(20000),
@@ -32,7 +33,11 @@ export const employees = sqliteTable("employees", {
   lifecycleVersion: integer("lifecycle_version").notNull().default(0),
   deletedAt: text("deleted_at"),
   deletedBy: text("deleted_by"),
-});
+}, (table) => [
+  uniqueIndex("idx_employees_live_cccd_number")
+    .on(table.cccdNumber)
+    .where(sql`${table.cccdNumber} IS NOT NULL AND ${table.status} != 'ARCHIVED' AND ${table.deletedAt} IS NULL`),
+]);
 
 export const employeeStatusHistory = sqliteTable("employee_status_history", {
   id: text("id").primaryKey(),

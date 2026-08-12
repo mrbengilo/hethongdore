@@ -215,6 +215,23 @@ type Granularity = "day" | "month";
 type FixedCostRecognition = "ACCRUAL" | "FULL_ENDING_PERIOD";
 type StoreOption = { id: string; name: string; status: string; createdAt: string };
 
+function fixedCostRecognitionForRange(params: URLSearchParams, range: LocalDateRange): FixedCostRecognition {
+  if (!params.has("from") && !params.has("to")) return "FULL_ENDING_PERIOD";
+
+  // The manager report always sends an explicit range, including for a whole
+  // calendar month and for the current month-to-date. Those views must agree
+  // with the store financial report: monthly fixed costs and the payroll
+  // preview are recognized in full once the selection covers the ending month
+  // from its first day through its final available day. A genuinely partial
+  // slice (for example one day or one week) keeps daily accrual semantics.
+  const endingMonth = localMonthRange(range.to.slice(0, 7));
+  const today = localDate();
+  const finalAvailableDay = endingMonth.to > today ? today : endingMonth.to;
+  return range.from <= endingMonth.from && range.to === finalAvailableDay
+    ? "FULL_ENDING_PERIOD"
+    : "ACCRUAL";
+}
+
 function reportRange(params: URLSearchParams, period: string, granularity: Granularity) {
   const from = params.get("from");
   const to = params.get("to");
@@ -388,10 +405,8 @@ export async function GET(request: Request) {
   if (storeId && !storeOptions.some((store) => store.id === storeId)) {
     return json({ message: "Cửa hàng không tồn tại." }, 404);
   }
-  const usesFullEndingPeriodFixedCosts = !params.has("from") && !params.has("to");
-  const fixedCostRecognition: FixedCostRecognition = usesFullEndingPeriodFixedCosts
-    ? "FULL_ENDING_PERIOD"
-    : "ACCRUAL";
+  const fixedCostRecognition = fixedCostRecognitionForRange(params, range);
+  const usesFullEndingPeriodFixedCosts = fixedCostRecognition === "FULL_ENDING_PERIOD";
   const data = await reportRangeData(
     db,
     range,

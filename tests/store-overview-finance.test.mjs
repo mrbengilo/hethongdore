@@ -28,6 +28,9 @@ const currentManagerSalary = 4_500_000;
 const lockedManagerSalary = 1_250_000;
 const lockedEmployeeKpi = 125_000;
 const lockedManagerKpi = 75_000;
+const inventoryGoods = 3_200_000;
+const inventoryShipping = 250_000;
+const inventoryExpense = inventoryGoods + inventoryShipping;
 
 function request(path) {
   return new Request(`http://localhost${path}`, {
@@ -92,6 +95,28 @@ before(async () => {
         managerSalary: lockedManagerSalary,
         totalKpiBonus: lockedEmployeeKpi,
         managerBonus: lockedManagerKpi,
+      }), now, now),
+    db.prepare(`INSERT INTO business_records
+        (id, category, store_id, owner_id, title, data_json, status, created_at, updated_at)
+      VALUES ('overview-inventory-canonical', 'NHAP_HANG', ?, 'overview-finance-manager',
+        'Phiếu nhập canonical', ?, 'ACTIVE', ?, ?)`)
+      .bind(storeId, JSON.stringify({
+        date: `${period}-02`,
+        period,
+        items: [{ name: 'Hàng canonical', weight: 20, unitPrice: 100_000, shipping: 150_000, goodsAmount: 2_000_000, amount: 2_150_000 }],
+        goodsTotal: 2_000_000,
+        shippingTotal: 150_000,
+        total: 2_150_000,
+      }), now, now),
+    db.prepare(`INSERT INTO business_records
+        (id, category, store_id, owner_id, title, data_json, status, created_at, updated_at)
+      VALUES ('overview-inventory-legacy-amount', 'NHAP_HANG', ?, 'overview-finance-manager',
+        'Phiếu nhập legacy', ?, 'ACTIVE', ?, ?)`)
+      .bind(storeId, JSON.stringify({
+        date: `${period}-03`,
+        period,
+        amount: 1_300_000,
+        shipping: 100_000,
       }), now, now),
   ]);
   await db.prepare(`INSERT INTO sessions (id, user_id, token_hash, expires_at, created_at)
@@ -247,8 +272,10 @@ test("store overview returns the full configured monthly fixed cost for every st
   assert.ok(secondStore);
   assert.equal(store.expenseBreakdown.fixedCosts, 7_400_000);
   assert.equal(store.expenseBreakdown.managerSalary, currentManagerSalary);
-  assert.equal(store.expense, 7_400_000 + currentManagerSalary);
-  assert.equal(store.profit, -(7_400_000 + currentManagerSalary));
+  assert.equal(store.expenseBreakdown.inventoryGoods, inventoryGoods);
+  assert.equal(store.expenseBreakdown.inventoryShipping, inventoryShipping);
+  assert.equal(store.expense, 7_400_000 + currentManagerSalary + inventoryExpense);
+  assert.equal(store.profit, -(7_400_000 + currentManagerSalary + inventoryExpense));
   assert.equal(store.timeline.reduce((sum, day) => sum + day.expense, 0), store.expense);
   assert.equal(secondStore.expenseBreakdown.fixedCosts, 3_250_000);
   assert.equal(secondStore.expenseBreakdown.managerSalary, lockedManagerSalary);
@@ -270,9 +297,11 @@ test("financial report recognizes full fixed costs for every store and the compa
 
   assert.equal(store.current.expenseBreakdown.fixedCosts, 7_400_000);
   assert.equal(store.current.expenseBreakdown.managerSalary, currentManagerSalary);
-  assert.equal(store.current.expense, 7_400_000 + currentManagerSalary);
-  assert.equal(store.current.profit, -(7_400_000 + currentManagerSalary));
-  assert.equal(store.current.profitBeforePerformanceRewards, -(7_400_000 + currentManagerSalary));
+  assert.equal(store.current.expenseBreakdown.inventoryGoods, inventoryGoods);
+  assert.equal(store.current.expenseBreakdown.inventoryShipping, inventoryShipping);
+  assert.equal(store.current.expense, 7_400_000 + currentManagerSalary + inventoryExpense);
+  assert.equal(store.current.profit, -(7_400_000 + currentManagerSalary + inventoryExpense));
+  assert.equal(store.current.profitBeforePerformanceRewards, -(7_400_000 + currentManagerSalary + inventoryExpense));
   assert.equal(store.current.timeline.reduce((sum, day) => sum + day.expense, 0), store.current.expense);
   assert.equal(store.previous.expenseBreakdown.fixedCosts, 6_200_000);
   assert.equal(store.previous.expenseBreakdown.managerSalary, currentManagerSalary);
@@ -307,6 +336,59 @@ test("financial report recognizes full fixed costs for every store and the compa
   assert.equal(body.comparison.expenseChange, (expectedCurrentTotal - expectedPriorTotal) / expectedPriorTotal * 100);
   assert.equal(body.comparison.profitChange, (-expectedCurrentTotal + expectedPriorTotal) / expectedPriorTotal * 100);
   assert.match(body.recognitionPolicy.monthlyAccrual, /ghi nhận đủ một lần/u);
+});
+
+test("manager report's explicit current month-to-date range matches every store's monthly financial total", async () => {
+  const currentMonth = finance.localMonthRange(period);
+  const today = finance.localDate();
+  const availableEnd = currentMonth.to > today ? today : currentMonth.to;
+  const response = await reportsRoute.GET(request(
+    `/api/reports?period=${encodeURIComponent(period)}&from=${currentMonth.from}&to=${availableEnd}&granularity=day`,
+  ));
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  const first = body.stores.find((item) => item.current.id === storeId);
+  const second = body.stores.find((item) => item.current.id === secondStoreId);
+  assert.ok(first);
+  assert.ok(second);
+
+  const expectedFirstExpense = 7_400_000 + currentManagerSalary + inventoryExpense;
+  const expectedSecondExpense = 3_250_000 + lockedManagerSalary + lockedEmployeeKpi + lockedManagerKpi;
+  assert.equal(first.current.expense, expectedFirstExpense);
+  assert.equal(second.current.expense, expectedSecondExpense);
+  assert.equal(first.current.expenseBreakdown.fixedCosts, 7_400_000);
+  assert.equal(second.current.expenseBreakdown.fixedCosts, 3_250_000);
+  const expectedAllStoreExpense = body.stores.reduce((sum, item) => sum + item.current.expense, 0);
+  assert.equal(expectedAllStoreExpense, body.totals.expense);
+  assert.deepEqual(body.totals, { revenue: 0, expense: expectedAllStoreExpense, profit: -expectedAllStoreExpense });
+  assert.equal(body.byStore.reduce((sum, item) => sum + item.expense, 0), body.totals.expense);
+  assert.equal(body.timeline.reduce((sum, day) => sum + day.expense, 0), body.totals.expense);
+  assert.match(body.recognitionPolicy.monthlyAccrual, /ghi nhận đủ một lần/u);
+});
+
+test("Thot Not total-expense regression preserves the exact 18,410,688 VND ledger invariant", () => {
+  const fixedCosts = 8_050_000;
+  const inventory = 6_570_000;
+  const payrollAndOther = 3_790_688;
+  const current = {
+    revenue: 0,
+    expense: fixedCosts + inventory + payrollAndOther,
+    profit: -(fixedCosts + inventory + payrollAndOther),
+  };
+  assert.equal(current.expense, 18_410_688);
+
+  const byStore = [
+    { storeId: "thot-not", storeName: "DORE THỐT NỐT", ...current },
+    { storeId: "other-store", storeName: "DORE KHÁC", revenue: 0, expense: 2_500_000, profit: -2_500_000 },
+  ];
+  const totals = byStore.reduce((sum, store) => ({
+    revenue: sum.revenue + store.revenue,
+    expense: sum.expense + store.expense,
+    profit: sum.profit + store.profit,
+  }), { revenue: 0, expense: 0, profit: 0 });
+  assert.equal(byStore.find((store) => store.storeId === "thot-not")?.expense, 18_410_688);
+  assert.equal(byStore.reduce((sum, store) => sum + store.expense, 0), totals.expense);
+  assert.equal(totals.profit, totals.revenue - totals.expense);
 });
 
 test("financial report keeps daily accrual semantics for an explicit custom date range", async () => {

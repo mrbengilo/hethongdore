@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Edit3, RefreshCw, Search, Trash2, X } from "lucide-react";
-import { formatDateTime24, formatDateVn } from "../lib/format";
+import { formatDateTime24, formatDateVn, formatVndInput, parseVndInput } from "../lib/format";
 import { DatePickerControl } from "./DatePickerControl";
 import styles from "./SuperAdminDataRecords.module.css";
 
@@ -182,7 +182,7 @@ export function SuperAdminDataRecords({ store, onChanged }: { store: Store; onCh
       const order = row as OrderRow;
       setOrderForm({
         customerName: order.customerName ?? "", phone: order.phone ?? "", age: order.age == null ? "" : String(order.age),
-        amount: String(order.amount), paymentMethod: order.paymentMethod,
+        amount: formatVndInput(order.amount), paymentMethod: order.paymentMethod,
       });
     } else {
       const attendance = row as AttendanceRow;
@@ -215,7 +215,7 @@ export function SuperAdminDataRecords({ store, onChanged }: { store: Store; onCh
       const body: Record<string, unknown> = {
         storeId: store.id, resource, id: editing.id, versionToken: editing.versionToken, reason: reason.trim(),
       };
-      if (resource === "ORDERS") Object.assign(body, orderForm);
+      if (resource === "ORDERS") Object.assign(body, { ...orderForm, amount: parseVndInput(orderForm.amount) });
       else {
         body.startedAt = localDateTimeInputToIso(attendanceTimes.startedAt);
         body.endedAt = localDateTimeInputToIso(attendanceTimes.endedAt);
@@ -325,7 +325,7 @@ export function SuperAdminDataRecords({ store, onChanged }: { store: Store; onCh
       <section ref={dialogRef} className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="record-dialog-title">
         <header><h3 id="record-dialog-title" ref={dialogTitleRef} tabIndex={-1}>{deleting ? "Xác nhận xóa dữ liệu" : resource === "ORDERS" ? "Sửa đơn hàng" : "Sửa giờ vào và giờ kết ca"}</h3><button type="button" aria-label="Đóng" disabled={saving} onClick={closeDialog}><X size={20}/></button></header>
         <p>{resource === "ORDERS" ? `Đơn ${(dialogRow as OrderRow).code}` : `${dialogRow.employeeName ?? dialogRow.employeeId} · ${dialogRow.shiftName ?? dialogRow.shiftCode}`}</p>
-        {editing && resource === "ORDERS" ? <div className={styles.formGrid}><label>Tên khách hàng<input value={orderForm.customerName} onChange={(event) => setOrderForm((current) => ({ ...current, customerName: event.target.value }))}/></label><label>Số điện thoại<input inputMode="tel" value={orderForm.phone} onChange={(event) => setOrderForm((current) => ({ ...current, phone: event.target.value }))}/></label><label>Tuổi<input type="number" min="1" max="120" value={orderForm.age} onChange={(event) => setOrderForm((current) => ({ ...current, age: event.target.value }))}/></label><label>Giá trị đơn<input type="number" min="1" step="1" required value={orderForm.amount} onChange={(event) => setOrderForm((current) => ({ ...current, amount: event.target.value }))}/></label><label>Thanh toán<select value={orderForm.paymentMethod} onChange={(event) => setOrderForm((current) => ({ ...current, paymentMethod: event.target.value }))}><option value="CASH">Tiền mặt</option><option value="BANK_TRANSFER">Chuyển khoản</option></select></label></div> : null}
+        {editing && resource === "ORDERS" ? <div className={styles.formGrid}><label>Tên khách hàng<input value={orderForm.customerName} onChange={(event) => setOrderForm((current) => ({ ...current, customerName: event.target.value }))}/></label><label>Số điện thoại<input inputMode="tel" value={orderForm.phone} onChange={(event) => setOrderForm((current) => ({ ...current, phone: event.target.value }))}/></label><label>Tuổi<input type="number" min="1" max="120" value={orderForm.age} onChange={(event) => setOrderForm((current) => ({ ...current, age: event.target.value }))}/></label><label>Giá trị đơn<input type="text" inputMode="numeric" pattern="[0-9,]*" required value={orderForm.amount} onChange={(event) => setOrderForm((current) => ({ ...current, amount: formatVndInput(event.target.value) }))}/></label><label>Thanh toán<select value={orderForm.paymentMethod} onChange={(event) => setOrderForm((current) => ({ ...current, paymentMethod: event.target.value }))}><option value="CASH">Tiền mặt</option><option value="BANK_TRANSFER">Chuyển khoản</option></select></label></div> : null}
         {editing && resource === "ATTENDANCE" ? <div className={styles.formGrid}>
           <label>Giờ vào ca<input type="datetime-local" step="60" required value={attendanceTimes.startedAt} onChange={(event) => setAttendanceTimes((current) => ({ ...current, startedAt: event.target.value }))}/></label>
           <label>Giờ kết ca<input type="datetime-local" step="60" required={!editingActiveAttendance} disabled={editingActiveAttendance} value={attendanceTimes.endedAt} onChange={(event) => setAttendanceTimes((current) => ({ ...current, endedAt: event.target.value }))}/>{editingActiveAttendance ? <small>Ca đang làm chỉ được sửa giờ vào. Hãy kết ca bằng quy trình đối soát của nhân viên.</small> : null}</label>

@@ -1,5 +1,6 @@
 import { initDb, writeAudit } from "../../../db/runtime";
 import { localPeriod, periodBoundsUtc } from "../../lib/finance";
+import { normalizeEmployeeCccdNumber } from "../../lib/employee-cccd";
 import { employeeTikTokAllowanceForCreate, employeeTikTokAllowanceForPatch } from "../../lib/employee-tiktok";
 import { getSessionUser, hashPassword, INACTIVE_STORE_MESSAGE, isStoreActive, json } from "../_lib/auth";
 import {
@@ -43,6 +44,7 @@ type EmployeeBody = {
   ward?: string;
   addressLine?: string;
   age?: number | string;
+  cccdNumber?: string;
   cccdImageKey?: string;
   cccdImageName?: string;
   hourlyRate?: number | string;
@@ -62,6 +64,7 @@ function profileValues(body: EmployeeBody) {
     ward: body.ward?.trim() ?? "",
     addressLine: body.addressLine?.trim() ?? "",
     age: Number(body.age),
+    cccdNumber: normalizeEmployeeCccdNumber(body.cccdNumber),
     cccdImageKey: body.cccdImageKey?.trim() ?? "",
     cccdImageName: body.cccdImageName?.trim() ?? "",
   };
@@ -70,6 +73,7 @@ function profileValues(body: EmployeeBody) {
 function validProfile(profile: ReturnType<typeof profileValues>) {
   return Boolean(profile.province && profile.ward && profile.addressLine
     && Number.isInteger(profile.age) && profile.age >= 15 && profile.age <= 100
+    && profile.cccdNumber
     && cccdKeyPattern.test(profile.cccdImageKey));
 }
 
@@ -187,13 +191,13 @@ export async function POST(request: Request) {
     const results = await db.batch([
       db.prepare(`INSERT INTO employees
           (id, store_id, code, name, position, phone, province, ward, address_line, age,
-            cccd_image_key, cccd_image_name, hourly_rate, tiktok_allowance, status)
-        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE'
+            cccd_number, cccd_image_key, cccd_image_name, hourly_rate, tiktok_allowance, status)
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE'
         WHERE EXISTS (SELECT 1 FROM stores WHERE id = ? AND status = 'ACTIVE')
           AND ${pendingCccdAttachmentGuardSql}`)
         .bind(
           employeeId, body.storeId, body.code.trim().toUpperCase(), body.name.trim(), body.position.trim(), body.phone.trim(),
-          profile.province, profile.ward, profile.addressLine, profile.age, profile.cccdImageKey,
+          profile.province, profile.ward, profile.addressLine, profile.age, profile.cccdNumber, profile.cccdImageKey,
           profile.cccdImageName || null, hourlyRate, tiktokAllowance, body.storeId,
           ...pendingCccdAttachmentGuardBindings({
             key: profile.cccdImageKey,
@@ -220,8 +224,8 @@ export async function POST(request: Request) {
     if (affectedRows(results[0]) === 0 || affectedRows(results[1]) === 0 || affectedRows(results[2]) === 0) {
       return json({ message: INACTIVE_STORE_MESSAGE }, 409);
     }
-  } catch { return json({ message: "Mã nhân viên hoặc tên đăng nhập đã tồn tại." }, 409); }
-  await writeAudit(user.id, "CREATE", "EMPLOYEE", employeeId, JSON.stringify({ code: body.code, tiktokAllowance }));
+  } catch { return json({ message: "Mã nhân viên, số CCCD hoặc tên đăng nhập đã tồn tại." }, 409); }
+  await writeAudit(user.id, "CREATE", "EMPLOYEE", employeeId, JSON.stringify({ code: body.code, tiktokAllowance, hasCccdNumber: true }));
   return json({ id: employeeId, storeId: body.storeId }, 201);
 }
 
@@ -303,6 +307,7 @@ export async function PATCH(request: Request) {
   const db = await initDb();
   const existing = await db.prepare(`SELECT store_id AS storeId, status,
       hourly_rate AS hourlyRate, tiktok_allowance AS tiktokAllowance,
+      cccd_number AS cccdNumber,
       cccd_image_key AS cccdImageKey,
       COALESCE(lifecycle_version, 0) AS lifecycleVersion, deleted_at AS deletedAt
     FROM employees
@@ -313,6 +318,7 @@ export async function PATCH(request: Request) {
       status: string;
       hourlyRate: number;
       tiktokAllowance: number;
+      cccdNumber: string | null;
       cccdImageKey: string | null;
       lifecycleVersion: number;
       deletedAt: string | null;
@@ -418,6 +424,7 @@ export async function PATCH(request: Request) {
       WHERE employee.id = ? AND employee.store_id = ? AND employee.status = ?
         AND COALESCE(employee.lifecycle_version, 0) = ? AND employee.deleted_at IS NULL
         AND employee.cccd_image_key IS ?
+        AND employee.cccd_number IS ?
         AND EXISTS (SELECT 1 FROM stores target_store WHERE target_store.id = ? AND target_store.status = 'ACTIVE')
         AND ${pendingCccdAttachmentGuardSql}${profilePayrollGuard}`)
       .bind(
@@ -425,7 +432,7 @@ export async function PATCH(request: Request) {
         JSON.stringify({ storeId: existing.storeId, targetStoreId: body.storeId, effectiveAt }),
         effectiveAt,
         body.id, existing.storeId, existing.status, expectedVersion,
-        existing.cccdImageKey, body.storeId,
+        existing.cccdImageKey, existing.cccdNumber, body.storeId,
         ...pendingCccdAttachmentGuardBindings({
           key: profile.cccdImageKey,
           currentKey: existing.cccdImageKey,
@@ -443,19 +450,20 @@ export async function PATCH(request: Request) {
         : "");
     const employeeUpdate = db.prepare(`UPDATE employees SET
         store_id = ?, code = ?, name = ?, position = ?, phone = ?, province = ?, ward = ?,
-        address_line = ?, age = ?, cccd_image_key = ?, cccd_image_name = ?, hourly_rate = ?,
+        address_line = ?, age = ?, cccd_number = ?, cccd_image_key = ?, cccd_image_name = ?, hourly_rate = ?,
         tiktok_allowance = CASE WHEN ? = 1 THEN ? ELSE tiktok_allowance END
       WHERE id = ? AND store_id = ? AND status = ?
         AND COALESCE(lifecycle_version, 0) = ? AND deleted_at IS NULL
         AND EXISTS (SELECT 1 FROM stores target_store WHERE target_store.id = ? AND target_store.status = 'ACTIVE')
         AND employees.cccd_image_key IS ?
+        AND employees.cccd_number IS ?
         AND ${pendingCccdAttachmentGuardSql}${gateGuard}`)
       .bind(
         body.storeId, body.code.trim().toUpperCase(), body.name.trim(), body.position.trim(), body.phone.trim(),
-        profile.province, profile.ward, profile.addressLine, profile.age, profile.cccdImageKey,
+        profile.province, profile.ward, profile.addressLine, profile.age, profile.cccdNumber, profile.cccdImageKey,
         profile.cccdImageName || null, hourlyRate, tiktokAllowanceWasProvided ? 1 : 0,
         tiktokAllowance, body.id, existing.storeId, existing.status, expectedVersion, body.storeId,
-        existing.cccdImageKey,
+        existing.cccdImageKey, existing.cccdNumber,
         ...pendingCccdAttachmentGuardBindings({
           key: profile.cccdImageKey,
           currentKey: existing.cccdImageKey,
@@ -607,7 +615,7 @@ export async function PATCH(request: Request) {
     }
     activeShiftSnapshotsUpdated = shiftResultIndex === null ? 0 : affectedRows(results[shiftResultIndex]);
   } catch {
-    return json({ message: "Mã nhân viên hoặc tên đăng nhập đã tồn tại." }, 409);
+    return json({ message: "Mã nhân viên, số CCCD hoặc tên đăng nhập đã tồn tại." }, 409);
   }
   const cccdCleanup = existing.cccdImageKey && existing.cccdImageKey !== profile.cccdImageKey
     ? await processCccdDeletionOutbox({ key: existing.cccdImageKey, limit: 1 })
@@ -631,6 +639,7 @@ export async function PATCH(request: Request) {
       replaced: Boolean(existing.cccdImageKey && existing.cccdImageKey !== profile.cccdImageKey),
       cleanupPending: cccdCleanup.pending > 0,
     },
+    cccdNumber: { changed: existing.cccdNumber !== profile.cccdNumber },
   });
   await db.prepare(`INSERT INTO audit_logs
       (id, user_id, action, entity_type, entity_id, detail, created_at)

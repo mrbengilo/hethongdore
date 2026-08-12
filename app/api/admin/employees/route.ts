@@ -1,5 +1,6 @@
 import { initDb } from "../../../../db/runtime";
 import { durationSeconds } from "../../../lib/finance";
+import { maskEmployeeCccdNumber, normalizeEmployeeCccdNumber } from "../../../lib/employee-cccd";
 import { attendanceDeltaMinutes, attendanceStatusAt, shiftUtcRange } from "../../../lib/scheduling";
 import {
   enqueuePurgedCccdDeletionStatement,
@@ -30,6 +31,7 @@ type EmployeeAdminRow = {
   ward: string;
   addressLine: string;
   age: number | null;
+  cccdNumber: string | null;
   cccdImageKey: string | null;
   cccdImageName: string | null;
   hourlyRate: number;
@@ -189,6 +191,7 @@ function versionState(row: EmployeeAdminRow) {
     ward: row.ward,
     addressLine: row.addressLine,
     age: row.age,
+    cccdNumber: row.cccdNumber,
     hourlyRate: Number(row.hourlyRate),
     tiktokAllowance: Number(row.tiktokAllowance),
     status: normalizedEmployeeStatus(row.status),
@@ -212,6 +215,7 @@ function auditProfileState(row: EmployeeAdminRow) {
     ward: row.ward,
     addressLine: row.addressLine,
     age: row.age,
+    cccdNumberMasked: maskEmployeeCccdNumber(row.cccdNumber),
     hourlyRate: Number(row.hourlyRate),
     tiktokAllowance: Number(row.tiktokAllowance),
     username: row.username,
@@ -241,6 +245,7 @@ async function loadEmployee(db: Database, storeId: string, employeeId: string) {
       e.id, e.store_id AS storeId, e.code, e.name, e.position, e.phone,
       store.name AS storeName, store.status AS storeStatus,
       e.province, e.ward, e.address_line AS addressLine, e.age,
+      e.cccd_number AS cccdNumber,
       e.cccd_image_key AS cccdImageKey, e.cccd_image_name AS cccdImageName,
       e.hourly_rate AS hourlyRate, e.tiktok_allowance AS tiktokAllowance,
       e.status, e.inactive_at AS inactiveAt, e.status_updated_at AS statusUpdatedAt,
@@ -423,8 +428,9 @@ export async function GET(request: Request) {
   if (search) {
     const needle = escapedLike(search);
     clauses.push(`(e.code LIKE ? ESCAPE '\\' OR e.name LIKE ? ESCAPE '\\'
-      OR e.phone LIKE ? ESCAPE '\\' OR COALESCE((SELECT username FROM users WHERE employee_id = e.id LIMIT 1), '') LIKE ? ESCAPE '\\')`);
-    bindings.push(needle, needle, needle, needle);
+      OR e.phone LIKE ? ESCAPE '\\' OR COALESCE(e.cccd_number, '') LIKE ? ESCAPE '\\'
+      OR COALESCE((SELECT username FROM users WHERE employee_id = e.id LIMIT 1), '') LIKE ? ESCAPE '\\')`);
+    bindings.push(needle, needle, needle, needle, needle);
   }
   const where = clauses.join(" AND ");
   const [countResult, rowsResult] = await db.batch([
@@ -433,6 +439,7 @@ export async function GET(request: Request) {
         e.id, e.store_id AS storeId, store.name AS storeName, store.status AS storeStatus,
         e.code, e.name, e.position, e.phone,
         e.province, e.ward, e.address_line AS addressLine, e.age,
+        e.cccd_number AS cccdNumber,
         e.cccd_image_key AS cccdImageKey, e.cccd_image_name AS cccdImageName,
         e.hourly_rate AS hourlyRate, e.tiktok_allowance AS tiktokAllowance,
         e.status, e.inactive_at AS inactiveAt, e.status_updated_at AS statusUpdatedAt,
@@ -525,11 +532,12 @@ export async function PATCH(request: Request) {
     const province = safeTrimmed(body.province, 120);
     const ward = safeTrimmed(body.ward, 120);
     const addressLine = safeTrimmed(body.addressLine, 250);
+    const cccdNumber = normalizeEmployeeCccdNumber(body.cccdNumber);
     const age = safeAge(body.age);
     const hourlyRate = safeMoney(body.hourlyRate, true);
     const tiktokAllowance = safeMoney(body.tiktokAllowance);
     const username = safeTrimmed(body.username, 80)?.toLocaleLowerCase("vi-VN") ?? null;
-    if (!name || !position || !phone || !province || !ward || !addressLine || age === null
+    if (!name || !position || !phone || !province || !ward || !addressLine || !cccdNumber || age === null
       || hourlyRate === null || tiktokAllowance === null || (existing.userId && !username)) {
       return json({ message: "Thông tin hồ sơ, tài khoản, lương hoặc phụ cấp không hợp lệ." }, 400);
     }
@@ -543,17 +551,19 @@ export async function PATCH(request: Request) {
           WHERE e.id = ? AND e.store_id = ? AND e.status != 'ARCHIVED' AND e.deleted_at IS NULL
             AND COALESCE(e.lifecycle_version, 0) = ? AND e.name = ? AND e.position = ? AND e.phone = ?
             AND e.province = ? AND e.ward = ? AND e.address_line = ? AND e.age IS ?
+            AND e.cccd_number IS ?
             AND e.hourly_rate = ? AND e.tiktok_allowance = ? AND u.id IS ? AND u.username IS ?`)
           .bind(gateId, user.id, JSON.stringify({ storeId, reason, before: auditProfileState(existing),
-            after: { name, position, phone, province, ward, addressLine, age, hourlyRate, tiktokAllowance, username } }), now,
+            after: { name, position, phone, province, ward, addressLine, age,
+              cccdNumberMasked: maskEmployeeCccdNumber(cccdNumber), hourlyRate, tiktokAllowance, username } }), now,
             id, storeId, existing.lifecycleVersion, existing.name, existing.position, existing.phone,
             existing.province, existing.ward, existing.addressLine, existing.age,
-            existing.hourlyRate, existing.tiktokAllowance, existing.userId, existing.username),
+            existing.cccdNumber, existing.hourlyRate, existing.tiktokAllowance, existing.userId, existing.username),
         db.prepare(`UPDATE employees SET name = ?, position = ?, phone = ?, province = ?, ward = ?,
-            address_line = ?, age = ?, hourly_rate = ?, tiktok_allowance = ?, lifecycle_version = lifecycle_version + 1
+            address_line = ?, age = ?, cccd_number = ?, hourly_rate = ?, tiktok_allowance = ?, lifecycle_version = lifecycle_version + 1
           WHERE id = ? AND store_id = ? AND lifecycle_version = ? AND status != 'ARCHIVED' AND deleted_at IS NULL
             AND EXISTS (SELECT 1 FROM audit_logs gate WHERE gate.id = ? AND gate.entity_id = employees.id)`)
-          .bind(name, position, phone, province, ward, addressLine, age, hourlyRate, tiktokAllowance,
+          .bind(name, position, phone, province, ward, addressLine, age, cccdNumber, hourlyRate, tiktokAllowance,
             id, storeId, existing.lifecycleVersion, gateId),
         db.prepare(`UPDATE users SET name = ?, username = ?
           WHERE id = ? AND employee_id = ?
@@ -569,7 +579,7 @@ export async function PATCH(request: Request) {
         return json({ message: "Hồ sơ vừa được cập nhật bởi yêu cầu khác. Vui lòng tải lại danh sách." }, 409);
       }
     } catch {
-      return json({ message: "Tên đăng nhập đã được sử dụng hoặc dữ liệu vừa thay đổi." }, 409);
+      return json({ message: "Số CCCD hoặc tên đăng nhập đã được sử dụng; hoặc dữ liệu vừa thay đổi." }, 409);
     }
     const updated = await loadEmployee(db, storeId, id);
     return json({ message: "Đã cập nhật hồ sơ nhân viên và lưu lịch sử kiểm toán.", row: updated ? await withVersion(updated) : null });
@@ -790,7 +800,7 @@ export async function DELETE(request: Request) {
     db.prepare(`UPDATE employees SET
         code = ?, name = 'Nhân viên đã xóa', position = 'Đã xóa', phone = '',
         province = '', ward = '', address_line = '', age = NULL,
-        cccd_image_key = NULL, cccd_image_name = NULL,
+        cccd_number = NULL, cccd_image_key = NULL, cccd_image_name = NULL,
         hourly_rate = 0, tiktok_allowance = 0,
         status = 'ARCHIVED', inactive_at = COALESCE(inactive_at, ?),
         status_updated_at = ?, deleted_at = ?, deleted_by = ?,

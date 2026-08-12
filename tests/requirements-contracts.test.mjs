@@ -16,15 +16,15 @@ test("employee profiles persist the required address, age and CCCD fields", asyn
     "../.openai/hosting.json",
   ]);
 
-  for (const column of ["province", "ward", "address_line", "age", "cccd_image_key", "cccd_image_name"]) {
+  for (const column of ["province", "ward", "address_line", "age", "cccd_number", "cccd_image_key", "cccd_image_name"]) {
     assert.match(`${schema}\n${runtime}`, new RegExp(column, "u"));
   }
-  for (const field of ["province", "ward", "addressLine", "age", "cccdImageKey", "cccdImageName"]) {
+  for (const field of ["province", "ward", "addressLine", "age", "cccdNumber", "cccdImageKey", "cccdImageName"]) {
     assert.match(api, new RegExp(field, "u"));
     assert.match(ui, new RegExp(field, "u"));
   }
-  assert.match(api, /INSERT INTO employees[\s\S]*province, ward, address_line, age,[\s\S]*cccd_image_key, cccd_image_name/u);
-  assert.match(api, /UPDATE employees SET[\s\S]*province = \?, ward = \?,[\s\S]*address_line = \?, age = \?, cccd_image_key = \?, cccd_image_name = \?/u);
+  assert.match(api, /INSERT INTO employees[\s\S]*province, ward, address_line, age,[\s\S]*cccd_number, cccd_image_key, cccd_image_name/u);
+  assert.match(api, /UPDATE employees SET[\s\S]*province = \?, ward = \?,[\s\S]*address_line = \?, age = \?, cccd_number = \?, cccd_image_key = \?, cccd_image_name = \?/u);
   assert.match(uploadApi, /image\/jpeg.*image\/png.*image\/webp/su);
   assert.match(uploadApi, /5 \* 1024 \* 1024/u);
   assert.match(uploadApi, /UPLOADS/u);
@@ -416,7 +416,8 @@ test("overview and reports reconcile fixed costs while cashflow labels actual pa
   assert.match(storesApi, /storeDateRangeFinance\(db, id, currentRange, \{ payrollRecognition: "PREVIEW", payrollPolicy \}\)/u);
   assert.match(storesApi, /to: fullCurrentRange\.to > today \? today : fullCurrentRange\.to/u);
   assert.match(storesApi, /previousComparableDateRange\(currentRange, "month"\)/u);
-  assert.match(reportsApi, /const usesFullEndingPeriodFixedCosts = !params\.has\("from"\) && !params\.has\("to"\)/u);
+  assert.match(reportsApi, /fixedCostRecognitionForRange\(params, range\)[\s\S]*const usesFullEndingPeriodFixedCosts = fixedCostRecognition === "FULL_ENDING_PERIOD"/u);
+  assert.match(reportsApi, /range\.from <= endingMonth\.from && range\.to === finalAvailableDay/u);
   assert.match(reportsApi, /storeDateRangeFinance\(db, id, range, \{ fixedCostRecognition, payrollRecognition: "PREVIEW", payrollPolicy \}\)/u);
   assert.match(reportsApi, /storeDateRangeFinance\(db, id, previousRange, \{ fixedCostRecognition, payrollRecognition: "PREVIEW", payrollPolicy \}\)/u);
   assert.match(reportsApi, /monthlyAccrual:[\s\S]*Chi phí cố định, lương quản lý và KPI của tháng kết thúc phạm vi được ghi nhận đủ một lần[\s\S]*kỳ mở dùng chính sách hiện hành[\s\S]*kỳ đã khóa giữ nguyên bản chốt/u);

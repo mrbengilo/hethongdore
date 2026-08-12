@@ -46,9 +46,9 @@ beforeEach(async () => {
   await db.batch([
     db.prepare(`INSERT INTO employees
       (id, store_id, code, name, position, phone, province, ward, address_line, age,
-       hourly_rate, tiktok_allowance, status, status_updated_at, lifecycle_version)
+       cccd_number, hourly_rate, tiktok_allowance, status, status_updated_at, lifecycle_version)
       VALUES ('directory-employee', 'st-can-tho', 'CT099', 'Nhân Viên Kiểm Thử', 'Bán hàng',
-       '0909000000', 'Cần Thơ', 'Ninh Kiều', 'Đường kiểm thử', 24, 20000, 25000,
+       '0909000000', 'Cần Thơ', 'Ninh Kiều', 'Đường kiểm thử', 24, '092123456789', 20000, 25000,
        'ACTIVE', '2026-08-12T00:00:00.000Z', 0)`),
     db.prepare(`INSERT INTO users
       (id, username, password_hash, role, name, employee_id, store_id, failed_attempts, shift_active)
@@ -126,13 +126,15 @@ test("profile edit audit records useful fields without password material", async
     action: "EDIT_PROFILE", storeId: row.storeId, id: row.id, versionToken: row.versionToken,
     reason: "Cập nhật hồ sơ theo yêu cầu", name: "Nhân Viên Đã Cập Nhật",
     position: row.position, phone: row.phone, province: row.province, ward: row.ward,
-    addressLine: row.addressLine, age: row.age, hourlyRate: row.hourlyRate,
+    addressLine: row.addressLine, age: row.age, cccdNumber: row.cccdNumber, hourlyRate: row.hourlyRate,
     tiktokAllowance: row.tiktokAllowance, username: row.username,
   }));
   assert.equal(response.status, 200);
   const detail = await db.prepare(`SELECT detail FROM audit_logs
     WHERE action = 'SUPER_ADMIN_EMPLOYEE_PROFILE_UPDATE' AND entity_id = 'directory-employee'`).first("detail");
   assert.match(detail, /Nhân Viên Đã Cập Nhật/u);
+  assert.match(detail, /092\*\*\*\*\*\*789/u);
+  assert.doesNotMatch(detail, /092123456789/u);
   assert.doesNotMatch(detail, /password|passwordHash|pbkdf2|Initial-Pass/iu);
 });
 
@@ -142,7 +144,7 @@ test("stale edit and password reset lose the lifecycle/version race without part
   const staleEdit = await route.PATCH(request("/api/admin/employees", superToken, "PATCH", {
     action: "EDIT_PROFILE", storeId: row.storeId, id: row.id, versionToken: row.versionToken, reason: "Sửa hồ sơ bị cũ",
     name: "Tên ghi đè", position: row.position, phone: row.phone, province: row.province, ward: row.ward,
-    addressLine: row.addressLine, age: row.age, hourlyRate: row.hourlyRate, tiktokAllowance: row.tiktokAllowance, username: row.username,
+    addressLine: row.addressLine, age: row.age, cccdNumber: row.cccdNumber, hourlyRate: row.hourlyRate, tiktokAllowance: row.tiktokAllowance, username: row.username,
   }));
   assert.equal(staleEdit.status, 409);
   assert.equal(await db.prepare("SELECT name FROM employees WHERE id = 'directory-employee'").first("name"), "Tên đã đổi");

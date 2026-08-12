@@ -97,6 +97,7 @@ function profilePatch(overrides = {}) {
     ward: "Ninh Kiều",
     addressLine: "Đường hồ sơ mới",
     age: 26,
+    cccdNumber: "092000000222",
     cccdImageKey: "cccd/22222222-2222-4222-8222-222222222222.jpg",
     cccdImageName: "cccd-new.jpg",
     hourlyRate: 23000,

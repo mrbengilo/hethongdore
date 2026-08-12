@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { BadgeDollarSign, Percent, RefreshCw, Save, ShieldCheck } from "lucide-react";
+import { formatVndInput, parseVndInput } from "../lib/format";
 import styles from "./PayrollPolicySettings.module.css";
 
 type Tier = { minimumProfitPerHour: number; ratePercent: number };
@@ -40,7 +41,7 @@ export function PayrollPolicySettings() {
   const hydrate = useCallback((body: PolicyResponse) => {
     if (!body.policy) return;
     setData(body);
-    setSalary(String(body.policy.managerMonthlySalaryVnd));
+    setSalary(formatVndInput(body.policy.managerMonthlySalaryVnd));
     setManagerRate(String(body.policy.managerKpiRatePercent ?? 0));
     setTiers(body.policy.employeeKpiTiers);
   }, []);
@@ -63,7 +64,7 @@ export function PayrollPolicySettings() {
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!data?.policy || !data.limits || saving) return;
-    const managerMonthlySalaryVnd = Number(salary);
+    const managerMonthlySalaryVnd = parseVndInput(salary);
     const managerKpiRatePercent = Number(managerRate);
     if (!Number.isSafeInteger(managerMonthlySalaryVnd)
       || managerMonthlySalaryVnd < data.limits.managerSalary.min
@@ -103,7 +104,7 @@ export function PayrollPolicySettings() {
   return <section className={styles.card} aria-labelledby="payroll-policy-title">
     <header><span><ShieldCheck size={23} aria-hidden="true"/></span><div><h3 id="payroll-policy-title">Chính sách lương và KPI toàn hệ thống</h3><p>Thiết lập này dùng chung cho mọi cửa hàng và chỉ tác động đến kỳ chưa khóa hoặc kỳ mới.</p></div><button type="button" onClick={() => void load()} disabled={saving}><RefreshCw size={16}/> Làm mới</button></header>
     <form onSubmit={submit}>
-      <fieldset><legend><BadgeDollarSign size={19}/> Cài đặt mức lương cho quản lý</legend><label htmlFor="manager-policy-salary">Mức lương quản lý mỗi cửa hàng/tháng</label><div className={styles.moneyInput}><input id="manager-policy-salary" type="number" inputMode="numeric" min={data.limits.managerSalary.min} max={data.limits.managerSalary.max} step="1" required value={salary} onChange={(event) => setSalary(event.target.value)}/><span>đồng</span></div><small>Mức đang nhập: {money(Number(salary) || 0)} đồng.</small></fieldset>
+      <fieldset><legend><BadgeDollarSign size={19}/> Cài đặt mức lương cho quản lý</legend><label htmlFor="manager-policy-salary">Mức lương quản lý mỗi cửa hàng/tháng</label><div className={styles.moneyInput}><input id="manager-policy-salary" type="text" inputMode="numeric" pattern="[0-9,]*" required value={salary} onChange={(event) => setSalary(formatVndInput(event.target.value))}/><span>đồng</span></div><small>Mức đang nhập: {money(parseVndInput(salary) || 0)} đồng.</small></fieldset>
       <fieldset><legend><Percent size={19}/> Cài đặt mức thưởng KPI cho quản lý</legend><label htmlFor="manager-policy-kpi">Tỷ lệ thưởng KPI quản lý</label><div className={styles.percentInput}><input id="manager-policy-kpi" type="number" inputMode="decimal" min="0" max="100" step="0.01" required value={managerRate} onChange={(event) => setManagerRate(event.target.value)}/><span>%</span></div></fieldset>
       <fieldset className={styles.wide}><legend><Percent size={19}/> Tỷ lệ thưởng KPI nhân viên theo lợi nhuận/giờ</legend><div className={styles.tiers}>{tiers.map((tier, index) => <label key={tier.minimumProfitPerHour}>Lợi nhuận ≥ {money(tier.minimumProfitPerHour)} đồng/giờ<div className={styles.percentInput}><input type="number" inputMode="decimal" min="0" max="100" step="0.01" required aria-label={`Tỷ lệ KPI nhân viên khi lợi nhuận từ ${tier.minimumProfitPerHour} đồng mỗi giờ`} value={tier.ratePercent} onChange={(event) => setTiers((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, ratePercent: Number(event.target.value) } : item))}/><span>%</span></div></label>)}</div><small>Mức lợi nhuận cao hơn phải có tỷ lệ bằng hoặc cao hơn mức thấp hơn; hệ thống chỉ chọn một ngưỡng cao nhất đạt được.</small></fieldset>
       <div className={styles.scope}><b>Phạm vi áp dụng</b><span>Kỳ lương đã khóa giữ nguyên toàn bộ số liệu. Chính sách mới tự động dùng cho bản xem trước, báo cáo tài chính chưa khóa và các kỳ được chốt sau thời điểm lưu.</span></div>

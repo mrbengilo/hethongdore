@@ -26,6 +26,7 @@ type Employee = {
   ward: string;
   addressLine: string;
   age: number;
+  cccdNumber: string;
   position: string;
   hourlyRate: number;
   tiktokAllowance: number;
@@ -44,6 +45,7 @@ type EmployeeForm = {
   ward: string;
   addressLine: string;
   age: string;
+  cccdNumber: string;
   position: string;
   hourlyRate: string;
   tiktokAllowance: string;
@@ -66,6 +68,7 @@ function emptyEmployeeForm(): EmployeeForm {
     ward: "",
     addressLine: "",
     age: "",
+    cccdNumber: "",
     position: "Nhân viên bán hàng",
     hourlyRate: "20,000",
     tiktokAllowance: "25,000",
@@ -95,6 +98,7 @@ function normalizeEmployee(value: unknown): Employee | null {
     ward: String(row.ward ?? ""),
     addressLine: String(row.address_line ?? row.addressLine ?? ""),
     age: Number(row.age ?? 0),
+    cccdNumber: String(row.cccd_number ?? row.cccdNumber ?? ""),
     position: String(row.position ?? ""),
     hourlyRate: Number(row.hourly_rate ?? row.hourlyRate ?? 0),
     tiktokAllowance: Number(row.tiktok_allowance ?? row.tiktokAllowance ?? 25_000),
@@ -216,7 +220,7 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
     const needle = query.trim().toLocaleLowerCase("vi-VN");
     return employees.filter((employee) => {
       const matchesStatus = statusFilter === "ALL" || employee.status === statusFilter;
-      const searchValue = [employee.code, employee.name, employee.phone, employee.username, fullAddress(employee)].join(" ").toLocaleLowerCase("vi-VN");
+      const searchValue = [employee.code, employee.name, employee.phone, employee.cccdNumber, employee.username, fullAddress(employee)].join(" ").toLocaleLowerCase("vi-VN");
       return matchesStatus && (!needle || searchValue.includes(needle));
     });
   }, [employees, query, statusFilter]);
@@ -232,6 +236,7 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
       ward: employee.ward,
       addressLine: employee.addressLine,
       age: employee.age ? String(employee.age) : "",
+      cccdNumber: employee.cccdNumber,
       position: employee.position,
       hourlyRate: formatVndInput(employee.hourlyRate),
       tiktokAllowance: formatVndInput(employee.tiktokAllowance),
@@ -279,6 +284,7 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
     if (!form.province.trim() || !form.ward.trim() || !form.addressLine.trim()) return "Vui lòng nhập đủ tỉnh, phường và đường/ấp.";
     const age = Number(form.age);
     if (!Number.isInteger(age) || age < 15 || age > 100) return "Tuổi nhân viên phải là số nguyên từ 15 đến 100.";
+    if (!/^\d{12}$/.test(form.cccdNumber)) return "Số CCCD phải gồm đúng 12 chữ số.";
     const hourlyRate = parseVndInput(form.hourlyRate);
     if (!Number.isSafeInteger(hourlyRate) || hourlyRate <= 0) return "Lương theo giờ phải là số nguyên dương.";
     const tiktokAllowance = parseVndInput(form.tiktokAllowance);
@@ -331,6 +337,7 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
           ward: form.ward.trim(),
           addressLine: form.addressLine.trim(),
           age: Number(form.age),
+          cccdNumber: form.cccdNumber,
           position: form.position.trim(),
           hourlyRate: parseVndInput(form.hourlyRate),
           tiktokAllowance: parseVndInput(form.tiktokAllowance),
@@ -421,14 +428,15 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
         <div className="data-table-wrap">
           <table className="data-table employee-management-table" style={{ minWidth: 1680 }}>
             <thead><tr>
-              <th>Mã NV</th><th>Nhân viên</th><th>SĐT</th><th>Địa chỉ</th><th>Tuổi</th>
+              <th>Mã NV</th><th>Nhân viên</th><th>SĐT</th><th>Số CCCD</th><th>Địa chỉ</th><th>Tuổi</th>
               <th>Chức vụ</th><th>Lương/giờ</th><th>Phụ cấp TikTok</th><th>Username</th><th>Ảnh CCCD</th>
               <th>Trạng thái</th><th>Thao tác</th>
             </tr></thead>
-            <tbody>{loading ? <tr><td colSpan={12} className="empty-cell">Đang tải danh sách nhân viên...</td></tr> : filteredEmployees.length === 0 ? <tr><td colSpan={12} className="empty-cell">Không có nhân viên phù hợp.</td></tr> : filteredEmployees.map((employee) => <tr key={employee.id}>
+            <tbody>{loading ? <tr><td colSpan={13} className="empty-cell">Đang tải danh sách nhân viên...</td></tr> : filteredEmployees.length === 0 ? <tr><td colSpan={13} className="empty-cell">Không có nhân viên phù hợp.</td></tr> : filteredEmployees.map((employee) => <tr key={employee.id}>
               <td><b>{employee.code}</b></td>
               <td><div style={{ display: "flex", alignItems: "center", gap: 9 }}><i style={{ width: 35, height: 35, display: "grid", placeItems: "center", borderRadius: "50%", background: "#e7f5ea", color: "#087d36" }}><UserRound size={18}/></i><b>{employee.name}</b></div></td>
               <td>{employee.phone}</td>
+              <td><b>{employee.cccdNumber || "—"}</b></td>
               <td title={fullAddress(employee)} style={{ maxWidth: 260, whiteSpace: "normal" }}>{fullAddress(employee)}</td>
               <td>{employee.age || "—"}</td>
               <td>{employee.position}</td>
@@ -476,6 +484,7 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
               <label>Mã nhân viên *<input ref={drawerInitialFocusRef} required value={form.code} onChange={(event) => updateForm("code", event.target.value)} placeholder="NV001"/></label>
               <label>Tên nhân viên *<input required value={form.name} onChange={(event) => updateForm("name", event.target.value)} placeholder="Họ và tên"/></label>
               <label>Số điện thoại *<input required inputMode="tel" value={form.phone} onChange={(event) => updateForm("phone", event.target.value)} placeholder="Số điện thoại"/></label>
+              <label>Số CCCD *<input required inputMode="numeric" autoComplete="off" pattern="[0-9]{12}" minLength={12} maxLength={12} value={form.cccdNumber} onChange={(event) => updateForm("cccdNumber", event.target.value.replace(/\D/g, "").slice(0, 12))} placeholder="Nhập đúng 12 chữ số"/><small>CCCD gồm chính xác 12 chữ số.</small></label>
               <label>Tuổi *<input type="number" min="15" max="100" step="1" required value={form.age} onChange={(event) => updateForm("age", event.target.value)}/></label>
               <label>Chức vụ *<select value={form.position} onChange={(event) => updateForm("position", event.target.value)}><option>Nhân viên bán hàng</option><option>Thu ngân</option><option>Kho</option><option>Quản lý ca</option></select></label>
               <label>Lương theo giờ *<input type="text" inputMode="numeric" required value={form.hourlyRate} onChange={(event) => updateForm("hourlyRate", formatVndInput(event.target.value))} placeholder="20,000"/><small>{formatMoney(parseVndInput(form.hourlyRate))}/giờ</small></label>
