@@ -10,6 +10,7 @@ import {
   defaultAttendancePolicy,
   DEFAULT_ATTENDANCE_GRACE_MINUTES,
 } from "../app/lib/attendance-policy";
+import { defaultPayrollPolicy, PAYROLL_POLICY_STATE_KEY } from "../app/lib/payroll-policy";
 
 const LEGACY_RESET_COMPATIBILITY_KEY = "data_reset_2026_08_08_v2";
 const LEGACY_RESET_COMPLETE = "COMPLETE";
@@ -179,6 +180,10 @@ async function initializeDb() {
   await db.prepare(`INSERT OR IGNORE INTO system_state (key, value, updated_at)
     VALUES (?, ?, ?)`)
     .bind(ATTENDANCE_POLICY_STATE_KEY, defaultPolicy.rawValue, defaultPolicy.updatedAt).run();
+  const payrollPolicy = defaultPayrollPolicy(new Date().toISOString());
+  await db.prepare(`INSERT OR IGNORE INTO system_state (key, value, updated_at)
+    VALUES (?, ?, ?)`)
+    .bind(PAYROLL_POLICY_STATE_KEY, payrollPolicy.rawValue, payrollPolicy.updatedAt).run();
   const dailyShiftBackfill = await db.prepare("SELECT value FROM system_state WHERE key = ? LIMIT 1")
     .bind(DAILY_SHIFT_BACKFILL_KEY).first<{ value: string }>();
   if (!dailyShiftBackfill) {

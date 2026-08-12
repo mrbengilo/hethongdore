@@ -1,4 +1,11 @@
-import { multiplyDecimalRatioVnd, multiplyDecimalVnd, multiplyRatioVnd, sumVnd } from "./finance";
+import { multiplyDecimalRatioVnd, multiplyRatioVnd, sumVnd } from "./finance";
+import {
+  defaultPayrollPolicy,
+  employeeKpiRateBasisPointsFromSeconds,
+  managerKpiBonusFromPolicy,
+  rateFromBasisPoints,
+  type PayrollPolicySnapshot,
+} from "./payroll-policy";
 
 export type EmployeePayComponents = {
   baseSalary: number;
@@ -108,12 +115,8 @@ export function employeeKpiRate(profit: number, totalHours: number) {
 }
 
 export function employeeKpiRateFromSeconds(profit: number, totalSeconds: number) {
-  if (!Number.isSafeInteger(profit) || !Number.isSafeInteger(totalSeconds) || profit <= 0 || totalSeconds <= 0) return 0;
-  const annualized = BigInt(profit) * 3_600n;
-  if (annualized >= 30_000n * BigInt(totalSeconds)) return 0.07;
-  if (annualized >= 15_000n * BigInt(totalSeconds)) return 0.05;
-  if (annualized >= 7_000n * BigInt(totalSeconds)) return 0.03;
-  return 0;
+  const policy = defaultPayrollPolicy();
+  return rateFromBasisPoints(employeeKpiRateBasisPointsFromSeconds(profit, totalSeconds, policy.employeeKpiTiers));
 }
 
 export function employeeKpiBonus(profit: number, totalHours: number, employeeHours: number) {
@@ -183,6 +186,7 @@ export function distributeEmployeeKpiByPolicy(
 export function distributeStoreKpiByPolicy(
   profit: number,
   employees: EmployeeKpiPolicyInput[],
+  policy: PayrollPolicySnapshot = defaultPayrollPolicy(),
 ): StoreKpiDistribution {
   const normalized = employees.map((employee) => ({
     ...employee,
@@ -207,20 +211,31 @@ export function distributeStoreKpiByPolicy(
   if (!Number.isSafeInteger(totalDurationSeconds)) {
     throw new Error("Tổng thời gian cửa hàng vượt giới hạn an toàn.");
   }
-  const kpiRate = employeeKpiRateFromSeconds(profit, totalDurationSeconds);
-  const kpiPool = kpiRate > 0
-    ? multiplyDecimalVnd(profit, kpiRate.toFixed(2))
+  const kpiRateBasisPoints = employeeKpiRateBasisPointsFromSeconds(
+    profit,
+    totalDurationSeconds,
+    policy.employeeKpiTiers,
+  );
+  const kpiRate = rateFromBasisPoints(kpiRateBasisPoints);
+  const kpiPool = kpiRateBasisPoints > 0
+    ? multiplyRatioVnd(profit, kpiRateBasisPoints, 10_000)
     : 0;
-  const weights = [
-    ...eligible.map((employee) => employee.eligible ? employee.durationSeconds : 0),
-    MANAGER_FIXED_WORK_SECONDS_PER_STORE,
-  ];
+  const configuredManagerBonus = policy.managerKpiRateBasisPoints === null
+    ? null
+    : managerKpiBonusFromPolicy(profit, policy.managerKpiRateBasisPoints);
+  // A store with no eligible employee must not report an unallocated employee
+  // KPI pool. The manager percentage remains independent when explicitly set.
+  const employeePool = eligibleEmployeeDurationSeconds > 0 ? kpiPool : 0;
+  const weights = eligible.map((employee) => employee.eligible ? employee.durationSeconds : 0);
   let cumulativeSeconds = 0;
   let allocated = 0;
   const bonuses = weights.map((seconds) => {
     cumulativeSeconds += seconds;
-    const cumulativeAllocation = kpiPool > 0
-      ? multiplyRatioVnd(kpiPool, cumulativeSeconds, totalDurationSeconds)
+    const denominator = configuredManagerBonus === null
+      ? totalDurationSeconds
+      : eligibleEmployeeDurationSeconds;
+    const cumulativeAllocation = employeePool > 0 && denominator > 0
+      ? multiplyRatioVnd(employeePool, cumulativeSeconds, denominator)
       : 0;
     const bonus = cumulativeAllocation - allocated;
     allocated = cumulativeAllocation;
@@ -230,7 +245,9 @@ export function distributeStoreKpiByPolicy(
     ...employee,
     bonus: bonuses[index],
   }));
-  const managerBonus = bonuses.at(-1) ?? 0;
+  const managerBonus = configuredManagerBonus === null
+    ? (kpiPool > 0 ? multiplyRatioVnd(kpiPool, MANAGER_FIXED_WORK_SECONDS_PER_STORE, totalDurationSeconds) : 0)
+    : configuredManagerBonus;
   const employeeBonusTotal = sumVnd(employeeResults.map((employee) => employee.bonus));
   return {
     employees: employeeResults,
@@ -245,7 +262,7 @@ export function distributeStoreKpiByPolicy(
     totalHours: totalDurationSeconds / 3_600,
     profitPerHour: profit > 0 ? multiplyRatioVnd(profit, 3_600, totalDurationSeconds, "DOWN") : 0,
     kpiRate,
-    kpiPool,
+    kpiPool: configuredManagerBonus === null ? kpiPool : sumVnd([employeePool, managerBonus]),
     employeeBonusTotal,
     managerBonus,
   };

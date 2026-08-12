@@ -120,15 +120,16 @@ test("persists and exposes stable shift identity and Vietnamese work dates", asy
 });
 
 test("implements non-stacking monthly KPI snapshots", async () => {
-  const [payrollRules, payrollApi, payrollTests] = await Promise.all([
+  const [payrollRules, payrollPolicy, payrollApi, payrollTests] = await Promise.all([
     readFile(new URL("../app/lib/payroll.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/lib/payroll-policy.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/payroll/route.ts", import.meta.url), "utf8"),
     readFile(new URL("./payroll-formula.test.mjs", import.meta.url), "utf8"),
   ]);
   assert.match(payrollRules, /employeeKpiRate/u);
-  assert.match(payrollRules, /0\.03/u);
-  assert.match(payrollRules, /0\.05/u);
-  assert.match(payrollRules, /0\.07/u);
+  assert.match(payrollPolicy, /minimumProfitPerHour: 30_000, rateBasisPoints: 700/u);
+  assert.match(payrollPolicy, /minimumProfitPerHour: 15_000, rateBasisPoints: 500/u);
+  assert.match(payrollPolicy, /minimumProfitPerHour: 7_000, rateBasisPoints: 300/u);
   assert.match(payrollRules, /employeeSeconds, totalSeconds/u);
   assert.match(payrollApi, /KPI_SUMMARY/u);
   assert.match(payrollApi, /LOCKED/u);

@@ -22,6 +22,8 @@ import {
 } from "../_lib/employee-lifecycle";
 import { storePeriodFinance, type StoreExpenseBreakdown } from "../_lib/store-finance";
 import { salaryAdvanceCoverage, salaryAdvanceSettlementSplit, salaryAdvanceTotals } from "../../lib/salary-advances";
+import { loadPayrollPolicy } from "../_lib/payroll-policy";
+import { payrollPolicyPayload, type PayrollPolicySnapshot } from "../../lib/payroll-policy";
 
 type EmployeeRow = {
   id: string;
@@ -139,6 +141,7 @@ type PayrollSummary = {
   managerSalary: number;
   managerBonus: number;
   managerTotal: number;
+  payrollPolicy?: ReturnType<typeof payrollPolicyPayload>;
   totalPay: number;
   totalSalaryAdvancePending: number;
   totalSalaryAdvancePaid: number;
@@ -410,6 +413,7 @@ async function employeePayrollClosings(db: Awaited<ReturnType<typeof initDb>>, s
 }
 
 async function managerPayrollPeriod(db: Awaited<ReturnType<typeof initDb>>, period: string, storeId: string | null = null) {
+  const currentPolicy = await loadPayrollPolicy(db);
   const storeClause = storeId ? " AND store_id = ?" : "";
   const statement = db.prepare(`
     SELECT data_json AS dataJson
@@ -427,7 +431,10 @@ async function managerPayrollPeriod(db: Awaited<ReturnType<typeof initDb>>, peri
     if (!closing || closing.status !== "LOCKED") return null;
     const summary = await lockedSummary(db, closing.storeId, period);
     if (!summary) return null;
-    const managerSalary = safePayrollVnd(closing.managerSalary || MANAGER_MONTHLY_SALARY_VND);
+    // Legacy locked rows predate the policy snapshot field and historically
+    // used the original 3,000,000 VND constant. Never restate them with the
+    // current policy after a later superadmin change.
+    const managerSalary = safePayrollVnd(closing.managerSalary ?? MANAGER_MONTHLY_SALARY_VND);
     const managerBonus = safePayrollVnd(closing.managerBonus);
     const managerTotal = sumVnd([managerSalary, managerBonus]);
     return {
@@ -455,21 +462,31 @@ async function managerPayrollPeriod(db: Awaited<ReturnType<typeof initDb>>, peri
   return {
     period,
     policy: {
-      salaryPerStore: MANAGER_MONTHLY_SALARY_VND,
+      salaryPerStore: currentPolicy.managerMonthlySalaryVnd,
       managerHoursPerStore: MANAGER_FIXED_WORK_HOURS_PER_STORE,
-      tiers: [
-        { minimumProfitPerHour: 30_000, rate: 0.07 },
-        { minimumProfitPerHour: 15_000, rate: 0.05 },
-        { minimumProfitPerHour: 7_000, rate: 0.03 },
-      ],
+      managerKpiRate: currentPolicy.managerKpiRateBasisPoints === null ? null : currentPolicy.managerKpiRateBasisPoints / 10_000,
+      tiers: currentPolicy.employeeKpiTiers.map((tier) => ({
+        minimumProfitPerHour: tier.minimumProfitPerHour,
+        rate: tier.rateBasisPoints / 10_000,
+      })),
+      version: currentPolicy.version,
     },
     rows,
     totals: { storeCount: rows.length, totalSalary, totalBonus, totalPay: sumVnd([totalSalary, totalBonus]) },
   };
 }
 
-async function buildPreview(db: Awaited<ReturnType<typeof initDb>>, storeId: string, period: string): Promise<PayrollSummary | null> {
-  const store = await storePeriodFinance(db, storeId, period);
+async function buildPreview(
+  db: Awaited<ReturnType<typeof initDb>>,
+  storeId: string,
+  period: string,
+  requestedPolicy?: PayrollPolicySnapshot,
+): Promise<PayrollSummary | null> {
+  const payrollPolicy = requestedPolicy ?? await loadPayrollPolicy(db);
+  // Use the same immutable policy value for finance and payroll calculations.
+  // A concurrent superadmin save can affect the next preview, but never split
+  // one preview across two policy versions.
+  const store = await storePeriodFinance(db, storeId, period, payrollPolicy);
   if (!store) return null;
 
   const { startUtc, endUtc, localStart, localEnd } = periodBoundsUtc(period);
@@ -727,7 +744,7 @@ async function buildPreview(db: Awaited<ReturnType<typeof initDb>>, storeId: str
     employmentStatus: item.employmentStatus,
     completedShiftCount: item.kpiCompletedShiftCount,
     durationSeconds: item.kpiDurationSeconds,
-  })));
+  })), payrollPolicy);
   const kpiAllocations = kpiDistribution.employees;
   const kpiAllocationByEmployee = new Map(kpiAllocations.map((allocation) => [allocation.employeeId, allocation]));
   const itemsBeforeCoverage = itemBases.map(({ item, kpiLocked }) => {
@@ -766,7 +783,7 @@ async function buildPreview(db: Awaited<ReturnType<typeof initDb>>, storeId: str
     item.eligible ? sum + item.durationSeconds : sum
   ), 0);
   const totalHours = payrollDurationSeconds / 3_600;
-  const managerSalary = MANAGER_MONTHLY_SALARY_VND;
+  const managerSalary = payrollPolicy.managerMonthlySalaryVnd;
   const totalKpiBonus = sumVnd(items.map((item) => item.kpiBonus));
   const managerBonus = kpiDistribution.managerBonus;
   const settlement = settleStoreProfit(profit, totalKpiBonus, managerBonus);
@@ -809,6 +826,7 @@ async function buildPreview(db: Awaited<ReturnType<typeof initDb>>, storeId: str
     managerSalary,
     managerBonus,
     managerTotal: sumVnd([managerSalary, managerBonus]),
+    payrollPolicy: payrollPolicyPayload(payrollPolicy),
     totalPay: sumVnd(items.map((item) => item.totalPay)),
     totalSalaryAdvancePending: sumVnd(items.map((item) => item.salaryAdvancePending)),
     totalSalaryAdvancePaid: sumVnd(items.map((item) => item.salaryAdvancePaid)),

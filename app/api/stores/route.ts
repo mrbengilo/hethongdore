@@ -11,10 +11,11 @@ import {
   managerHasGlobalStoreAccess,
 } from "../_lib/manager-scope";
 import {
-  recognizeFullPeriodFixedCostsForOverview,
+  recognizeFullPeriodFinancialPreviewForOverview,
   storeDateRangeFinance,
   storePeriodFinance,
 } from "../_lib/store-finance";
+import { loadPayrollPolicy } from "../_lib/payroll-policy";
 
 const defaultShifts = [
   { name: "Ca 1", start: "07:00", end: "12:00", durationMinutes: 300 },
@@ -50,21 +51,22 @@ export async function GET(request: Request) {
     : await db.prepare("SELECT id FROM stores WHERE id = ? AND status IN ('ACTIVE', 'INACTIVE')").bind(user.storeId).all<{ id: string }>();
   const priorRange = previousComparableDateRange(currentRange, "month");
   const priorPeriod = priorRange.to.slice(0, 7);
+  const payrollPolicy = await loadPayrollPolicy(db);
   const stores = (await Promise.all(result.results.map(async ({ id }) => {
     const [currentRangeFinance, currentPeriodFinance, previousRangeFinance, previousPeriodFinance, employeeCount, lifetimeOrderCount, salaryAdvanceCount] = await Promise.all([
-      storeDateRangeFinance(db, id, currentRange),
-      storePeriodFinance(db, id, requestedPeriod),
-      storeDateRangeFinance(db, id, priorRange),
-      storePeriodFinance(db, id, priorPeriod),
+      storeDateRangeFinance(db, id, currentRange, { payrollRecognition: "PREVIEW", payrollPolicy }),
+      storePeriodFinance(db, id, requestedPeriod, payrollPolicy),
+      storeDateRangeFinance(db, id, priorRange, { payrollRecognition: "PREVIEW", payrollPolicy }),
+      storePeriodFinance(db, id, priorPeriod, payrollPolicy),
       db.prepare("SELECT COUNT(*) AS count FROM employees WHERE store_id = ? AND status != 'ARCHIVED'").bind(id).first<{ count: number }>(),
       db.prepare("SELECT COUNT(*) AS count FROM orders WHERE store_id = ?").bind(id).first<{ count: number }>(),
       db.prepare("SELECT COUNT(*) AS count FROM salary_advances WHERE store_id = ? AND status IN ('DRAFT', 'PAID')").bind(id).first<{ count: number }>(),
     ]);
     const current = currentRangeFinance && currentPeriodFinance
-      ? recognizeFullPeriodFixedCostsForOverview(currentRangeFinance, currentPeriodFinance)
+      ? recognizeFullPeriodFinancialPreviewForOverview(currentRangeFinance, currentPeriodFinance)
       : currentRangeFinance;
     const previous = previousRangeFinance && previousPeriodFinance
-      ? recognizeFullPeriodFixedCostsForOverview(previousRangeFinance, previousPeriodFinance)
+      ? recognizeFullPeriodFinancialPreviewForOverview(previousRangeFinance, previousPeriodFinance)
       : previousRangeFinance;
     const orderCount = Number(lifetimeOrderCount?.count ?? 0);
     const advanceCount = Number(salaryAdvanceCount?.count ?? 0);

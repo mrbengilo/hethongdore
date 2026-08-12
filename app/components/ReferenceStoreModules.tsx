@@ -178,14 +178,55 @@ function useEmployees(storeId: string, payrollPeriod?: string) {
   return { employees, reload };
 }
 
-function useShiftSessions(storeId: string) {
+function useShiftSessions(storeId: string, period?: string) {
   const [shifts, setShifts] = useState<ShiftSession[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const requestSequence = useRef(0);
+  const requestController = useRef<AbortController | null>(null);
   const reload = useCallback(async () => {
-    const data = await (await fetch("/api/shifts?storeId=" + encodeURIComponent(storeId))).json();
-    setShifts(data.shifts ?? []);
-  }, [storeId]);
-  useEffect(() => { reload(); }, [reload]);
-  return { shifts, reload };
+    const requestedScope = { storeId, period: period ?? null };
+    const requestId = ++requestSequence.current;
+    requestController.current?.abort();
+    const controller = new AbortController();
+    requestController.current = controller;
+    setLoading(true);
+    setError("");
+    setShifts([]);
+    try {
+      const query = new URLSearchParams({ storeId });
+      if (period) query.set("period", period);
+      const response = await fetch("/api/shifts?" + query, { cache: "no-store", signal: controller.signal });
+      const data = await response.json() as { shifts?: ShiftSession[]; period?: string | null; storeId?: string | null; message?: string; pagination?: { page: number; pages: number; total: number } | null };
+      if (!response.ok) throw new Error(data.message || "Không thể tải lịch sử chấm công.");
+      if (period && (data.period !== requestedScope.period || data.storeId !== requestedScope.storeId)) {
+        throw new Error("Dữ liệu chấm công phản hồi không đúng cửa hàng hoặc kỳ đã chọn.");
+      }
+      const complete = [...(data.shifts ?? [])];
+      const pages = period ? Math.max(1, Number(data.pagination?.pages ?? 1)) : 1;
+      if (period && (pages !== 1 || data.pagination?.page !== 1
+        || Number(data.pagination?.total ?? complete.length) !== complete.length)) {
+        throw new Error("Dữ liệu chấm công theo kỳ chưa được tải trong một ảnh chụp đầy đủ.");
+      }
+      if (requestId === requestSequence.current && !controller.signal.aborted) setShifts(complete);
+    } catch (cause) {
+      if (requestId === requestSequence.current && !controller.signal.aborted) {
+        setShifts([]);
+        setError(cause instanceof Error ? cause.message : "Không thể tải lịch sử chấm công.");
+      }
+    } finally {
+      if (requestController.current === controller) requestController.current = null;
+      if (requestId === requestSequence.current && !controller.signal.aborted) setLoading(false);
+    }
+  }, [period, storeId]);
+  useEffect(() => {
+    void reload();
+    return () => {
+      requestSequence.current += 1;
+      requestController.current?.abort();
+    };
+  }, [reload]);
+  return { shifts, reload, loading, error };
 }
 
 async function saveRecord(input: {
@@ -391,16 +432,16 @@ function AttendanceManagement({ store }: { store: ReferenceStore }) {
   type AttendanceRow = {
     key: string; employeeCode: string; employeeName: string; workDate: string;
     shiftNames: string[]; startedAt: string | null; endedAt: string | null;
-    durationSeconds: number; salary: number; rates: number[]; sessionCount: number;
+    durationSeconds: number; salary: number; tiktokAllowance: number; rates: number[]; sessionCount: number;
     active: boolean; supporting: boolean; sourceStoreNames: string[];
     attendanceStatuses: Array<"EARLY" | "ON_TIME" | "LATE">; attendanceDeltas: number[];
     locations: AttendanceLocation[];
   };
-  const { shifts } = useShiftSessions(store.id);
   const [mode, setMode] = useState<Mode>("shift");
   const [query, setQuery] = useState("");
   const [date, setDate] = useState(today());
   const [month, setMonth] = useState(today().slice(0, 7));
+  const { shifts, loading, error } = useShiftSessions(store.id, month);
 
   const monthSessions = useMemo(() => shifts.filter((shift) => {
     const matchesMonth = sessionDate(shift).slice(0, 7) === month;
@@ -416,7 +457,7 @@ function AttendanceManagement({ store }: { store: ReferenceStore }) {
       const key = keyOf(shift);
       const current = groups.get(key) ?? {
         key, employeeCode: shift.employeeCode, employeeName: shift.employeeName, workDate: sessionDate(shift),
-        shiftNames: [], startedAt: null, endedAt: null, durationSeconds: 0, salary: 0, rates: [], sessionCount: 0,
+        shiftNames: [], startedAt: null, endedAt: null, durationSeconds: 0, salary: 0, tiktokAllowance: 0, rates: [], sessionCount: 0,
         active: false, supporting: false, sourceStoreNames: [], attendanceStatuses: [], attendanceDeltas: [], locations: [],
       };
       const attendance = sessionAttendance(shift);
@@ -428,6 +469,9 @@ function AttendanceManagement({ store }: { store: ReferenceStore }) {
       current.endedAt = !shift.ended_at ? current.endedAt : !current.endedAt || new Date(shift.ended_at) > new Date(current.endedAt) ? shift.ended_at : current.endedAt;
       current.durationSeconds += seconds;
       current.salary += Math.round(seconds / 3_600 * rate);
+      current.tiktokAllowance += Number.isSafeInteger(Number(shift.tiktok_allowance)) && Number(shift.tiktok_allowance) > 0
+        ? Number(shift.tiktok_allowance)
+        : 0;
       current.sessionCount += 1;
       current.active ||= !shift.ended_at || shift.status === "ACTIVE";
       current.supporting ||= Boolean(shift.transfer_id);
@@ -480,22 +524,24 @@ function AttendanceManagement({ store }: { store: ReferenceStore }) {
     if (row.attendanceStatuses.includes("ON_TIME")) return "attendance-status attendance-on-time";
     return "attendance-status attendance-unknown";
   };
+  const shiftState = (row: AttendanceRow) => row.active
+    ? { label: "ĐANG LÀM", className: "attendance-shift-state attendance-shift-active" }
+    : { label: "ĐÃ KẾT CA", className: "attendance-shift-state attendance-shift-ended" };
 
   return <div className="reference-module attendance-page">
-    <div className="ref-toolbar"><div><h2>Chấm công</h2><p>Danh sách ca và thống kê lương theo giờ làm thực tế</p></div><div className="ref-toolbar-actions">
-      {mode === "shift"
-        ? <DatePickerControl ariaLabel="Ngày chấm công" hint="Ngày chấm công" value={date} onChange={(value) => { setDate(value); setMonth(value.slice(0, 7)); }}/>
-        : <DatePickerControl ariaLabel="Tháng chấm công" hint="Tháng chấm công" type="month" value={month} onChange={setMonth}/>}
-      <button type="button" onClick={() => csv("cham-cong.csv", [["Ngày", "Nhân viên", "Ca", "Điểm danh", "Vị trí điểm danh", "Số giờ", "Lương cứng/giờ", "Lương thực nhận"], ...rows.map((row) => [row.workDate, row.employeeName, row.shiftNames.join(", "), attendanceLabel(row), locationExportLabel(row.locations), (row.durationSeconds / 3_600).toFixed(2), rowRate(row), row.salary])])}><Download size={16}/> Xuất Excel</button>
+    <div className="ref-toolbar"><div><h2>Chấm công</h2><p>Lịch sử ca làm, điểm danh và thống kê lương theo giờ thực tế</p></div><div className="ref-toolbar-actions">
+      <button type="button" onClick={() => csv("cham-cong.csv", [["Ngày", "Nhân viên", "Ca", "Điểm danh", "Vị trí điểm danh", "Phụ cấp TikTok", "Số giờ", "Lương cứng/giờ", "Lương thực nhận", "Trạng thái"], ...rows.map((row) => [row.workDate, row.employeeName, row.shiftNames.join(", "), attendanceLabel(row), locationExportLabel(row.locations), row.tiktokAllowance, (row.durationSeconds / 3_600).toFixed(2), rowRate(row), row.salary, shiftState(row).label])])}><Download size={16}/> Xuất Excel</button>
     </div></div>
     <div className="ref-metrics four"><Metric icon={UsersRound} label="Nhân viên có chấm công" value={employeeCount + " người"}/><Metric icon={Clock3} label="Tổng giờ làm thực tế" value={(totalSeconds / 3_600).toFixed(2) + " giờ"} note={`Từ ${rows.reduce((sum, row) => sum + row.sessionCount, 0)} ca làm`} tone="blue"/><Metric icon={WalletCards} label="Lương cứng" value="Theo mức / giờ" note="Quản lý thiết lập cho từng nhân viên" tone="purple"/><Metric icon={WalletCards} label="Tổng lương thực nhận" value={money(totalPay)} note="Lương cứng/giờ × giờ thực tế" tone="teal"/></div>
     <section className="table-card attendance-records" aria-labelledby="attendance-records-title">
-      <div className="table-head attendance-table-head"><div className="attendance-table-controls"><h3 className="sr-only" id="attendance-records-title">Danh sách chấm công</h3><div className="ref-tabs compact attendance-mode-tabs" role="group" aria-label="Cách tổng hợp chấm công"><button type="button" className={mode === "shift" ? "active" : ""} aria-pressed={mode === "shift"} onClick={() => setMode("shift")}>Theo ca</button><button type="button" className={mode === "day" ? "active" : ""} aria-pressed={mode === "day"} onClick={() => setMode("day")}>Theo ngày</button><button type="button" className={mode === "month" ? "active" : ""} aria-pressed={mode === "month"} onClick={() => setMode("month")}>Theo tháng · từng nhân viên</button></div><p className="attendance-guidance">Trạng thái đi sớm, đúng giờ hoặc đi trễ dùng ảnh chụp ngưỡng được lưu tại thời điểm nhân viên điểm danh. Chính sách hiện hành và chú giải đánh giá được hiển thị trong bảng thống kê bên dưới. Vị trí là ảnh chụp định vị tại thời điểm nhân viên xác nhận điểm danh.</p></div><label className="ref-search"><Search size={16} aria-hidden="true"/><input aria-label="Tìm nhân viên hoặc ca" placeholder="Tìm nhân viên hoặc ca..." value={query} onChange={(event) => setQuery(event.target.value)}/></label></div>
+      <div className="table-head attendance-table-head"><div className="attendance-table-title"><h2 id="attendance-records-title">LỊCH SỬ CHẤM CÔNG</h2><p>Chọn thời gian và cách tổng hợp để xem đúng dữ liệu theo ca, ngày hoặc từng nhân viên.</p></div><div className="attendance-history-filters"><div className="attendance-time-filter">{mode === "shift"
+        ? <DatePickerControl ariaLabel="Thời gian xem lịch sử chấm công" hint="Thời gian" value={date} onChange={(value) => { setDate(value); setMonth(value.slice(0, 7)); }}/>
+        : <DatePickerControl ariaLabel="Tháng xem lịch sử chấm công" hint="Thời gian" type="month" value={month} onChange={setMonth}/>}</div><div className="ref-tabs compact attendance-mode-tabs" role="group" aria-label="Cách tổng hợp lịch sử chấm công"><button type="button" className={mode === "shift" ? "active" : ""} aria-pressed={mode === "shift"} onClick={() => setMode("shift")}>Theo ca</button><button type="button" className={mode === "day" ? "active" : ""} aria-pressed={mode === "day"} onClick={() => setMode("day")}>Theo ngày</button><button type="button" className={mode === "month" ? "active" : ""} aria-pressed={mode === "month"} onClick={() => setMode("month")}>Theo nhân viên</button></div><label className="ref-search"><Search size={16} aria-hidden="true"/><input aria-label="Tìm nhân viên hoặc ca" placeholder="Tìm nhân viên hoặc ca..." value={query} onChange={(event) => setQuery(event.target.value)}/></label></div><p className="attendance-guidance">Trạng thái đi sớm, đúng giờ hoặc đi trễ dùng ngưỡng đã lưu tại thời điểm nhân viên điểm danh. Vị trí là ảnh chụp định vị tại thời điểm nhân viên xác nhận điểm danh.</p></div>
       {/* eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Keyboard focus lets users scroll the wide attendance table. */}
-      <div className="data-table-wrap attendance-desktop-table" role="region" tabIndex={0} aria-label="Bảng chấm công, cuộn ngang để xem đầy đủ"><table className="data-table attendance-table"><thead><tr><th>STT</th>{mode !== "month" ? <th>Ngày</th> : null}<th>Nhân viên</th><th>Ca làm việc</th>{mode === "shift" ? <><th>Giờ vào</th><th>Giờ kết ca</th></> : null}<th>Điểm danh</th><th>Vị trí điểm danh</th><th>Số giờ thực tế</th><th>Lương cứng</th><th>Lương thực nhận</th><th>Trạng thái</th></tr></thead><tbody>
-        {rows.length === 0 ? <tr><td colSpan={mode === "shift" ? 12 : 10} className="empty-cell">Chưa có dữ liệu chấm công thực tế trong thời gian đã chọn.</td></tr> : rows.map((row, index) => <tr key={row.key}><td>{index + 1}</td>{mode !== "month" ? <td>{dateLabel(row.workDate)}</td> : null}<td><Person name={row.employeeName} position={row.supporting ? `${row.employeeCode} · Hỗ trợ từ ${row.sourceStoreNames.join(", ") || "cửa hàng khác"}` : row.employeeCode}/></td><td><b className={`shift-text c${(index % 3) + 1}`}>{row.shiftNames.join(", ") || "—"}</b>{mode !== "shift" ? <small className="support-note">{row.sessionCount} ca</small> : null}</td>{mode === "shift" ? <><td>{timeLabel(row.startedAt)}</td><td>{row.active ? "Đang làm" : timeLabel(row.endedAt)}</td></> : null}<td><span className={attendanceTone(row)}>{attendanceLabel(row)}</span></td><td className="attendance-location-cell"><AttendanceLocationView locations={row.locations} employeeName={row.employeeName}/></td><td>{(row.durationSeconds / 3_600).toFixed(2)} giờ</td><td>{rowRate(row)}</td><td className="money-green"><b>{money(row.salary)}</b></td><td><span className="status-pill">{row.active ? "Đang làm" : row.supporting ? "Ca hỗ trợ" : "Đã kết ca"}</span></td></tr>)}
+      <div className="data-table-wrap attendance-desktop-table" role="region" tabIndex={0} aria-label="Bảng lịch sử chấm công, cuộn ngang để xem đầy đủ"><table className="data-table attendance-table"><thead><tr><th>STT</th>{mode !== "month" ? <th>Ngày</th> : null}<th>Nhân viên</th><th>Ca làm việc</th>{mode === "shift" ? <><th>Giờ vào</th><th>Giờ kết ca</th></> : null}<th>Điểm danh</th><th>Vị trí điểm danh</th><th>Phụ cấp TikTok</th><th>Số giờ thực tế</th><th>Lương cứng</th><th>Lương thực nhận</th><th>Trạng thái</th></tr></thead><tbody>
+        {loading ? <tr><td colSpan={mode === "shift" ? 13 : 11} className="empty-cell">Đang tải đầy đủ lịch sử chấm công trong kỳ…</td></tr> : error ? <tr><td colSpan={mode === "shift" ? 13 : 11} className="empty-cell"><span role="alert">{error}</span></td></tr> : rows.length === 0 ? <tr><td colSpan={mode === "shift" ? 13 : 11} className="empty-cell">Chưa có dữ liệu chấm công thực tế trong thời gian đã chọn.</td></tr> : rows.map((row, index) => { const state = shiftState(row); return <tr key={row.key}><td>{index + 1}</td>{mode !== "month" ? <td>{dateLabel(row.workDate)}</td> : null}<td><Person name={row.employeeName} position={row.supporting ? `${row.employeeCode} · Hỗ trợ từ ${row.sourceStoreNames.join(", ") || "cửa hàng khác"}` : row.employeeCode}/></td><td><b className={`shift-text c${(index % 3) + 1}`}>{row.shiftNames.join(", ") || "—"}</b>{mode !== "shift" ? <small className="support-note">{row.sessionCount} ca</small> : null}</td>{mode === "shift" ? <><td>{timeLabel(row.startedAt)}</td><td>{row.active ? "Đang làm" : timeLabel(row.endedAt)}</td></> : null}<td><span className={attendanceTone(row)}>{attendanceLabel(row)}</span></td><td className="attendance-location-cell"><AttendanceLocationView locations={row.locations} employeeName={row.employeeName}/></td><td className="attendance-tiktok-cell"><b>{money(row.tiktokAllowance)}</b><small>{row.tiktokAllowance > 0 ? "Đã ghi nhận theo ca" : "Không phát sinh"}</small></td><td>{(row.durationSeconds / 3_600).toFixed(2)} giờ</td><td>{rowRate(row)}</td><td className="money-green"><b>{money(row.salary)}</b></td><td><span className={state.className}>{state.label}</span></td></tr>; })}
       </tbody></table></div>
-      {rows.length === 0 ? <p className="attendance-mobile-empty">Chưa có dữ liệu chấm công thực tế trong thời gian đã chọn.</p> : <ol className="attendance-mobile-list" aria-label="Danh sách chấm công">{rows.map((row, index) => <li className="attendance-mobile-card" key={row.key}><header><span className="attendance-mobile-index" aria-label={`Dòng ${index + 1}`}>{index + 1}</span><Person name={row.employeeName} position={row.supporting ? `${row.employeeCode} · Hỗ trợ từ ${row.sourceStoreNames.join(", ") || "cửa hàng khác"}` : row.employeeCode}/><span className="status-pill">{row.active ? "Đang làm" : row.supporting ? "Ca hỗ trợ" : "Đã kết ca"}</span></header><dl>{mode !== "month" ? <div><dt>Ngày</dt><dd>{dateLabel(row.workDate)}</dd></div> : null}<div><dt>Ca làm việc</dt><dd><b className={`shift-text c${(index % 3) + 1}`}>{row.shiftNames.join(", ") || "—"}</b>{mode !== "shift" ? <small className="support-note">{row.sessionCount} ca</small> : null}</dd></div>{mode === "shift" ? <><div><dt>Giờ vào</dt><dd>{timeLabel(row.startedAt)}</dd></div><div><dt>Giờ kết ca</dt><dd>{row.active ? "Đang làm" : timeLabel(row.endedAt)}</dd></div></> : null}<div><dt>Điểm danh</dt><dd><span className={attendanceTone(row)}>{attendanceLabel(row)}</span></dd></div><div className="attendance-mobile-location"><dt>Vị trí</dt><dd><AttendanceLocationView locations={row.locations} employeeName={row.employeeName}/></dd></div><div><dt>Giờ thực tế</dt><dd>{(row.durationSeconds / 3_600).toFixed(2)} giờ</dd></div><div><dt>Lương cứng</dt><dd>{rowRate(row)}</dd></div><div><dt>Thực nhận</dt><dd className="money-green"><b>{money(row.salary)}</b></dd></div></dl></li>)}</ol>}
+      {loading ? <p className="attendance-mobile-empty">Đang tải đầy đủ lịch sử chấm công trong kỳ…</p> : error ? <p className="attendance-mobile-empty" role="alert">{error}</p> : rows.length === 0 ? <p className="attendance-mobile-empty">Chưa có dữ liệu chấm công thực tế trong thời gian đã chọn.</p> : <ol className="attendance-mobile-list" aria-label="Danh sách chấm công">{rows.map((row, index) => { const state = shiftState(row); return <li className="attendance-mobile-card" key={row.key}><header><span className="attendance-mobile-index" aria-label={`Dòng ${index + 1}`}>{index + 1}</span><Person name={row.employeeName} position={row.supporting ? `${row.employeeCode} · Hỗ trợ từ ${row.sourceStoreNames.join(", ") || "cửa hàng khác"}` : row.employeeCode}/><span className={state.className}>{state.label}</span></header><dl>{mode !== "month" ? <div><dt>Ngày</dt><dd>{dateLabel(row.workDate)}</dd></div> : null}<div><dt>Ca làm việc</dt><dd><b className={`shift-text c${(index % 3) + 1}`}>{row.shiftNames.join(", ") || "—"}</b>{mode !== "shift" ? <small className="support-note">{row.sessionCount} ca</small> : null}</dd></div>{mode === "shift" ? <><div><dt>Giờ vào</dt><dd>{timeLabel(row.startedAt)}</dd></div><div><dt>Giờ kết ca</dt><dd>{row.active ? "Đang làm" : timeLabel(row.endedAt)}</dd></div></> : null}<div><dt>Điểm danh</dt><dd><span className={attendanceTone(row)}>{attendanceLabel(row)}</span></dd></div><div className="attendance-mobile-location"><dt>Vị trí</dt><dd><AttendanceLocationView locations={row.locations} employeeName={row.employeeName}/></dd></div><div><dt>Phụ cấp TikTok</dt><dd><b>{money(row.tiktokAllowance)}</b></dd></div><div><dt>Giờ thực tế</dt><dd>{(row.durationSeconds / 3_600).toFixed(2)} giờ</dd></div><div><dt>Lương cứng</dt><dd>{rowRate(row)}</dd></div><div><dt>Thực nhận</dt><dd className="money-green"><b>{money(row.salary)}</b></dd></div></dl></li>; })}</ol>}
     </section>
     <AttendanceStatsPanel storeId={store.id}/>
     <div className="ref-bottom-grid"><article className="chart-card"><h3>Cách tính lương</h3><p>• Lương cứng là mức lương quản lý đặt theo giờ cho từng nhân viên.</p><p>• Lương thực nhận = Lương cứng/giờ × số giờ làm thực tế.</p></article><article className="chart-card"><h3>Tổng hợp theo ca · {month}</h3><div className="shift-info">{shiftSummary.length ? shiftSummary.map(([name, seconds]) => <span key={name}><b>{name}</b>{(seconds / 3_600).toFixed(2)} giờ</span>) : <p>Chưa có ca đã ghi nhận.</p>}</div></article><article className="chart-card donut-small"><div className="ref-donut attendance"><b>{employeeCount}</b><small>nhân viên</small></div><div><b>Thống kê tháng</b><p>{monthSessions.length} ca làm thực tế</p><p>{money(monthSessions.reduce((sum, shift) => sum + Math.round(sessionSeconds(shift) / 3_600 * sessionRate(shift)), 0))} tiền lương</p></div></article></div>
@@ -773,6 +819,11 @@ function PayrollManagement({ store }: { store: ReferenceStore }) {
     ...(summary?.totalSupportAllowance ? [`Phụ cấp hỗ trợ ${money(summary.totalSupportAllowance)}`] : []),
     `Phụ cấp khác ${money(summary?.totalManualAllowance ?? 0)}`,
   ].join("\n");
+  const itemAllowanceNote = (item: PayrollItem) => [
+    item.tiktokAllowance > 0 ? `TikTok: ${money(item.tiktokAllowance)}` : null,
+    item.supportAllowance > 0 ? `Hỗ trợ: ${money(item.supportAllowance)}` : null,
+    item.manualAllowance > 0 ? `Khác: ${money(item.manualAllowance)}` : null,
+  ].filter((value): value is string => Boolean(value)).join(" · ") || "Không phát sinh phụ cấp";
 
   return <div className="reference-module payroll-page">
     <div className="ref-toolbar"><div><h2>Lương thưởng nhân viên</h2><p>Tổng kết lương và thưởng KPI theo giờ làm thực tế của từng cửa hàng</p></div><div className="ref-toolbar-actions payroll-compact-actions">
@@ -797,7 +848,7 @@ function PayrollManagement({ store }: { store: ReferenceStore }) {
     {dataIsCurrent ? <SalaryAdvancePanel storeId={store.id} period={month} disabled={locked || loading || finalizing} onUpdated={loadPayroll}/> : null}
 
     <section className="table-card"><div className="table-head"><div><h2>Chi tiết lương thưởng · {formatMonthVn(month)}</h2><p>Lương thực nhận được tính từ lương cứng theo giờ và giờ làm thực tế.</p></div><span className={locked ? "status-pill" : "shift-pill s2"}>{locked ? "Đã tổng kết · Đã khóa" : "Bản xem trước"}</span></div><div className="data-table-wrap"><table className="data-table payroll-table"><thead><tr><th>Nhân viên</th><th>Lương cứng</th><th>Giờ thực tế</th><th>Lương thực nhận</th><th>Phụ cấp</th><th>Thưởng khác</th><th>Thưởng KPI</th><th>Tổng nhận</th><th>Đã ứng</th><th>Còn khả dụng</th></tr></thead><tbody>
-      {items.length ? items.map((item) => <tr key={item.employeeId}><td><Person name={item.employeeName} position={`${item.employeeCode} · ${item.position}`}/></td><td>{hourlyMoney(item.hourlyRate)}</td><td>{item.hours.toFixed(2)} giờ</td><td><b>{money(item.baseSalary)}</b></td><td className="money-green">{money(item.tiktokAllowance + item.supportAllowance + item.manualAllowance)}</td><td>{money(item.manualBonus)}</td><td className="money-green"><b>{money(item.kpiBonus)}</b></td><td><b>{money(item.totalPay)}</b></td><td>{money(item.salaryAdvanceReserved ?? 0)}</td><td className="money-green"><b>{money(item.availablePay ?? item.totalPay)}</b></td></tr>) : <tr><td colSpan={10} className="empty-cell">{loading ? "Đang tổng hợp dữ liệu..." : "Chưa có nhân viên trong cửa hàng."}</td></tr>}
+      {items.length ? items.map((item) => <tr key={item.employeeId}><td><Person name={item.employeeName} position={`${item.employeeCode} · ${item.position}`}/></td><td>{hourlyMoney(item.hourlyRate)}</td><td>{item.hours.toFixed(2)} giờ</td><td><b>{money(item.baseSalary)}</b></td><td className="money-green payroll-allowance-cell"><b>{money(item.tiktokAllowance + item.supportAllowance + item.manualAllowance)}</b><small>{itemAllowanceNote(item)}</small></td><td>{money(item.manualBonus)}</td><td className="money-green"><b>{money(item.kpiBonus)}</b></td><td><b>{money(item.totalPay)}</b></td><td>{money(item.salaryAdvanceReserved ?? 0)}</td><td className="money-green"><b>{money(item.availablePay ?? item.totalPay)}</b></td></tr>) : <tr><td colSpan={10} className="empty-cell">{loading ? "Đang tổng hợp dữ liệu..." : "Chưa có nhân viên trong cửa hàng."}</td></tr>}
     </tbody></table></div></section>
 
     <section className="table-card"><div className="table-head"><h2>Lịch sử tạo phụ cấp và thưởng · {formatMonthVn(month)}</h2><span>{periodRecords.length} bản ghi</span></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>Thời gian</th><th>Nhân viên</th><th>Loại</th><th>Số tiền</th><th>Nội dung chi</th><th>Người tạo</th><th>Thao tác</th></tr></thead><tbody>

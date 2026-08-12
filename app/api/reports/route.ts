@@ -24,6 +24,7 @@ import {
   storeDateRangeFinance,
   type StoreDateRangeFinance,
 } from "../_lib/store-finance";
+import { loadPayrollPolicy } from "../_lib/payroll-policy";
 
 const PROFIT_SHARING_MEMBERS = [
   { id: "pham-thi-diem-thuy", name: "Phạm Thị Diễm Thúy", percentage: 40 },
@@ -264,10 +265,13 @@ async function reportRangeData(
   fixedCostRecognition: FixedCostRecognition,
 ) {
   const ids = storeId ? [storeId] : storeOptions.map((store) => store.id);
+  // One request must use one policy version across every store and comparison
+  // range; otherwise a concurrent save could split a report between versions.
+  const payrollPolicy = await loadPayrollPolicy(db);
   const rows = await Promise.all(ids.map(async (id) => {
     const [current, previous] = await Promise.all([
-      storeDateRangeFinance(db, id, range, { fixedCostRecognition }),
-      storeDateRangeFinance(db, id, previousRange, { fixedCostRecognition }),
+      storeDateRangeFinance(db, id, range, { fixedCostRecognition, payrollRecognition: "PREVIEW", payrollPolicy }),
+      storeDateRangeFinance(db, id, previousRange, { fixedCostRecognition, payrollRecognition: "PREVIEW", payrollPolicy }),
     ]);
     return { current, previous };
   }));
@@ -424,9 +428,9 @@ export async function GET(request: Request) {
       endDateInclusive: true,
       directActivity: "Ca làm và chi phí có ngày được ghi nhận đúng ngày nghiệp vụ.",
       monthlyAccrual: usesFullEndingPeriodFixedCosts
-        ? "Chi phí cố định của tháng kết thúc phạm vi được ghi nhận đủ một lần; phần thuộc tháng khác giữ phân bổ theo ngày. Lương quản lý chỉ ghi nhận vào ngày cuối kỳ sau khi xác nhận đã chi."
-        : "Chi phí cố định được phân bổ theo ngày trong phạm vi tùy chọn. Lương quản lý chỉ ghi nhận vào ngày cuối kỳ sau khi xác nhận đã chi.",
-      performanceRewards: "KPI nhân viên và quản lý chỉ được ghi nhận từ ảnh chụp kỳ đã khóa; kỳ chưa khóa có trạng thái PROVISIONAL.",
+        ? "Chi phí cố định, lương quản lý và KPI của tháng kết thúc phạm vi được ghi nhận đủ một lần; kỳ mở dùng chính sách hiện hành, kỳ đã khóa giữ nguyên bản chốt."
+        : "Chi phí cố định, lương quản lý và KPI được phân bổ theo ngày trong phạm vi tùy chọn; kỳ mở dùng chính sách hiện hành, kỳ đã khóa giữ nguyên bản chốt.",
+      performanceRewards: "Thưởng KPI kỳ mở là số xem trước theo chính sách hiện hành; kỳ đã khóa chỉ dùng ảnh chụp bất biến.",
     },
     profitSharingMembers: globalStoreAccess ? PROFIT_SHARING_MEMBERS : [],
     profitSharingPreview,

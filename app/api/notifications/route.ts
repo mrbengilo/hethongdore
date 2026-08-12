@@ -22,6 +22,12 @@ type NotificationRow = {
 
 type NotificationCountRow = { count: number };
 
+const NO_STORE_HEADERS = {
+  "Cache-Control": "private, no-store, no-cache, must-revalidate, max-age=0",
+  Pragma: "no-cache",
+  Vary: "Cookie",
+};
+
 async function requireManager(request: Request) {
   const user = await getSessionUser(request);
   return user?.role === "MANAGER" ? user : null;
@@ -29,14 +35,14 @@ async function requireManager(request: Request) {
 
 export async function GET(request: Request) {
   const user = await requireManager(request);
-  if (!user) return json({ message: "Chỉ quản lý mới xem được thông báo." }, 403);
+  if (!user) return json({ message: "Chỉ quản lý mới xem được thông báo." }, 403, NO_STORE_HEADERS);
   const db = await initDb();
   const scope = resolveManagerStoreScope(user, new URL(request.url).searchParams.get("storeId"));
-  if (!scope.allowed) return json({ message: MANAGER_STORE_SCOPE_MESSAGE }, 403);
+  if (!scope.allowed) return json({ message: MANAGER_STORE_SCOPE_MESSAGE }, 403, NO_STORE_HEADERS);
   const storeId = scope.storeId;
   if (storeId) {
     const store = await db.prepare("SELECT id FROM stores WHERE id = ? LIMIT 1").bind(storeId).first<{ id: string }>();
-    if (!store) return json({ message: "Không tìm thấy cửa hàng." }, 404);
+    if (!store) return json({ message: "Không tìm thấy cửa hàng." }, 404, NO_STORE_HEADERS);
   }
   const storeClause = storeId ? " AND n.store_id = ?" : "";
   // Keep the list and badge count on the same database snapshot. Read rows are
@@ -54,7 +60,7 @@ export async function GET(request: Request) {
       .bind(user.id, ...(storeId ? [storeId] : [])),
   ]);
   const countRow = count.results[0] as NotificationCountRow | undefined;
-  return json({ notifications: items.results, unreadCount: Number(countRow?.count ?? 0) });
+  return json({ notifications: items.results, unreadCount: Number(countRow?.count ?? 0) }, 200, NO_STORE_HEADERS);
 }
 
 export async function PATCH(request: Request) {
@@ -94,5 +100,42 @@ export async function PATCH(request: Request) {
     id,
     readAt: persisted.readAt ?? existing.readAt ?? now,
     unreadCount: Number(countRow?.count ?? 0),
-  });
+  }, 200, NO_STORE_HEADERS);
+}
+
+export async function DELETE(request: Request) {
+  const user = await requireManager(request);
+  if (!user) return json({ message: "Chỉ quản lý mới được xóa thông báo khỏi chuông." }, 403);
+
+  const db = await initDb();
+  const params = new URL(request.url).searchParams;
+  const scope = resolveManagerStoreScope(user, params.get("storeId"));
+  if (!scope.allowed) return json({ message: MANAGER_STORE_SCOPE_MESSAGE }, 403);
+  if (scope.storeId) {
+    const store = await db.prepare("SELECT id FROM stores WHERE id = ? LIMIT 1")
+      .bind(scope.storeId).first<{ id: string }>();
+    if (!store) return json({ message: "Không tìm thấy cửa hàng." }, 404);
+  }
+
+  const now = new Date().toISOString();
+  const storeClause = scope.storeId ? " AND store_id = ?" : "";
+  // read_at is the durable, recoverable tombstone. One guarded statement marks
+  // the entire scoped snapshot, so retries/races are idempotent and cannot
+  // affect another manager or store. Audit/reset history remains intact.
+  const [updated, count] = await db.batch([
+    db.prepare(`UPDATE notifications SET read_at = COALESCE(read_at, ?)
+      WHERE recipient_user_id = ? AND read_at IS NULL${storeClause}`)
+      .bind(now, user.id, ...(scope.storeId ? [scope.storeId] : [])),
+    db.prepare(`SELECT COUNT(*) AS count FROM notifications
+      WHERE recipient_user_id = ? AND read_at IS NULL${storeClause}`)
+      .bind(user.id, ...(scope.storeId ? [scope.storeId] : [])),
+  ]);
+  const countRow = count.results[0] as NotificationCountRow | undefined;
+  return json({
+    ok: true,
+    clearedCount: Number(updated.meta.changes ?? 0),
+    readAt: now,
+    unreadCount: Number(countRow?.count ?? 0),
+    scope: scope.storeId ? { kind: "STORE", storeId: scope.storeId } : { kind: "ALL_ACCESSIBLE_STORES" },
+  }, 200, NO_STORE_HEADERS);
 }

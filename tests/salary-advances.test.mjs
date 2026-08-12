@@ -279,7 +279,7 @@ test("draft advances support CAS editing, payment confirmation and payroll net a
   );
 
   const cashflow = await response(cashflowRoute.GET(request(
-    `/api/cashflow?storeId=${storeA}&period=${period}&granularity=day&from=2026-08-01&to=2026-08-11`,
+    `/api/cashflow?storeId=${storeA}&period=${period}&granularity=day&from=2026-08-01&to=2026-08-12`,
     tokenA,
   )));
   assert.equal(cashflow.status, 200);

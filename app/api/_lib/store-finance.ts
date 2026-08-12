@@ -1,7 +1,6 @@
 import { initDb } from "../../../db/runtime";
 import {
   type LocalDateRange,
-  MANAGER_MONTHLY_SALARY_VND,
   dateRangeBoundsUtc,
   localDate,
   localDateRangeKeys,
@@ -14,6 +13,8 @@ import {
   sumVnd,
 } from "../../lib/finance";
 import { distributeStoreKpiByPolicy } from "../../lib/payroll";
+import type { PayrollPolicySnapshot } from "../../lib/payroll-policy";
+import { loadPayrollPolicy } from "./payroll-policy";
 import {
   employeeFinancialStatusForPeriod,
   employeeStatusAtInstantSql,
@@ -124,7 +125,13 @@ export function previousPeriod(period: string) {
     : `${year}-${String(month - 1).padStart(2, "0")}`;
 }
 
-export async function storePeriodFinance(db: Db, storeId: string, period: string): Promise<StorePeriodFinance | null> {
+export async function storePeriodFinance(
+  db: Db,
+  storeId: string,
+  period: string,
+  requestedPayrollPolicy?: PayrollPolicySnapshot,
+): Promise<StorePeriodFinance | null> {
+  const payrollPolicy = requestedPayrollPolicy ?? await loadPayrollPolicy(db);
   const store = await db.prepare("SELECT id, name, address, status, created_at AS createdAt FROM stores WHERE id = ? AND status IN ('ACTIVE', 'INACTIVE') LIMIT 1")
     .bind(storeId).first<StoreRow>();
   if (!store || !storeExistsInPeriod(store.createdAt, period)) return null;
@@ -237,6 +244,12 @@ export async function storePeriodFinance(db: Db, storeId: string, period: string
   }
 
   const supportAllowance = sumVnd([...supportByTransfer.values()]);
+  const lockedSnapshot = snapshotRow ? parseObject(snapshotRow.dataJson) : null;
+  // A locked KPI snapshot owns the manager salary used for that period. A
+  // later global policy update must never restate historical accounting.
+  const managerSalary = lockedSnapshot
+    ? safeVnd(lockedSnapshot.managerSalary ?? 3_000_000)
+    : payrollPolicy.managerMonthlySalaryVnd;
   const baseExpense = sumVnd([
     fixedCosts,
     incidentalCosts,
@@ -247,10 +260,9 @@ export async function storePeriodFinance(db: Db, storeId: string, period: string
     supportAllowance,
     manualAllowance,
     manualBonus,
-    MANAGER_MONTHLY_SALARY_VND,
+    managerSalary,
   ]);
   const profitBeforePerformanceRewards = revenue - baseExpense;
-  const lockedSnapshot = snapshotRow ? parseObject(snapshotRow.dataJson) : null;
   const provisionalKpi = lockedSnapshot ? null : distributeStoreKpiByPolicy(
     profitBeforePerformanceRewards,
     [...secondsByEmployee].map(([employeeId, durationSeconds]) => ({
@@ -259,6 +271,7 @@ export async function storePeriodFinance(db: Db, storeId: string, period: string
       completedShiftCount: employeeKpiState.get(employeeId)?.completedShiftCount ?? 0,
       durationSeconds,
     })),
+    payrollPolicy,
   );
   const employeeKpiBonus = lockedSnapshot
     ? safeVnd(lockedSnapshot.totalKpiBonus)
@@ -276,7 +289,7 @@ export async function storePeriodFinance(db: Db, storeId: string, period: string
     supportAllowance,
     manualAllowance,
     manualBonus,
-    managerSalary: MANAGER_MONTHLY_SALARY_VND,
+    managerSalary,
     employeeKpiBonus,
     managerBonus,
   };
@@ -344,7 +357,81 @@ export type StoreDateRangeFinance = Omit<StorePeriodFinance, "period"> & {
 
 type StoreDateRangeFinanceOptions = {
   fixedCostRecognition?: "ACCRUAL" | "FULL_ENDING_PERIOD";
+  payrollRecognition?: "SETTLED" | "PREVIEW";
+  payrollPolicy?: PayrollPolicySnapshot;
 };
+
+const FULL_PERIOD_PREVIEW_FIELDS = [
+  "fixedCosts",
+  "managerSalary",
+  "employeeKpiBonus",
+  "managerBonus",
+] as const satisfies readonly (keyof StoreExpenseBreakdown)[];
+
+function recognizeFullPeriodExpenseFields(
+  rangeFinance: StoreDateRangeFinance,
+  periodFinance: StorePeriodFinance,
+  fields: readonly (keyof StoreExpenseBreakdown)[],
+): StoreDateRangeFinance {
+  const targetPeriod = periodFinance.period;
+  const targetPeriodDays = rangeFinance.timeline.filter((day) => day.date.slice(0, 7) === targetPeriod);
+  if (targetPeriodDays.length === 0) return rangeFinance;
+
+  const nextAmounts = new Map<keyof StoreExpenseBreakdown, number>();
+  for (const field of fields) {
+    const amountOutsideTargetPeriod = sumVnd(rangeFinance.timeline
+      .filter((day) => day.date.slice(0, 7) !== targetPeriod)
+      .map((day) => requireVnd(day.expenseBreakdown[field], `Chi phí ${field} ngoài kỳ đối soát`)));
+    nextAmounts.set(field, sumVnd([
+      amountOutsideTargetPeriod,
+      requireVnd(periodFinance.expenseBreakdown[field], `Chi phí ${field} theo tháng`),
+    ]));
+  }
+  if (fields.every((field) => nextAmounts.get(field) === rangeFinance.expenseBreakdown[field])) {
+    return rangeFinance;
+  }
+
+  const targetIndexes = rangeFinance.timeline.flatMap((day, index) => (
+    day.date.slice(0, 7) === targetPeriod ? [index] : []
+  ));
+  const allocations = new Map<keyof StoreExpenseBreakdown, Map<number, number>>();
+  for (const field of fields) {
+    const periodAmount = requireVnd(periodFinance.expenseBreakdown[field], `Chi phí ${field} theo tháng`);
+    const existingIndexes = targetIndexes.filter((index) => rangeFinance.timeline[index].expenseBreakdown[field] > 0);
+    const allocationIndexes = existingIndexes.length > 0
+      ? existingIndexes
+      : periodAmount > 0
+        ? targetIndexes.slice(-1)
+        : [];
+    const count = allocationIndexes.length;
+    const base = count > 0 ? Math.floor(periodAmount / count) : 0;
+    const remainder = count > 0 ? periodAmount % count : 0;
+    allocations.set(field, new Map(allocationIndexes.map((index, allocationIndex) => [
+      index,
+      base + (allocationIndex < remainder ? 1 : 0),
+    ])));
+  }
+
+  const timeline = rangeFinance.timeline.map((day, index) => {
+    if (day.date.slice(0, 7) !== targetPeriod) return day;
+    const expenseBreakdown = { ...day.expenseBreakdown };
+    for (const field of fields) expenseBreakdown[field] = allocations.get(field)?.get(index) ?? 0;
+    const expense = sumVnd(Object.values(expenseBreakdown));
+    return { ...day, expenseBreakdown, expense, profit: day.revenue - expense };
+  });
+  const expenseBreakdown = { ...rangeFinance.expenseBreakdown };
+  for (const field of fields) expenseBreakdown[field] = nextAmounts.get(field) ?? expenseBreakdown[field];
+  const expense = sumVnd(Object.values(expenseBreakdown));
+  const performanceRewards = sumVnd([expenseBreakdown.employeeKpiBonus, expenseBreakdown.managerBonus]);
+  return {
+    ...rangeFinance,
+    expenseBreakdown,
+    expense,
+    profit: rangeFinance.revenue - expense,
+    profitBeforePerformanceRewards: rangeFinance.revenue - (expense - performanceRewards),
+    timeline,
+  };
+}
 
 /**
  * Replace the accrued fixed-cost portion for one month with that month's full
@@ -357,70 +444,14 @@ export function recognizeFullPeriodFixedCosts(
   rangeFinance: StoreDateRangeFinance,
   periodFinance: StorePeriodFinance,
 ): StoreDateRangeFinance {
-  const periodFixedCosts = requireVnd(periodFinance.expenseBreakdown.fixedCosts, "Chi phí cố định theo tháng");
-  const targetPeriod = periodFinance.period;
-  const targetPeriodDays = rangeFinance.timeline.filter((day) => day.date.slice(0, 7) === targetPeriod);
-  if (targetPeriodDays.length === 0) return rangeFinance;
-  // A previous equal-length comparison can straddle two months (for example
-  // 30/01–28/02). Only replace the portion belonging to the selected target
-  // month; fixed costs already accrued for the other month remain part of the
-  // comparison range.
-  const fixedCostsOutsideTargetPeriod = sumVnd(rangeFinance.timeline
-    .filter((day) => day.date.slice(0, 7) !== targetPeriod)
-    .map((day) => requireVnd(day.expenseBreakdown.fixedCosts, "Chi phí cố định ngoài kỳ đối soát")));
-  const fixedCosts = sumVnd([fixedCostsOutsideTargetPeriod, periodFixedCosts]);
-  const recognizedFixedCosts = requireVnd(rangeFinance.expenseBreakdown.fixedCosts, "Chi phí cố định đã ghi nhận");
-  if (fixedCosts === recognizedFixedCosts) return rangeFinance;
+  return recognizeFullPeriodExpenseFields(rangeFinance, periodFinance, ["fixedCosts"]);
+}
 
-  const expenseBreakdown = { ...rangeFinance.expenseBreakdown, fixedCosts };
-  const expense = sumVnd(Object.values(expenseBreakdown));
-  const performanceRewards = sumVnd([
-    expenseBreakdown.employeeKpiBonus,
-    expenseBreakdown.managerBonus,
-  ]);
-  // Rebuild this category instead of pushing the whole delta into the last
-  // day. A previous comparable range can cross two calendar months (for
-  // example 30/01–28/02), so its already-accrued amount may be greater than
-  // the single prior-period total. Delta-only adjustment could make the last
-  // day negative. Reallocation keeps every daily value non-negative and the
-  // timeline sum equal to the reconciled total in both directions.
-  const fixedCostDayIndexes = rangeFinance.timeline.flatMap((day, index) => (
-    day.date.slice(0, 7) === targetPeriod && day.expenseBreakdown.fixedCosts > 0 ? [index] : []
-  ));
-  const allocationIndexes = fixedCostDayIndexes.length > 0
-    ? fixedCostDayIndexes
-    : periodFixedCosts > 0
-      ? rangeFinance.timeline.flatMap((day, index) => day.date.slice(0, 7) === targetPeriod ? [index] : []).slice(-1)
-      : [];
-  const allocationCount = allocationIndexes.length;
-  const baseAllocation = allocationCount > 0 ? Math.floor(periodFixedCosts / allocationCount) : 0;
-  const allocationRemainder = allocationCount > 0 ? periodFixedCosts % allocationCount : 0;
-  const allocatedByIndex = new Map(allocationIndexes.map((index, allocationIndex) => [
-    index,
-    baseAllocation + (allocationIndex < allocationRemainder ? 1 : 0),
-  ]));
-  const timeline = rangeFinance.timeline.map((day, index) => {
-    const dayFixedCosts = day.date.slice(0, 7) === targetPeriod
-      ? requireVnd(allocatedByIndex.get(index) ?? 0, "Chi phí cố định ngày đối soát")
-      : requireVnd(day.expenseBreakdown.fixedCosts, "Chi phí cố định ngày ngoài kỳ đối soát");
-    const dayExpenseBreakdown = { ...day.expenseBreakdown, fixedCosts: dayFixedCosts };
-    const dayExpense = sumVnd(Object.values(dayExpenseBreakdown));
-    return {
-      ...day,
-      expenseBreakdown: dayExpenseBreakdown,
-      expense: dayExpense,
-      profit: day.revenue - dayExpense,
-    };
-  });
-
-  return {
-    ...rangeFinance,
-    expenseBreakdown,
-    expense,
-    profit: rangeFinance.revenue - expense,
-    profitBeforePerformanceRewards: rangeFinance.revenue - (expense - performanceRewards),
-    timeline,
-  };
+export function recognizeFullPeriodFinancialPreview(
+  rangeFinance: StoreDateRangeFinance,
+  periodFinance: StorePeriodFinance,
+) {
+  return recognizeFullPeriodExpenseFields(rangeFinance, periodFinance, FULL_PERIOD_PREVIEW_FIELDS);
 }
 
 /** Backward-compatible name for the store overview call site. */
@@ -429,6 +460,13 @@ export function recognizeFullPeriodFixedCostsForOverview(
   periodFinance: StorePeriodFinance,
 ) {
   return recognizeFullPeriodFixedCosts(rangeFinance, periodFinance);
+}
+
+export function recognizeFullPeriodFinancialPreviewForOverview(
+  rangeFinance: StoreDateRangeFinance,
+  periodFinance: StorePeriodFinance,
+) {
+  return recognizeFullPeriodFinancialPreview(rangeFinance, periodFinance);
 }
 
 function emptyExpenseBreakdown(): StoreExpenseBreakdown {
@@ -524,6 +562,7 @@ export async function storeDateRangeFinance(
   range: LocalDateRange,
   options: StoreDateRangeFinanceOptions = {},
 ): Promise<StoreDateRangeFinance | null> {
+  const payrollPolicy = options.payrollPolicy ?? await loadPayrollPolicy(db);
   const store = await db.prepare("SELECT id, name, address, status, created_at AS createdAt FROM stores WHERE id = ? AND status IN ('ACTIVE', 'INACTIVE') LIMIT 1")
     .bind(storeId).first<StoreRow>();
   const bounds = dateRangeBoundsUtc(range);
@@ -565,7 +604,7 @@ export async function storeDateRangeFinance(
       WHERE entity_type = 'STORE' AND entity_id = ? AND action = 'STORE_STATUS_CHANGE'
       ORDER BY created_at
     `).bind(storeId).all<StoreStatusAuditRow>(),
-    Promise.all(periods.map((period) => storePeriodFinance(db, storeId, period))),
+    Promise.all(periods.map((period) => storePeriodFinance(db, storeId, period, payrollPolicy))),
   ]);
 
   const timeline = localDateRangeKeys(range).map<StoreRangeFinanceDay>((date) => ({
@@ -623,15 +662,24 @@ export async function storeDateRangeFinance(
       .filter((date) => storeIsActiveOnDate(createdDate, transitions, date));
     allocateMonthlyExpense(finance.expenseBreakdown.fixedCosts, "fixedCosts", eligibleDates, days);
     allocateMonthlyExpense(finance.expenseBreakdown.supportAllowance, "supportAllowance", eligibleDates, days);
-    // Payroll preview still subtracts the fixed salary when choosing the KPI
-    // tier, but accounting reports only recognize that salary after the store
-    // confirms the actual payroll payment.
-    if (finance.settlementStatus === "PAYMENT_CONFIRMED" || finance.settlementStatus === "LOCKED") {
-      addMonthlyExpenseAtClose(finance.expenseBreakdown.managerSalary, "managerSalary", monthRange.to, eligibleDates, days);
-    }
-    if (finance.calculationStatus === "LOCKED") {
+    if (options.payrollRecognition === "PREVIEW") {
+      // Financial reports and store overviews mirror the current payroll
+      // preview for open periods. Locked periods still carry their immutable
+      // snapshot values from storePeriodFinance.
+      allocateMonthlyExpense(finance.expenseBreakdown.managerSalary, "managerSalary", eligibleDates, days);
       allocateMonthlyExpense(finance.expenseBreakdown.employeeKpiBonus, "employeeKpiBonus", eligibleDates, days);
       allocateMonthlyExpense(finance.expenseBreakdown.managerBonus, "managerBonus", eligibleDates, days);
+    } else {
+      // Cash-flow views retain settlement semantics: the manager salary is an
+      // actual outflow only after payment confirmation, and KPI is recognized
+      // only once its immutable calculation snapshot exists.
+      if (finance.settlementStatus === "PAYMENT_CONFIRMED" || finance.settlementStatus === "LOCKED") {
+        addMonthlyExpenseAtClose(finance.expenseBreakdown.managerSalary, "managerSalary", monthRange.to, eligibleDates, days);
+      }
+      if (finance.calculationStatus === "LOCKED") {
+        allocateMonthlyExpense(finance.expenseBreakdown.employeeKpiBonus, "employeeKpiBonus", eligibleDates, days);
+        allocateMonthlyExpense(finance.expenseBreakdown.managerBonus, "managerBonus", eligibleDates, days);
+      }
     }
   });
 
@@ -668,6 +716,8 @@ export async function storeDateRangeFinance(
   const endingPeriodIndex = periods.indexOf(range.to.slice(0, 7));
   const endingPeriodFinance = endingPeriodIndex >= 0 ? monthlyFinances[endingPeriodIndex] : null;
   return endingPeriodFinance
-    ? recognizeFullPeriodFixedCosts(rangeFinance, endingPeriodFinance)
+    ? options.payrollRecognition === "PREVIEW"
+      ? recognizeFullPeriodFinancialPreview(rangeFinance, endingPeriodFinance)
+      : recognizeFullPeriodFixedCosts(rangeFinance, endingPeriodFinance)
     : rangeFinance;
 }

@@ -134,6 +134,13 @@
       "when": 1787443200000,
       "tag": "0023_attendance_policy",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1787529600000,
+      "tag": "0024_payroll_policy",
+      "breakpoints": true
     }
   ]
 }

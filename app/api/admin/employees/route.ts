@@ -12,7 +12,7 @@ import {
   transitionEmployeeStatus,
 } from "../../_lib/employee-lifecycle";
 import { retireCccdUploadStatements } from "../../_lib/cccd-upload-registry";
-import { getSessionUser, json as responseJson, sha256 } from "../../_lib/auth";
+import { getSessionUser, hashPassword, json as responseJson, sha256 } from "../../_lib/auth";
 import { storePeriodUnlockedSql } from "../../_lib/store-period-lock";
 
 type Database = Awaited<ReturnType<typeof initDb>>;
@@ -20,6 +20,8 @@ type Database = Awaited<ReturnType<typeof initDb>>;
 type EmployeeAdminRow = {
   id: string;
   storeId: string;
+  storeName: string;
+  storeStatus: string;
   code: string;
   name: string;
   position: string;
@@ -37,6 +39,9 @@ type EmployeeAdminRow = {
   statusUpdatedAt: string | null;
   lifecycleVersion: number;
   username: string | null;
+  userId: string | null;
+  passwordHash: string | null;
+  accountLockedUntil: number | null;
   hasLogin: number;
   activeShiftCount: number;
   orderCount: number;
@@ -146,6 +151,26 @@ function escapedLike(value: string) {
   return `%${value.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_")}%`;
 }
 
+function safeTrimmed(value: unknown, maximum: number) {
+  const text = optional(value);
+  return text && text.length <= maximum ? text : null;
+}
+
+function safeAge(value: unknown) {
+  const number = Number(value);
+  return Number.isInteger(number) && number >= 15 && number <= 100 ? number : null;
+}
+
+function safeMoney(value: unknown, positive = false) {
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number >= (positive ? 1 : 0) ? number : null;
+}
+
+function validPassword(value: unknown) {
+  return typeof value === "string" && value.length >= 10 && value.length <= 128
+    && /[A-Za-z]/u.test(value) && /\d/u.test(value);
+}
+
 async function requireSuperAdmin(request: Request) {
   const user = await getSessionUser(request);
   return user?.role === "MANAGER" && Number(user.isSuperAdmin) === 1 ? user : null;
@@ -155,22 +180,58 @@ function versionState(row: EmployeeAdminRow) {
   return {
     id: row.id,
     storeId: row.storeId,
+    storeName: row.storeName,
     code: row.code,
+    name: row.name,
+    position: row.position,
+    phone: row.phone,
+    province: row.province,
+    ward: row.ward,
+    addressLine: row.addressLine,
+    age: row.age,
+    hourlyRate: Number(row.hourlyRate),
+    tiktokAllowance: Number(row.tiktokAllowance),
     status: normalizedEmployeeStatus(row.status),
     lifecycleVersion: Number(row.lifecycleVersion ?? 0),
+    userId: row.userId,
     username: row.username,
+    passwordHash: row.passwordHash,
+    accountLockedUntil: row.accountLockedUntil,
     statusUpdatedAt: row.statusUpdatedAt,
+  };
+}
+
+function auditProfileState(row: EmployeeAdminRow) {
+  return {
+    storeId: row.storeId,
+    code: row.code,
+    name: row.name,
+    position: row.position,
+    phone: row.phone,
+    province: row.province,
+    ward: row.ward,
+    addressLine: row.addressLine,
+    age: row.age,
+    hourlyRate: Number(row.hourlyRate),
+    tiktokAllowance: Number(row.tiktokAllowance),
+    username: row.username,
+    lifecycleVersion: Number(row.lifecycleVersion ?? 0),
   };
 }
 
 async function withVersion(row: EmployeeAdminRow) {
   const status = normalizedEmployeeStatus(row.status);
   if (status === "ARCHIVED") throw new Error("EMPLOYEE_NOT_FOUND");
+  const publicRow = { ...row };
+  delete (publicRow as Partial<EmployeeAdminRow>).passwordHash;
   return {
-    ...row,
+    ...publicRow,
     status,
     statusLabel: employeeStatusLabel(status),
     hasLogin: Boolean(row.hasLogin),
+    accountStatus: !row.hasLogin ? "NO_ACCOUNT"
+      : status !== "ACTIVE" ? "DISABLED"
+        : row.accountLockedUntil && row.accountLockedUntil > Date.now() ? "LOCKED" : "ENABLED",
     versionToken: await sha256(JSON.stringify(versionState(row))),
   };
 }
@@ -178,18 +239,22 @@ async function withVersion(row: EmployeeAdminRow) {
 async function loadEmployee(db: Database, storeId: string, employeeId: string) {
   return db.prepare(`SELECT
       e.id, e.store_id AS storeId, e.code, e.name, e.position, e.phone,
+      store.name AS storeName, store.status AS storeStatus,
       e.province, e.ward, e.address_line AS addressLine, e.age,
       e.cccd_image_key AS cccdImageKey, e.cccd_image_name AS cccdImageName,
       e.hourly_rate AS hourlyRate, e.tiktok_allowance AS tiktokAllowance,
       e.status, e.inactive_at AS inactiveAt, e.status_updated_at AS statusUpdatedAt,
       COALESCE(e.lifecycle_version, 0) AS lifecycleVersion,
+      (SELECT id FROM users WHERE employee_id = e.id ORDER BY id LIMIT 1) AS userId,
       (SELECT username FROM users WHERE employee_id = e.id ORDER BY id LIMIT 1) AS username,
+      (SELECT password_hash FROM users WHERE employee_id = e.id ORDER BY id LIMIT 1) AS passwordHash,
+      (SELECT locked_until FROM users WHERE employee_id = e.id ORDER BY id LIMIT 1) AS accountLockedUntil,
       EXISTS(SELECT 1 FROM users WHERE employee_id = e.id) AS hasLogin,
       (SELECT COUNT(*) FROM shift_sessions s WHERE s.employee_id = e.id AND (s.status = 'ACTIVE' OR s.ended_at IS NULL)) AS activeShiftCount,
       (SELECT COUNT(*) FROM orders o WHERE o.employee_id = e.id) AS orderCount,
       (SELECT COUNT(*) FROM shift_sessions s WHERE s.employee_id = e.id) AS shiftCount,
       (SELECT COUNT(*) FROM employee_payroll_closings c WHERE c.employee_id = e.id) AS payrollClosingCount
-    FROM employees e
+    FROM employees e JOIN stores store ON store.id = e.store_id
     WHERE e.id = ? AND e.store_id = ? AND e.status != 'ARCHIVED' AND e.deleted_at IS NULL
     LIMIT 1`)
     .bind(employeeId, storeId)
@@ -339,17 +404,22 @@ export async function GET(request: Request) {
   if (!user) return json({ message: "Chỉ quản trị cấp cao được xem danh sách này." }, 403);
   const url = new URL(request.url);
   const storeId = optional(url.searchParams.get("storeId"));
-  if (!storeId) return json({ message: "Thiếu cửa hàng cần xem nhân viên." }, 400);
   const page = positiveInteger(url.searchParams.get("page"), 1, Number.MAX_SAFE_INTEGER);
   const pageSize = positiveInteger(url.searchParams.get("pageSize"), 20, MAX_PAGE_SIZE);
   const search = optional(url.searchParams.get("search"));
   const db = await initDb();
-  const store = await db.prepare("SELECT id, name, status FROM stores WHERE id = ? LIMIT 1")
-    .bind(storeId).first<{ id: string; name: string; status: string }>();
-  if (!store) return json({ message: "Không tìm thấy cửa hàng." }, 404);
+  const store = storeId
+    ? await db.prepare("SELECT id, name, status FROM stores WHERE id = ? LIMIT 1")
+      .bind(storeId).first<{ id: string; name: string; status: string }>()
+    : null;
+  if (storeId && !store) return json({ message: "Không tìm thấy cửa hàng." }, 404);
 
-  const clauses = ["e.store_id = ?", "e.status != 'ARCHIVED'", "e.deleted_at IS NULL"];
-  const bindings: unknown[] = [storeId];
+  const clauses = ["e.status != 'ARCHIVED'", "e.deleted_at IS NULL"];
+  const bindings: unknown[] = [];
+  if (storeId) {
+    clauses.unshift("e.store_id = ?");
+    bindings.push(storeId);
+  }
   if (search) {
     const needle = escapedLike(search);
     clauses.push(`(e.code LIKE ? ESCAPE '\\' OR e.name LIKE ? ESCAPE '\\'
@@ -360,21 +430,25 @@ export async function GET(request: Request) {
   const [countResult, rowsResult] = await db.batch([
     db.prepare(`SELECT COUNT(*) AS count FROM employees e WHERE ${where}`).bind(...bindings),
     db.prepare(`SELECT
-        e.id, e.store_id AS storeId, e.code, e.name, e.position, e.phone,
+        e.id, e.store_id AS storeId, store.name AS storeName, store.status AS storeStatus,
+        e.code, e.name, e.position, e.phone,
         e.province, e.ward, e.address_line AS addressLine, e.age,
         e.cccd_image_key AS cccdImageKey, e.cccd_image_name AS cccdImageName,
         e.hourly_rate AS hourlyRate, e.tiktok_allowance AS tiktokAllowance,
         e.status, e.inactive_at AS inactiveAt, e.status_updated_at AS statusUpdatedAt,
         COALESCE(e.lifecycle_version, 0) AS lifecycleVersion,
+        (SELECT id FROM users WHERE employee_id = e.id ORDER BY id LIMIT 1) AS userId,
         (SELECT username FROM users WHERE employee_id = e.id ORDER BY id LIMIT 1) AS username,
+        (SELECT password_hash FROM users WHERE employee_id = e.id ORDER BY id LIMIT 1) AS passwordHash,
+        (SELECT locked_until FROM users WHERE employee_id = e.id ORDER BY id LIMIT 1) AS accountLockedUntil,
         EXISTS(SELECT 1 FROM users WHERE employee_id = e.id) AS hasLogin,
         (SELECT COUNT(*) FROM shift_sessions s WHERE s.employee_id = e.id AND (s.status = 'ACTIVE' OR s.ended_at IS NULL)) AS activeShiftCount,
         (SELECT COUNT(*) FROM orders o WHERE o.employee_id = e.id) AS orderCount,
         (SELECT COUNT(*) FROM shift_sessions s WHERE s.employee_id = e.id) AS shiftCount,
         (SELECT COUNT(*) FROM employee_payroll_closings c WHERE c.employee_id = e.id) AS payrollClosingCount
-      FROM employees e
+      FROM employees e JOIN stores store ON store.id = e.store_id
       WHERE ${where}
-      ORDER BY CASE e.status WHEN 'ACTIVE' THEN 0 WHEN 'SUSPENDED' THEN 1 ELSE 2 END, e.name, e.code
+      ORDER BY store.name, CASE e.status WHEN 'ACTIVE' THEN 0 WHEN 'SUSPENDED' THEN 1 ELSE 2 END, e.name, e.code
       LIMIT ? OFFSET ?`)
       .bind(...bindings, pageSize, (page - 1) * pageSize),
   ]);
@@ -389,30 +463,122 @@ export async function GET(request: Request) {
 
 export async function PATCH(request: Request) {
   const user = await requireSuperAdmin(request);
-  if (!user) return json({ message: "Chỉ quản trị cấp cao được đổi trạng thái nhân viên." }, 403);
+  if (!user) return json({ message: "Chỉ quản trị cấp cao được cập nhật nhân viên." }, 403);
   const body = await request.json().catch(() => ({})) as Record<string, unknown>;
   const storeId = optional(body.storeId);
   const id = optional(body.id);
   const versionToken = optional(body.versionToken);
   const reason = optional(body.reason);
-  if (!storeId || !id || !versionToken || !isEmployeeStatus(body.status)) {
-    return json({ message: "Thiếu dữ liệu xác nhận trạng thái nhân viên." }, 400);
-  }
+  const action = body.action === "EDIT_PROFILE" || body.action === "RESET_PASSWORD"
+    ? body.action
+    : "SET_STATUS";
+  if (!storeId || !id || !versionToken) return json({ message: "Thiếu dữ liệu xác nhận nhân viên." }, 400);
   if (!reason || reason.length < 3 || reason.length > 500) {
     return json({ message: "Vui lòng nhập lý do thay đổi từ 3 đến 500 ký tự." }, 400);
   }
   const db = await initDb();
   const existing = await loadEmployee(db, storeId, id);
   if (!existing) return json({ message: "Không tìm thấy nhân viên trong cửa hàng." }, 404);
-  const currentStatus = normalizedEmployeeStatus(existing.status);
-  if (currentStatus === body.status) {
-    return json({
-      message: `Nhân viên hiện đã ở trạng thái ${employeeStatusLabel(body.status)}.`,
-      row: await withVersion(existing),
-    });
-  }
   if (await sha256(JSON.stringify(versionState(existing))) !== versionToken) {
     return json({ message: "Hồ sơ nhân viên đã thay đổi. Vui lòng tải lại danh sách." }, 409);
+  }
+
+  if (action === "RESET_PASSWORD") {
+    if (!existing.userId || !existing.username) return json({ message: "Nhân viên chưa có tài khoản đăng nhập." }, 409);
+    if (!validPassword(body.password) || body.password !== body.passwordConfirmation) {
+      return json({ message: "Mật khẩu mới phải từ 10 đến 128 ký tự, có chữ và số; hai lần nhập phải khớp." }, 400);
+    }
+    const now = new Date().toISOString();
+    const gateId = crypto.randomUUID();
+    const nextHash = await hashPassword(body.password as string);
+    const results = await db.batch([
+      db.prepare(`INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, detail, created_at)
+        SELECT ?, ?, 'SUPER_ADMIN_EMPLOYEE_PASSWORD_RESET_PREPARED', 'EMPLOYEE', e.id, ?, ?
+        FROM employees e JOIN users u ON u.employee_id = e.id
+        WHERE e.id = ? AND e.store_id = ? AND e.status != 'ARCHIVED' AND e.deleted_at IS NULL
+          AND COALESCE(e.lifecycle_version, 0) = ? AND u.id = ? AND u.username = ?
+          AND u.password_hash = ?`)
+        .bind(gateId, user.id, JSON.stringify({ storeId, username: existing.username, reason }), now,
+          id, storeId, existing.lifecycleVersion, existing.userId, existing.username, existing.passwordHash),
+      db.prepare(`UPDATE users SET password_hash = ?, failed_attempts = 0, locked_until = NULL
+        WHERE id = ? AND employee_id = ? AND username = ? AND password_hash = ?
+          AND EXISTS (SELECT 1 FROM audit_logs gate WHERE gate.id = ? AND gate.entity_id = users.employee_id)`)
+        .bind(nextHash, existing.userId, id, existing.username, existing.passwordHash, gateId),
+      db.prepare(`DELETE FROM sessions WHERE user_id = ?
+        AND EXISTS (SELECT 1 FROM audit_logs gate WHERE gate.id = ? AND gate.entity_id = ?)`)
+        .bind(existing.userId, gateId, id),
+      db.prepare(`UPDATE audit_logs SET action = 'SUPER_ADMIN_EMPLOYEE_PASSWORD_RESET'
+        WHERE id = ? AND EXISTS (SELECT 1 FROM users u WHERE u.id = ? AND u.employee_id = ? AND u.password_hash = ?)`)
+        .bind(gateId, existing.userId, id, nextHash),
+    ]);
+    if (affectedRows(results[0]) !== 1 || affectedRows(results[1]) !== 1 || affectedRows(results[3]) !== 1) {
+      return json({ message: "Tài khoản hoặc hồ sơ vừa thay đổi. Vui lòng tải lại danh sách." }, 409);
+    }
+    const updated = await loadEmployee(db, storeId, id);
+    return json({ message: "Đã đặt lại mật khẩu và thu hồi toàn bộ phiên đăng nhập của nhân viên.", row: updated ? await withVersion(updated) : null });
+  }
+
+  if (action === "EDIT_PROFILE") {
+    const name = safeTrimmed(body.name, 120);
+    const position = safeTrimmed(body.position, 120);
+    const phone = safeTrimmed(body.phone, 30);
+    const province = safeTrimmed(body.province, 120);
+    const ward = safeTrimmed(body.ward, 120);
+    const addressLine = safeTrimmed(body.addressLine, 250);
+    const age = safeAge(body.age);
+    const hourlyRate = safeMoney(body.hourlyRate, true);
+    const tiktokAllowance = safeMoney(body.tiktokAllowance);
+    const username = safeTrimmed(body.username, 80)?.toLocaleLowerCase("vi-VN") ?? null;
+    if (!name || !position || !phone || !province || !ward || !addressLine || age === null
+      || hourlyRate === null || tiktokAllowance === null || (existing.userId && !username)) {
+      return json({ message: "Thông tin hồ sơ, tài khoản, lương hoặc phụ cấp không hợp lệ." }, 400);
+    }
+    const now = new Date().toISOString();
+    const gateId = crypto.randomUUID();
+    try {
+      const results = await db.batch([
+        db.prepare(`INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, detail, created_at)
+          SELECT ?, ?, 'SUPER_ADMIN_EMPLOYEE_PROFILE_UPDATE_PREPARED', 'EMPLOYEE', e.id, ?, ?
+          FROM employees e LEFT JOIN users u ON u.employee_id = e.id
+          WHERE e.id = ? AND e.store_id = ? AND e.status != 'ARCHIVED' AND e.deleted_at IS NULL
+            AND COALESCE(e.lifecycle_version, 0) = ? AND e.name = ? AND e.position = ? AND e.phone = ?
+            AND e.province = ? AND e.ward = ? AND e.address_line = ? AND e.age IS ?
+            AND e.hourly_rate = ? AND e.tiktok_allowance = ? AND u.id IS ? AND u.username IS ?`)
+          .bind(gateId, user.id, JSON.stringify({ storeId, reason, before: auditProfileState(existing),
+            after: { name, position, phone, province, ward, addressLine, age, hourlyRate, tiktokAllowance, username } }), now,
+            id, storeId, existing.lifecycleVersion, existing.name, existing.position, existing.phone,
+            existing.province, existing.ward, existing.addressLine, existing.age,
+            existing.hourlyRate, existing.tiktokAllowance, existing.userId, existing.username),
+        db.prepare(`UPDATE employees SET name = ?, position = ?, phone = ?, province = ?, ward = ?,
+            address_line = ?, age = ?, hourly_rate = ?, tiktok_allowance = ?, lifecycle_version = lifecycle_version + 1
+          WHERE id = ? AND store_id = ? AND lifecycle_version = ? AND status != 'ARCHIVED' AND deleted_at IS NULL
+            AND EXISTS (SELECT 1 FROM audit_logs gate WHERE gate.id = ? AND gate.entity_id = employees.id)`)
+          .bind(name, position, phone, province, ward, addressLine, age, hourlyRate, tiktokAllowance,
+            id, storeId, existing.lifecycleVersion, gateId),
+        db.prepare(`UPDATE users SET name = ?, username = ?
+          WHERE id = ? AND employee_id = ?
+            AND EXISTS (SELECT 1 FROM audit_logs gate WHERE gate.id = ? AND gate.entity_id = users.employee_id)`)
+          .bind(name, username, existing.userId, id, gateId),
+        db.prepare(`UPDATE audit_logs SET action = 'SUPER_ADMIN_EMPLOYEE_PROFILE_UPDATE'
+          WHERE id = ? AND EXISTS (SELECT 1 FROM employees e WHERE e.id = ? AND e.store_id = ?
+            AND e.lifecycle_version = ? AND e.name = ? AND e.phone = ?)`)
+          .bind(gateId, id, storeId, Number(existing.lifecycleVersion) + 1, name, phone),
+      ]);
+      if (affectedRows(results[0]) !== 1 || affectedRows(results[1]) !== 1
+        || (existing.userId && affectedRows(results[2]) !== 1) || affectedRows(results[3]) !== 1) {
+        return json({ message: "Hồ sơ vừa được cập nhật bởi yêu cầu khác. Vui lòng tải lại danh sách." }, 409);
+      }
+    } catch {
+      return json({ message: "Tên đăng nhập đã được sử dụng hoặc dữ liệu vừa thay đổi." }, 409);
+    }
+    const updated = await loadEmployee(db, storeId, id);
+    return json({ message: "Đã cập nhật hồ sơ nhân viên và lưu lịch sử kiểm toán.", row: updated ? await withVersion(updated) : null });
+  }
+
+  if (!isEmployeeStatus(body.status)) return json({ message: "Trạng thái nhân viên không hợp lệ." }, 400);
+  const currentStatus = normalizedEmployeeStatus(existing.status);
+  if (currentStatus === body.status) {
+    return json({ message: `Nhân viên hiện đã ở trạng thái ${employeeStatusLabel(body.status)}.`, row: await withVersion(existing) });
   }
   try {
     await transitionEmployeeStatus({

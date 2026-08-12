@@ -1,7 +1,7 @@
 "use client";
 /* eslint-disable @next/next/no-img-element -- Logo thương hiệu tĩnh do người dùng cung cấp và dùng đồng nhất trong toàn hệ thống. */
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, BadgeDollarSign, Banknote, BarChart3, Bell, Calendar, CalendarDays, CalendarRange, CheckCircle2, ClipboardCheck, Clock3, DatabaseBackup, Download, Eye, Gift, History, Home, LayoutDashboard, LogOut, Menu, PackageOpen, Percent, PieChart, Plus, ReceiptText, RefreshCw, Settings, ShoppingBag, ShoppingCart, SlidersHorizontal, Store, TrendingUp, UserRound, UsersRound, WalletCards, X, type LucideIcon } from "lucide-react";
+import { ArrowLeft, BadgeDollarSign, Banknote, BarChart3, Bell, Calendar, CalendarDays, CalendarRange, CheckCircle2, ClipboardCheck, Clock3, DatabaseBackup, Download, Eye, Gift, History, Home, LayoutDashboard, LogOut, Menu, PackageOpen, Percent, PieChart, Plus, ReceiptText, RefreshCw, Settings, ShoppingBag, ShoppingCart, SlidersHorizontal, Store, Trash2, TrendingUp, UserRound, UsersRound, WalletCards, X, type LucideIcon } from "lucide-react";
 import { FunctionalEmployeeTasks, FunctionalSettings, FunctionalTaskManager } from "./FunctionalModules";
 import { ReferenceManagerTransfer } from "./ReferenceManagerModules";
 import { ReferenceEmployeeCashflow, ReferenceEmployeePayroll, ReferenceEmployeeRevenue, ReferenceEmployeeShiftHistory } from "./ReferenceEmployeeModules";
@@ -18,6 +18,7 @@ import { StoreShiftCashflow } from "./StoreCashflow";
 import { StoreOrdersManagement } from "./StoreOrdersManagement";
 import { SuperAdminReset } from "./SuperAdminReset";
 import { AttendancePolicySettings } from "./AttendancePolicySettings";
+import { SuperAdminEmployeeDirectory } from "./SuperAdminEmployeeDirectory";
 import { useAccessibleModal } from "./useAccessibleModal";
 import { formatMonthVn, formatVndInput, parseVndInput } from "../lib/format";
 import { readNavigationSnapshot, writeNavigationSnapshot, type NavigationSnapshot } from "../lib/navigation-state";
@@ -151,13 +152,14 @@ export function calculateEmployeeBonus(profit: number, totalHours: number, emplo
     return Math.round((employeeHours / totalHours) * profit * rate);
 }
 const managerMenu = ["Tổng quan", "Cửa hàng", "Giao việc", "Dòng tiền", "Lương thưởng quản lý", "Báo cáo", "Chia lợi nhuận", "Điều chuyển nhân sự", "Cài đặt"];
-const superAdminManagerMenu = [...managerMenu.slice(0, -1), "Cài Đặt Chính Sách", managerMenu.at(-1) ?? "Cài đặt"];
+const superAdminManagerMenu = [...managerMenu.slice(0, -1), "Quản Lý Nhân Viên", "Cài Đặt Chính Sách", managerMenu.at(-1) ?? "Cài đặt"];
 const storeMenu = ["Tổng quan", "Lịch phân ca", "Nhân viên", "Nhập hàng", "Chi phí cố định", "Chấm công", "Lương thưởng", "Đơn hàng", "Dòng tiền", "Báo cáo", "Cài đặt"];
 const superAdminStoreMenu = [...storeMenu.slice(0, -1), "Reset Dữ Liệu", storeMenu.at(-1) ?? "Cài đặt"];
 const employeeMenu = ["Trang chủ", "Đơn hàng", "Doanh thu", "Bảng lương", "Dòng tiền", "Lịch sử ca làm"];
 const navigationMenus = { manager: managerMenu, store: storeMenu, employee: employeeMenu };
 const menuIcons: Record<string, LucideIcon> = { "Tổng quan": LayoutDashboard, "Cửa hàng": Store, "Giao việc": ClipboardCheck, "Dòng tiền": WalletCards, "Lương thưởng quản lý": BadgeDollarSign, "Báo cáo": BarChart3, "Điều chuyển nhân sự": UsersRound, "Chia lợi nhuận": PieChart, "Cài đặt": Settings, "Cài Đặt Chính Sách": SlidersHorizontal, "Ca làm việc": CalendarDays, "Lịch phân ca": CalendarRange, "Nhân viên": UserRound, "Nhập hàng": PackageOpen, "Chi phí cố định": ReceiptText, "Chấm công": Clock3, "Lương thưởng": BadgeDollarSign, "Đơn hàng": ShoppingCart, "Reset Dữ Liệu": DatabaseBackup, "Trang chủ": Home, "Doanh thu": TrendingUp, "Bảng lương": BadgeDollarSign, "Lịch sử ca làm": History };
 const statIcons: Record<string, LucideIcon> = { "₫": Banknote, "▤": ReceiptText, "▥": BarChart3, "%": Percent, "♕": BadgeDollarSign, "✦": Gift, "✓": CheckCircle2, "▧": ShoppingBag, "↓": ReceiptText, "↗": TrendingUp };
+menuIcons["Quản Lý Nhân Viên"] = UsersRound;
 export default function Portal({ expectedRole }: {
     expectedRole: Role;
 }) {
@@ -221,10 +223,14 @@ function ManagerPortal({ user }: {
     const [notifications, setNotifications] = useState<ManagerNotification[]>([]);
     const [unreadCount, setUnreadCount] = useState(0);
     const [notificationError, setNotificationError] = useState("");
+    const [clearingNotifications, setClearingNotifications] = useState(false);
     const [focusedOrderId, setFocusedOrderId] = useState<string | null>(null);
     const [focusedOrderRequest, setFocusedOrderRequest] = useState(0);
     const loadRequest = useRef(0);
     const notificationRequest = useRef(0);
+    const notificationMutationRequest = useRef(0);
+    const selectedNotificationScope = useRef<string | null>(null);
+    useEffect(() => { selectedNotificationScope.current = selectedStoreId; }, [selectedStoreId]);
     const loadNotificationsForStore = useCallback(async (scopeStoreId: string | null) => {
         const requestId = ++notificationRequest.current;
         try {
@@ -335,20 +341,59 @@ function ManagerPortal({ user }: {
             window.scrollTo({ top: 0, behavior: "auto" });
         }
     }
-    const notificationCenter = <ManagerNotificationCenter notifications={notifications} unreadCount={unreadCount} error={notificationError} onRefresh={loadNotifications} onOpen={openNotification}/>;
+    const clearNotifications = useCallback(async () => {
+        if (clearingNotifications || unreadCount === 0) return;
+        const clearedScope = selectedStoreId;
+        const requestId = ++notificationMutationRequest.current;
+        notificationRequest.current += 1;
+        const previous = { notifications, unreadCount };
+        setClearingNotifications(true);
+        setNotifications([]);
+        setUnreadCount(0);
+        setNotificationError("");
+        try {
+            const query = clearedScope ? `?storeId=${encodeURIComponent(clearedScope)}` : "";
+            const response = await fetch(`/api/notifications${query}`, { method: "DELETE" });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(data.message ?? "Không thể xóa tất cả thông báo.");
+            if (requestId !== notificationMutationRequest.current) return;
+            notificationRequest.current += 1;
+            if (selectedNotificationScope.current === clearedScope) {
+                setNotifications([]);
+                setUnreadCount(Number(data.unreadCount ?? 0));
+            } else {
+                void loadNotificationsForStore(selectedNotificationScope.current);
+            }
+        } catch (error) {
+            if (requestId !== notificationMutationRequest.current) return;
+            notificationRequest.current += 1;
+            if (selectedNotificationScope.current === clearedScope) {
+                setNotifications(previous.notifications);
+                setUnreadCount(previous.unreadCount);
+                setNotificationError(error instanceof Error ? error.message : "Không thể xóa tất cả thông báo.");
+            } else {
+                void loadNotificationsForStore(selectedNotificationScope.current);
+            }
+        } finally {
+            if (requestId === notificationMutationRequest.current) setClearingNotifications(false);
+        }
+    }, [clearingNotifications, loadNotificationsForStore, notifications, selectedStoreId, unreadCount]);
+    const notificationCenter = <ManagerNotificationCenter notifications={notifications} unreadCount={unreadCount} error={notificationError} clearing={clearingNotifications} onClear={clearNotifications} onRefresh={loadNotifications} onOpen={openNotification}/>;
     if (!navigationReady || (selectedStoreId && loading && !selectedStore))
         return <div className="app-loading"><div className="pulse-logo"><img className="brand-logo-image" src="/logo.jpg" alt="Logo DORE Quản Lý" width={1254} height={1254}/></div><p>Đang mở lại màn hình gần nhất...</p></div>;
     if (selectedStoreId && !selectedStore && storeLoadError)
         return <div className="app-loading"><div className="pulse-logo"><img className="brand-logo-image" src="/logo.jpg" alt="Logo DORE Quản Lý" width={1254} height={1254}/></div><p>{storeLoadError}</p><button type="button" className="primary-button" onClick={() => void loadStores()}>Thử tải lại</button></div>;
     if (selectedStore)
         return <AppShell brand={selectedStore.name} subtitle={Number(user.isSuperAdmin) === 1 ? "Quản trị cấp cao" : "Quản lý cửa hàng"} menu={activeStoreMenu} active={storeView} onActive={(item) => { setStoreView(item); if (item !== "Đơn hàng") setFocusedOrderId(null); }} user={user} onBack={returnToSystemOverview} shellAction={notificationCenter} accent="light"><StoreWorkspace store={selectedStore} view={storeView} period={period} onPeriodChange={setPeriod} onReload={loadStores} focusedOrderId={focusedOrderId} focusedOrderRequest={focusedOrderRequest} isSuperAdmin={Number(user.isSuperAdmin) === 1}/></AppShell>;
-    const financeOwnsHeader = view === "Báo cáo" || view === "Dòng tiền" || view === "Cài Đặt Chính Sách";
+    const financeOwnsHeader = view === "Báo cáo" || view === "Dòng tiền" || view === "Quản Lý Nhân Viên" || view === "Cài Đặt Chính Sách";
     return <AppShell brand="DORE" subtitle="Quản lý toàn hệ thống" menu={activeManagerMenu} active={view} onActive={setView} user={user} shellAction={notificationCenter}>{financeOwnsHeader ? null : <ManagerHeader view={view} period={period} onPeriodChange={setPeriod}/>}<ManagerView view={view} stores={stores} loading={loading} reload={loadStores} openStore={(store) => { setFocusedOrderId(null); setStoreView(storeMenu[0]); setSelectedStoreId(store.id); }} isSuperAdmin={Number(user.isSuperAdmin) === 1}/></AppShell>;
 }
-function ManagerNotificationCenter({ notifications, unreadCount, error, onRefresh, onOpen }: {
+function ManagerNotificationCenter({ notifications, unreadCount, error, clearing, onClear, onRefresh, onOpen }: {
     notifications: ManagerNotification[];
     unreadCount: number;
     error: string;
+    clearing: boolean;
+    onClear: () => Promise<void>;
     onRefresh: () => Promise<void>;
     onOpen: (notification: ManagerNotification) => void;
 }) {
@@ -372,9 +417,9 @@ function ManagerNotificationCenter({ notifications, unreadCount, error, onRefres
             <Bell size={20}/>{unreadCount > 0 && <span className="notification-count">{unreadCount > 99 ? "99+" : unreadCount}</span>}
         </button>
         {open && <section className="manager-notification-panel" id="manager-notification-panel" aria-label="Thông báo mới">
-            <div className="notification-panel-head"><div><h2>Thông báo</h2><p>{unreadCount ? `${unreadCount} thông báo chưa đọc` : "Đã đọc tất cả thông báo"}</p></div><button type="button" aria-label="Tải lại thông báo" onClick={() => void onRefresh()}><RefreshCw size={17}/></button></div>
+            <div className="notification-panel-head"><div><h2>Thông báo</h2><p>{unreadCount ? `${unreadCount} thông báo chưa đọc` : "Đã đọc tất cả thông báo"}</p></div><div className="notification-panel-actions"><button type="button" className="notification-clear-button" aria-label="Xóa tất cả thông báo chưa đọc" title="Xóa tất cả thông báo" disabled={clearing || unreadCount === 0} onClick={() => void onClear()}>{clearing ? <RefreshCw className="notification-spin" size={17}/> : <Trash2 size={17}/>}</button><button type="button" aria-label="Tải lại thông báo" title="Tải lại thông báo" disabled={clearing} onClick={() => void onRefresh()}><RefreshCw size={17}/></button></div></div>
             {error && <div className="notification-error" role="status">{error}<button type="button" onClick={() => void onRefresh()}>Thử lại</button></div>}
-            <div className="notification-list">{notifications.length === 0 && !error ? <p className="notification-empty">Chưa có thông báo đơn hàng.</p> : notifications.map((notification) => <button type="button" key={notification.id} className={`notification-item ${notification.readAt ? "" : "unread"}`} onClick={() => { setOpen(false); onOpen(notification); }}>
+            <div className="notification-list" aria-busy={clearing}>{notifications.length === 0 && !error ? <p className="notification-empty">{clearing ? "Đang xóa thông báo…" : "Không còn thông báo chưa đọc."}</p> : notifications.map((notification) => <button type="button" key={notification.id} className={`notification-item ${notification.readAt ? "" : "unread"}`} onClick={() => { setOpen(false); onOpen(notification); }}>
                 <span className="notification-item-icon"><ShoppingCart size={17}/></span><span><b>{notification.title}</b><small>{notification.storeName ?? "Cửa hàng"} · {dateTime(notification.createdAt)}</small><em>{notification.message}</em></span>{!notification.readAt && <i aria-label="Chưa đọc"/>}
             </button>)}</div>
         </section>}
@@ -430,6 +475,7 @@ function ManagerHeader({ view, period, onPeriodChange }: {
         "Chia lợi nhuận": "Phân chia lợi nhuận sau cùng đã khóa cho hai thành viên theo tỷ lệ cố định.",
         "Điều chuyển nhân sự": "Quản lý nhân viên hỗ trợ giữa các cửa hàng theo thời gian và ca làm việc.",
         "Cài Đặt Chính Sách": "Thiết lập quy tắc vận hành dùng chung cho toàn hệ thống.",
+        "Quản Lý Nhân Viên": "Xem và quản lý hồ sơ, tài khoản nhân viên của tất cả cửa hàng.",
         "Cài đặt": "Quản lý thông tin tài khoản và các thiết lập hệ thống.",
     };
     return <div className="page-header"><div><h1>{view}</h1><p>{subtitles[view]}</p></div><div className="header-actions"><MonthPickerControl ariaLabel="Tháng báo cáo" value={period} onChange={onPeriodChange}/></div></div>;
@@ -469,6 +515,8 @@ function ManagerView({ view, stores, loading, reload, openStore, isSuperAdmin }:
         return <ReferenceManagerTransfer stores={stores}/>;
     if (view === "Chia lợi nhuận")
         return <ManagerProfitSharingClosing/>;
+    if (view === "Quản Lý Nhân Viên" && isSuperAdmin)
+        return <SuperAdminEmployeeDirectory/>;
     if (view === "Cài Đặt Chính Sách" && isSuperAdmin)
         return <AttendancePolicySettings/>;
     return <FunctionalSettings name="Quản trị viên" email="admin@dore.vn"/>;
@@ -646,6 +694,7 @@ type ManagerPayrollReport = {
     policy: {
         salaryPerStore: number;
         managerHoursPerStore?: number;
+        managerKpiRate: number | null;
         tiers?: Array<{ minimumProfitPerHour: number; rate: number }>;
     };
     rows: ManagerPayrollRow[];
@@ -656,23 +705,37 @@ function ManagerPayroll() {
     const [report, setReport] = useState<ManagerPayrollReport | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
+    const payrollRequest = useRef(0);
+    const payrollController = useRef<AbortController | null>(null);
     const load = useCallback(async () => {
+        const requestedPeriod = period;
+        const requestId = ++payrollRequest.current;
+        payrollController.current?.abort();
+        const controller = new AbortController();
+        payrollController.current = controller;
         setLoading(true);
         setError("");
         try {
-            const params = new URLSearchParams({ scope: "manager", period });
-            const response = await fetch(`/api/payroll?${params}`, { cache: "no-store" });
+            const params = new URLSearchParams({ scope: "manager", period: requestedPeriod });
+            const response = await fetch(`/api/payroll?${params}`, { cache: "no-store", signal: controller.signal });
             const payload = await response.json() as { managerPayroll?: ManagerPayrollReport; message?: string };
             if (!response.ok || !payload.managerPayroll) throw new Error(payload.message || "Không thể tải lương thưởng quản lý.");
+            if (payload.managerPayroll.period !== requestedPeriod) throw new Error("Dữ liệu lương quản lý phản hồi không đúng kỳ đã chọn.");
+            if (requestId !== payrollRequest.current || controller.signal.aborted) return;
             setReport(payload.managerPayroll);
         } catch (cause) {
+            if (requestId !== payrollRequest.current || controller.signal.aborted) return;
             setReport(null);
             setError(cause instanceof Error ? cause.message : "Không thể tải lương thưởng quản lý.");
         } finally {
-            setLoading(false);
+            if (requestId === payrollRequest.current) setLoading(false);
+            if (payrollController.current === controller) payrollController.current = null;
         }
     }, [period]);
-    useEffect(() => { void load(); }, [load]);
+    useEffect(() => {
+        void load();
+        return () => payrollController.current?.abort();
+    }, [load]);
 
     const exportReport = () => {
         if (!report) return;
@@ -681,15 +744,21 @@ function ManagerPayroll() {
             ...report.rows.map((row) => [row.storeName, row.period, row.profitBeforePerformanceRewards, row.employeeEligibleHours ?? 0, row.managerHours ?? report.policy.managerHoursPerStore ?? 140, row.totalKpiHours ?? 0, row.profitPerKpiHour ?? 0, `${((row.kpiRate ?? 0) * 100).toFixed(0)}%`, row.managerSalary, row.managerBonus, row.managerTotal, row.finalProfit, row.paymentConfirmedAt, row.closedAt]),
         ]);
     };
-    const policy = report?.policy ?? { salaryPerStore: 3_000_000, managerHoursPerStore: 140, tiers: [{ minimumProfitPerHour: 30_000, rate: .07 }, { minimumProfitPerHour: 15_000, rate: .05 }, { minimumProfitPerHour: 7_000, rate: .03 }] };
+    const policy = report?.policy ?? { salaryPerStore: 3_000_000, managerHoursPerStore: 140, managerKpiRate: null, tiers: [{ minimumProfitPerHour: 30_000, rate: .07 }, { minimumProfitPerHour: 15_000, rate: .05 }, { minimumProfitPerHour: 7_000, rate: .03 }] };
     const managerHours = policy.managerHoursPerStore ?? 140;
+    const employeeTierText = (policy.tiers ?? [])
+        .map((tier) => `${(tier.rate * 100).toLocaleString("vi-VN", { maximumFractionDigits: 2 })}% khi lợi nhuận/giờ từ ${money(tier.minimumProfitPerHour)}`)
+        .join("; ");
+    const managerPolicyText = policy.managerKpiRate === null
+        ? `Chưa cài tỷ lệ KPI quản lý mới; kỳ chưa khóa tiếp tục dùng cơ chế lịch sử với ${managerHours} giờ quản lý/cửa hàng.`
+        : `KPI quản lý hiện hành là ${(policy.managerKpiRate * 100).toLocaleString("vi-VN", { maximumFractionDigits: 2 })}% lợi nhuận cơ sở.`;
     const totals = report?.totals ?? { storeCount: 0, totalSalary: 0, totalBonus: 0, totalPay: 0 };
     const rows = report?.rows ?? [];
     return <div className="page-content manager-reference payroll-page">
         <div className="ref-toolbar"><div><h2>LƯƠNG THƯỞNG QUẢN LÝ</h2><p>Chỉ ghi nhận số liệu thật từ các cửa hàng đã xác nhận chi và khóa kỳ.</p></div><div className="ref-toolbar-actions"><input aria-label="Kỳ lương quản lý" type="month" value={period} onChange={(event) => setPeriod(event.target.value)}/><button onClick={() => void load()} disabled={loading}><RefreshCw size={16}/> {loading ? "Đang tải…" : "Làm mới"}</button><button onClick={exportReport} disabled={!rows.length}><Download size={16}/> Xuất CSV</button></div></div>
-        <div className="notice-banner">ℹ Lương mặc định {money(policy.salaryPerStore)}/cửa hàng/kỳ. Quản lý được tính cố định {managerHours} giờ/cửa hàng; thưởng quản lý và nhân viên cùng chia quỹ KPI 3%/5%/7% theo tỷ trọng giờ làm. Giờ ca hỗ trợ không tham gia mẫu số.</div>
+        <div className="notice-banner">ℹ Chính sách hiện hành cho kỳ chưa khóa: lương quản lý {money(policy.salaryPerStore)}/cửa hàng/kỳ. {managerPolicyText} Mức KPI nhân viên: {employeeTierText || "chưa cấu hình"}. Các dòng đã khóa bên dưới giữ nguyên chính sách tại thời điểm chốt.</div>
         {error && <div className="form-message">{error}</div>}
-        <div className="stats-grid four"><StatCard label="TỔNG LƯƠNG QUẢN LÝ" value={money(totals.totalSalary)} note={`${totals.storeCount} cửa hàng đã khóa kỳ`} icon="♕"/><StatCard label="TỔNG THƯỞNG KPI" value={money(totals.totalBonus)} note={`${managerHours} giờ quản lý/cửa hàng`} tone="orange" icon="✦"/><StatCard label="TỔNG THỰC NHẬN" value={money(totals.totalPay)} note={`Kỳ ${period}`} tone="blue" icon="₫"/><StatCard label="CỬA HÀNG ĐÃ CHỐT" value={String(totals.storeCount)} note="Đã xác nhận chi và khóa" icon="✓"/></div>
+        <div className="stats-grid four"><StatCard label="TỔNG LƯƠNG QUẢN LÝ" value={money(totals.totalSalary)} note={`${totals.storeCount} cửa hàng đã khóa kỳ`} icon="♕"/><StatCard label="TỔNG THƯỞNG KPI" value={money(totals.totalBonus)} note={policy.managerKpiRate === null ? `${managerHours} giờ/cửa hàng · cơ chế lịch sử` : `Tỷ lệ hiện hành ${(policy.managerKpiRate * 100).toLocaleString("vi-VN", { maximumFractionDigits: 2 })}%`} tone="orange" icon="✦"/><StatCard label="TỔNG THỰC NHẬN" value={money(totals.totalPay)} note={`Kỳ ${period}`} tone="blue" icon="₫"/><StatCard label="CỬA HÀNG ĐÃ CHỐT" value={String(totals.storeCount)} note="Đã xác nhận chi và khóa" icon="✓"/></div>
         <section className="table-card"><div className="table-head"><div><h2>Lương thưởng theo từng cửa hàng · {period}</h2><p>Số liệu được lấy từ bản chốt bất biến của mỗi cửa hàng.</p></div><span className="status-pill">{rows.length} kỳ cửa hàng đã khóa</span></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>Cửa hàng</th><th>Lợi nhuận cơ sở</th><th>Giờ xét KPI</th><th>Lợi nhuận/giờ</th><th>Mức KPI</th><th>Lương mặc định</th><th>Thưởng KPI quản lý</th><th>Tổng thực nhận</th><th>Lợi nhuận sau cùng</th><th>Đã chi lúc</th><th>Khóa kỳ lúc</th><th>Trạng thái</th></tr></thead><tbody>
             {loading && !report ? <tr><td colSpan={12} className="empty-cell">Đang tải số liệu lương thưởng quản lý…</td></tr> : rows.length === 0 ? <tr><td colSpan={12} className="empty-cell">Chưa có cửa hàng nào hoàn tất xác nhận chi và khóa kỳ {period}.</td></tr> : rows.map((row) => <tr key={`${row.storeId}-${row.period}`}><td><b>{row.storeName}</b></td><td>{money(row.profitBeforePerformanceRewards)}</td><td><small>NV {Number(row.employeeEligibleHours ?? 0).toFixed(2)} giờ + QL {Number(row.managerHours ?? managerHours).toFixed(2)} giờ</small><br/><b>{Number(row.totalKpiHours ?? 0).toFixed(2)} giờ</b></td><td>{money(row.profitPerKpiHour ?? 0)}/giờ</td><td>{((row.kpiRate ?? 0) * 100).toFixed(0)}%</td><td>{money(row.managerSalary)}</td><td className="money-green">{money(row.managerBonus)}</td><td><b>{money(row.managerTotal)}</b></td><td>{money(row.finalProfit)}</td><td>{row.paymentConfirmedAt ? dateTime(row.paymentConfirmedAt) : "—"}</td><td>{row.closedAt ? dateTime(row.closedAt) : "—"}</td><td><span className="status-pill">Đã khóa</span></td></tr>)}
         </tbody><tfoot><tr><td>TỔNG CỘNG</td><td colSpan={4}/><td>{money(totals.totalSalary)}</td><td>{money(totals.totalBonus)}</td><td>{money(totals.totalPay)}</td><td colSpan={5}/></tr></tfoot></table></div></section>

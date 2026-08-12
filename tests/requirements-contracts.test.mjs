@@ -246,7 +246,7 @@ test("attendance and employee payroll distinguish hourly rate from earned salary
     "../app/components/StorePayrollClosing.tsx",
   ]);
 
-  for (const label of ["Theo ca", "Theo ngày", "Theo tháng · từng nhân viên", "Lương cứng", "Lương thực nhận"]) {
+  for (const label of ["Theo ca", "Theo ngày", "Theo nhân viên", "Lương cứng", "Lương thực nhận"]) {
     assert.match(attendanceUi, new RegExp(label, "u"));
   }
   assert.match(attendanceUi, /hourlyMoney\(row\.rates\[0\]\)/u);
@@ -387,22 +387,23 @@ test("manager payroll uses only locked store ledgers and final profit includes e
   assert.match(payrollApi, /category = 'PAYROLL_CLOSING' AND status = 'LOCKED'/u);
   assert.match(payrollApi, /params\.get\("scope"\) === "manager"/u);
   assert.match(payrollApi, /managerHoursPerStore: MANAGER_FIXED_WORK_HOURS_PER_STORE/u);
-  assert.match(payrollApi, /minimumProfitPerHour: 30_000, rate: 0\.07/u);
+  assert.match(payrollApi, /currentPolicy\.employeeKpiTiers\.map/u);
+  assert.match(payrollApi, /loadPayrollPolicy/u);
   assert.match(payrollApi, /settleStoreProfit\(profit, totalKpiBonus, managerBonus\)/u);
   assert.match(portal, /view === "Lương thưởng quản lý"[\s\S]*return <ManagerPayroll\/>/u);
   assert.match(portal, /Chỉ ghi nhận số liệu thật từ các cửa hàng đã xác nhận chi và khóa kỳ/u);
   assert.match(finance, /profitBeforePerformanceRewards - performanceRewards/u);
-  assert.match(aggregation, /managerSalary: MANAGER_MONTHLY_SALARY_VND/u);
+  assert.match(aggregation, /const managerSalary = lockedSnapshot[\s\S]*payrollPolicy\.managerMonthlySalaryVnd/u);
   assert.match(aggregation, /lockedSnapshot[\s\S]*provisionalKpi\?\.managerBonus/u);
   assert.match(aggregation, /distributeStoreKpiByPolicy\([\s\S]*profitBeforePerformanceRewards[\s\S]*completedShiftCount[\s\S]*durationSeconds/u);
   assert.match(aggregation, /if \(!row\.transferId\) \{[\s\S]*secondsByEmployee\.set/u);
   assert.match(aggregation, /employeeFinancialStatusForPeriod\([\s\S]*row\.employeeStatusAtPeriodEnd,[\s\S]*row\.hasLifecycleHistory,[\s\S]*row\.inactivePeriod,[\s\S]*period[\s\S]*\)/u);
   assert.match(aggregation, /employee_status_at_lock AS lockedEmploymentStatus[\s\S]*employee_payroll_closings employee_lock[\s\S]*employee_lock\.status IN \('BASE_LOCKED', 'LOCKED'\)/u);
-  assert.match(aggregation, /const baseExpense = sumVnd\(\[[\s\S]*MANAGER_MONTHLY_SALARY_VND[\s\S]*\]\);[\s\S]*const profitBeforePerformanceRewards = revenue - baseExpense/u);
+  assert.match(aggregation, /const baseExpense = sumVnd\(\[[\s\S]*managerSalary[\s\S]*\]\);[\s\S]*const profitBeforePerformanceRewards = revenue - baseExpense/u);
   assert.match(aggregation, /const expense = sumVnd\(\[baseExpense, employeeKpiBonus, managerBonus\]\)/u);
   assert.match(aggregation, /profit: revenue - expense/u);
+  assert.match(aggregation, /options\.payrollRecognition === "PREVIEW"[\s\S]*allocateMonthlyExpense\(finance\.expenseBreakdown\.managerSalary, "managerSalary"/u);
   assert.match(aggregation, /finance\.settlementStatus === "PAYMENT_CONFIRMED" \|\| finance\.settlementStatus === "LOCKED"[\s\S]*addMonthlyExpenseAtClose\(finance\.expenseBreakdown\.managerSalary, "managerSalary", monthRange\.to, eligibleDates, days\)/u);
-  assert.doesNotMatch(aggregation, /allocateMonthlyExpense\(finance\.expenseBreakdown\.managerSalary/u);
 });
 
 test("overview and reports reconcile fixed costs while cashflow labels actual payments distinctly", async () => {
@@ -412,13 +413,14 @@ test("overview and reports reconcile fixed costs while cashflow labels actual pa
     "../app/api/cashflow/route.ts",
   ]);
 
-  assert.match(storesApi, /storeDateRangeFinance\(db, id, currentRange\)/u);
+  assert.match(storesApi, /storeDateRangeFinance\(db, id, currentRange, \{ payrollRecognition: "PREVIEW", payrollPolicy \}\)/u);
   assert.match(storesApi, /to: fullCurrentRange\.to > today \? today : fullCurrentRange\.to/u);
   assert.match(storesApi, /previousComparableDateRange\(currentRange, "month"\)/u);
   assert.match(reportsApi, /const usesFullEndingPeriodFixedCosts = !params\.has\("from"\) && !params\.has\("to"\)/u);
-  assert.match(reportsApi, /storeDateRangeFinance\(db, id, range, \{ fixedCostRecognition \}\)/u);
-  assert.match(reportsApi, /storeDateRangeFinance\(db, id, previousRange, \{ fixedCostRecognition \}\)/u);
-  assert.match(reportsApi, /monthlyAccrual:[\s\S]*Chi phí cố định của tháng kết thúc phạm vi được ghi nhận đủ một lần[\s\S]*phần thuộc tháng khác giữ phân bổ theo ngày[\s\S]*Lương quản lý chỉ ghi nhận[\s\S]*xác nhận đã chi/u);
+  assert.match(reportsApi, /storeDateRangeFinance\(db, id, range, \{ fixedCostRecognition, payrollRecognition: "PREVIEW", payrollPolicy \}\)/u);
+  assert.match(reportsApi, /storeDateRangeFinance\(db, id, previousRange, \{ fixedCostRecognition, payrollRecognition: "PREVIEW", payrollPolicy \}\)/u);
+  assert.match(reportsApi, /monthlyAccrual:[\s\S]*Chi phí cố định, lương quản lý và KPI của tháng kết thúc phạm vi được ghi nhận đủ một lần[\s\S]*kỳ mở dùng chính sách hiện hành[\s\S]*kỳ đã khóa giữ nguyên bản chốt/u);
+  assert.match(reportsApi, /performanceRewards:[\s\S]*kỳ mở là số xem trước theo chính sách hiện hành[\s\S]*kỳ đã khóa chỉ dùng ảnh chụp bất biến/u);
   assert.match(cashflowApi, /financeStatus: "ACTUAL_CASH"/u);
   assert.match(cashflowApi, /outflow: "Tiền đã chi thực tế"/u);
   assert.match(cashflowApi, /accountingReconciliation/u);

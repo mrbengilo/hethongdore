@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { Clock3, RefreshCw, Save, ShieldCheck } from "lucide-react";
 import styles from "./AttendancePolicySettings.module.css";
+import { PayrollPolicySettings } from "./PayrollPolicySettings";
 
 type PolicyResponse = {
   policy?: {
@@ -110,5 +111,6 @@ export function AttendancePolicySettings() {
         {error && <div className={styles.error} role="alert">{error}</div>}
       </form>}
     </section>
+    <PayrollPolicySettings/>
   </main>;
 }

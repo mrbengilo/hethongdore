@@ -24,6 +24,10 @@ const storeId = "overview-fixed-cost-store";
 const secondStoreId = "overview-fixed-cost-second-store";
 const period = finance.localPeriod();
 const priorPeriod = storeFinance.previousPeriod(period);
+const currentManagerSalary = 4_500_000;
+const lockedManagerSalary = 1_250_000;
+const lockedEmployeeKpi = 125_000;
+const lockedManagerKpi = 75_000;
 
 function request(path) {
   return new Request(`http://localhost${path}`, {
@@ -64,6 +68,31 @@ before(async () => {
       VALUES ('report-fixed-cost-second-prior-record', 'CHI_PHI_CO_DINH', ?, 'overview-finance-manager',
         'Chi phí cố định kỳ trước', ?, 'ACTIVE', ?, ?)`)
       .bind(secondStoreId, JSON.stringify({ period: priorPeriod, total: 2_800_000 }), now, now),
+    db.prepare(`UPDATE system_state SET value = ?, updated_at = ?
+      WHERE key = 'global_payroll_policy_v1'`)
+      .bind(JSON.stringify({
+        schemaVersion: 1,
+        managerMonthlySalaryVnd: currentManagerSalary,
+        managerKpiRateBasisPoints: 250,
+        employeeKpiTiers: [
+          { minimumProfitPerHour: 30_000, rateBasisPoints: 800 },
+          { minimumProfitPerHour: 15_000, rateBasisPoints: 550 },
+          { minimumProfitPerHour: 7_000, rateBasisPoints: 325 },
+        ],
+        version: 2,
+        updatedBy: 'overview-finance-manager',
+        mutationToken: 'overview-policy-v2',
+      }), now),
+    db.prepare(`INSERT INTO business_records
+        (id, category, store_id, owner_id, title, data_json, status, created_at, updated_at)
+      VALUES ('overview-locked-policy-snapshot', 'KPI_SUMMARY', ?, 'overview-finance-manager',
+        'Kỳ lương đã khóa', ?, 'LOCKED', ?, ?)`)
+      .bind(secondStoreId, JSON.stringify({
+        period,
+        managerSalary: lockedManagerSalary,
+        totalKpiBonus: lockedEmployeeKpi,
+        managerBonus: lockedManagerKpi,
+      }), now, now),
   ]);
   await db.prepare(`INSERT INTO sessions (id, user_id, token_hash, expires_at, created_at)
     VALUES ('overview-finance-session', 'overview-finance-manager', ?, ?, ?)`)
@@ -217,12 +246,16 @@ test("store overview returns the full configured monthly fixed cost for every st
   assert.ok(store);
   assert.ok(secondStore);
   assert.equal(store.expenseBreakdown.fixedCosts, 7_400_000);
-  assert.equal(store.expense, 7_400_000);
-  assert.equal(store.profit, -7_400_000);
+  assert.equal(store.expenseBreakdown.managerSalary, currentManagerSalary);
+  assert.equal(store.expense, 7_400_000 + currentManagerSalary);
+  assert.equal(store.profit, -(7_400_000 + currentManagerSalary));
   assert.equal(store.timeline.reduce((sum, day) => sum + day.expense, 0), store.expense);
   assert.equal(secondStore.expenseBreakdown.fixedCosts, 3_250_000);
-  assert.equal(secondStore.expense, 3_250_000);
-  assert.equal(secondStore.profit, -3_250_000);
+  assert.equal(secondStore.expenseBreakdown.managerSalary, lockedManagerSalary);
+  assert.equal(secondStore.expenseBreakdown.employeeKpiBonus, lockedEmployeeKpi);
+  assert.equal(secondStore.expenseBreakdown.managerBonus, lockedManagerKpi);
+  assert.equal(secondStore.expense, 3_250_000 + lockedManagerSalary + lockedEmployeeKpi + lockedManagerKpi);
+  assert.equal(secondStore.profit, -(3_250_000 + lockedManagerSalary + lockedEmployeeKpi + lockedManagerKpi));
   assert.equal(secondStore.timeline.reduce((sum, day) => sum + day.expense, 0), secondStore.expense);
 });
 
@@ -236,33 +269,43 @@ test("financial report recognizes full fixed costs for every store and the compa
   assert.ok(secondStore?.previous);
 
   assert.equal(store.current.expenseBreakdown.fixedCosts, 7_400_000);
-  assert.equal(store.current.expense, 7_400_000);
-  assert.equal(store.current.profit, -7_400_000);
-  assert.equal(store.current.profitBeforePerformanceRewards, -7_400_000);
+  assert.equal(store.current.expenseBreakdown.managerSalary, currentManagerSalary);
+  assert.equal(store.current.expense, 7_400_000 + currentManagerSalary);
+  assert.equal(store.current.profit, -(7_400_000 + currentManagerSalary));
+  assert.equal(store.current.profitBeforePerformanceRewards, -(7_400_000 + currentManagerSalary));
   assert.equal(store.current.timeline.reduce((sum, day) => sum + day.expense, 0), store.current.expense);
   assert.equal(store.previous.expenseBreakdown.fixedCosts, 6_200_000);
-  assert.equal(store.previous.expense, 6_200_000);
-  assert.equal(store.previous.profit, -6_200_000);
-  assert.equal(store.previous.profitBeforePerformanceRewards, -6_200_000);
+  assert.equal(store.previous.expenseBreakdown.managerSalary, currentManagerSalary);
+  assert.equal(store.previous.expense, 6_200_000 + currentManagerSalary);
+  assert.equal(store.previous.profit, -(6_200_000 + currentManagerSalary));
+  assert.equal(store.previous.profitBeforePerformanceRewards, -(6_200_000 + currentManagerSalary));
   assert.equal(store.previous.timeline.reduce((sum, day) => sum + day.expense, 0), store.previous.expense);
 
   assert.equal(secondStore.current.expenseBreakdown.fixedCosts, 3_250_000);
-  assert.equal(secondStore.current.expense, 3_250_000);
-  assert.equal(secondStore.current.profit, -3_250_000);
+  assert.equal(secondStore.current.expenseBreakdown.managerSalary, lockedManagerSalary);
+  assert.equal(secondStore.current.expenseBreakdown.employeeKpiBonus, lockedEmployeeKpi);
+  assert.equal(secondStore.current.expenseBreakdown.managerBonus, lockedManagerKpi);
+  assert.equal(secondStore.current.expense, 3_250_000 + lockedManagerSalary + lockedEmployeeKpi + lockedManagerKpi);
+  assert.equal(secondStore.current.profit, -(3_250_000 + lockedManagerSalary + lockedEmployeeKpi + lockedManagerKpi));
   assert.equal(secondStore.previous.expenseBreakdown.fixedCosts, 2_800_000);
-  assert.equal(secondStore.previous.expense, 2_800_000);
-  assert.equal(secondStore.previous.profit, -2_800_000);
+  assert.equal(secondStore.previous.expenseBreakdown.managerSalary, currentManagerSalary);
+  assert.equal(secondStore.previous.expense, 2_800_000 + currentManagerSalary);
+  assert.equal(secondStore.previous.profit, -(2_800_000 + currentManagerSalary));
   assert.equal(secondStore.previous.timeline.reduce((sum, day) => sum + day.expense, 0), secondStore.previous.expense);
 
-  assert.deepEqual(body.totals, { revenue: 0, expense: 10_650_000, profit: -10_650_000 });
-  assert.deepEqual(body.previousTotals, { revenue: 0, expense: 9_000_000, profit: -9_000_000 });
+  const expectedCurrentTotal = body.stores.reduce((sum, item) => sum + item.current.expense, 0);
+  const expectedPriorTotal = body.stores.reduce((sum, item) => sum + (item.previous?.expense ?? 0), 0);
+  assert.ok(body.stores.filter((item) => item.current.id !== secondStoreId)
+    .every((item) => item.current.expenseBreakdown.managerSalary === currentManagerSalary));
+  assert.deepEqual(body.totals, { revenue: 0, expense: expectedCurrentTotal, profit: -expectedCurrentTotal });
+  assert.deepEqual(body.previousTotals, { revenue: 0, expense: expectedPriorTotal, profit: -expectedPriorTotal });
   assert.equal(body.timeline.reduce((sum, day) => sum + day.expense, 0), body.totals.expense);
   assert.equal(body.timeline.reduce((sum, day) => sum + day.profit, 0), body.totals.profit);
   assert.equal(body.byStore.reduce((sum, item) => sum + item.expense, 0), body.totals.expense);
   assert.equal(body.profitSharingPreview.expense, body.totals.expense);
   assert.equal(body.profitSharingPreview.finalProfit, body.totals.profit);
-  assert.equal(body.comparison.expenseChange, (10_650_000 - 9_000_000) / 9_000_000 * 100);
-  assert.equal(body.comparison.profitChange, (-10_650_000 + 9_000_000) / 9_000_000 * 100);
+  assert.equal(body.comparison.expenseChange, (expectedCurrentTotal - expectedPriorTotal) / expectedPriorTotal * 100);
+  assert.equal(body.comparison.profitChange, (-expectedCurrentTotal + expectedPriorTotal) / expectedPriorTotal * 100);
   assert.match(body.recognitionPolicy.monthlyAccrual, /ghi nhận đủ một lần/u);
 });
 
@@ -286,25 +329,38 @@ test("financial report keeps daily accrual semantics for an explicit custom date
   };
   const expectedCurrent = accruedForDate(7_400_000, selectedDate);
   const expectedSecondCurrent = accruedForDate(3_250_000, selectedDate);
+  const expectedManagerCurrent = accruedForDate(currentManagerSalary, selectedDate);
+  const expectedSecondManagerCurrent = accruedForDate(lockedManagerSalary, selectedDate);
+  const expectedSecondEmployeeKpi = accruedForDate(lockedEmployeeKpi, selectedDate);
+  const expectedSecondManagerKpi = accruedForDate(lockedManagerKpi, selectedDate);
   const previousDate = body.previousRange.to;
   const expectedPrevious = accruedForDate(6_200_000, previousDate);
   const expectedSecondPrevious = accruedForDate(2_800_000, previousDate);
+  const expectedManagerPrevious = accruedForDate(currentManagerSalary, previousDate);
 
   assert.equal(store.current.expenseBreakdown.fixedCosts, expectedCurrent);
   assert.equal(secondStore.current.expenseBreakdown.fixedCosts, expectedSecondCurrent);
   assert.equal(store.previous.expenseBreakdown.fixedCosts, expectedPrevious);
   assert.equal(secondStore.previous.expenseBreakdown.fixedCosts, expectedSecondPrevious);
+  assert.equal(store.current.expenseBreakdown.managerSalary, expectedManagerCurrent);
+  assert.equal(secondStore.current.expenseBreakdown.managerSalary, expectedSecondManagerCurrent);
+  assert.equal(secondStore.current.expenseBreakdown.employeeKpiBonus, expectedSecondEmployeeKpi);
+  assert.equal(secondStore.current.expenseBreakdown.managerBonus, expectedSecondManagerKpi);
+  assert.equal(store.previous.expenseBreakdown.managerSalary, expectedManagerPrevious);
+  assert.equal(secondStore.previous.expenseBreakdown.managerSalary, expectedManagerPrevious);
   assert.ok(store.current.expenseBreakdown.fixedCosts < 7_400_000);
   assert.ok(store.previous.expenseBreakdown.fixedCosts < 6_200_000);
   assert.deepEqual(body.totals, {
     revenue: 0,
-    expense: expectedCurrent + expectedSecondCurrent,
-    profit: -(expectedCurrent + expectedSecondCurrent),
+    expense: expectedCurrent + expectedManagerCurrent + expectedSecondCurrent
+      + expectedSecondManagerCurrent + expectedSecondEmployeeKpi + expectedSecondManagerKpi,
+    profit: -(expectedCurrent + expectedManagerCurrent + expectedSecondCurrent
+      + expectedSecondManagerCurrent + expectedSecondEmployeeKpi + expectedSecondManagerKpi),
   });
   assert.deepEqual(body.previousTotals, {
     revenue: 0,
-    expense: expectedPrevious + expectedSecondPrevious,
-    profit: -(expectedPrevious + expectedSecondPrevious),
+    expense: expectedPrevious + expectedManagerPrevious + expectedSecondPrevious + expectedManagerPrevious,
+    profit: -(expectedPrevious + expectedManagerPrevious + expectedSecondPrevious + expectedManagerPrevious),
   });
   assert.equal(body.timeline.reduce((sum, day) => sum + day.expense, 0), body.totals.expense);
   assert.match(body.recognitionPolicy.monthlyAccrual, /phân bổ theo ngày trong phạm vi tùy chọn/u);

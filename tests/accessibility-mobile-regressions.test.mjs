@@ -103,11 +103,13 @@ test("attendance mobile controls and cards expose keyboard and screen-reader sem
     source("../app/globals.css"),
   ]);
 
-  assert.match(attendance, /className="ref-tabs compact attendance-mode-tabs" role="group" aria-label="Cách tổng hợp chấm công"/u);
+  assert.match(attendance, /className="ref-tabs compact attendance-mode-tabs" role="group" aria-label="Cách tổng hợp lịch sử chấm công"/u);
   assert.match(attendance, /aria-pressed=\{mode === "shift"\}/u);
-  assert.match(attendance, /role="region" tabIndex=\{0\} aria-label="Bảng chấm công, cuộn ngang để xem đầy đủ"/u);
+  assert.match(attendance, /role="region" tabIndex=\{0\} aria-label="Bảng lịch sử chấm công, cuộn ngang để xem đầy đủ"/u);
   assert.match(attendance, /<ol className="attendance-mobile-list" aria-label="Danh sách chấm công">/u);
   assert.match(styles, /@media\(max-width:720px\)[\s\S]*\.attendance-mode-tabs button\{[^}]*min-height:48px/u);
-  assert.match(styles, /\.attendance-table-head>\.attendance-table-controls\{display:block;width:100%;max-width:none\}/u);
+  assert.match(styles, /\.attendance-history-filters\{display:grid;grid-template-columns:/u);
+  assert.match(styles, /@media\(max-width:720px\)[\s\S]*\.attendance-table-head>\.attendance-history-filters\{display:grid;grid-template-columns:minmax\(0,1fr\);width:100%/u);
+  assert.match(styles, /@media\(max-width:720px\)[\s\S]*\.attendance-history-filters \.attendance-mode-tabs button\{[^}]*font-size:10px;white-space:nowrap/u);
   assert.match(styles, /@media\(max-width:720px\)[\s\S]*\.attendance-location-item>a\{min-height:44px/u);
 });

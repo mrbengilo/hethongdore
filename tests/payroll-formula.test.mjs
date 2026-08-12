@@ -9,8 +9,15 @@ async function payrollModule() {
     compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
   }).outputText;
   const financeUrl = `data:text/javascript;base64,${Buffer.from(financeOutput).toString("base64")}`;
-  const source = (await readFile(new URL("../app/lib/payroll.ts", import.meta.url), "utf8"))
+  const policySource = (await readFile(new URL("../app/lib/payroll-policy.ts", import.meta.url), "utf8"))
     .replace('from "./finance"', `from "${financeUrl}"`);
+  const policyOutput = ts.transpileModule(policySource, {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const policyUrl = `data:text/javascript;base64,${Buffer.from(policyOutput).toString("base64")}`;
+  const source = (await readFile(new URL("../app/lib/payroll.ts", import.meta.url), "utf8"))
+    .replace('from "./finance"', `from "${financeUrl}"`)
+    .replace('from "./payroll-policy"', `from "${policyUrl}"`);
   const output = ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
   }).outputText;
@@ -106,6 +113,39 @@ test("store KPI includes 140 manager hours and shares one tier pool exactly", as
   assert.equal(result.employeeBonusTotal, 210_000);
   assert.deepEqual(result.manager, { durationSeconds: 140 * 3_600, hours: 140, bonus: 294_000 });
   assert.equal(result.employeeBonusTotal + result.managerBonus, result.kpiPool);
+});
+
+test("explicit global policy keeps manager and employee KPI percentages independent", async () => {
+  const { distributeStoreKpiByPolicy } = await payrollModule();
+  const policy = {
+    schemaVersion: 1,
+    managerMonthlySalaryVnd: 4_500_000,
+    managerKpiRateBasisPoints: 200,
+    employeeKpiTiers: [
+      { minimumProfitPerHour: 30_000, rateBasisPoints: 800 },
+      { minimumProfitPerHour: 15_000, rateBasisPoints: 600 },
+      { minimumProfitPerHour: 7_000, rateBasisPoints: 400 },
+    ],
+    version: 2,
+    updatedBy: "superadmin",
+    mutationToken: "test",
+    rawValue: "{}",
+    updatedAt: "2026-08-12T00:00:00.000Z",
+  };
+  const result = distributeStoreKpiByPolicy(7_200_000, [
+    { employeeId: "employee", employmentStatus: "ACTIVE", completedShiftCount: 20, durationSeconds: 100 * 3_600 },
+  ], policy);
+
+  assert.equal(result.profitPerHour, 30_000);
+  assert.equal(result.kpiRate, 0.08);
+  assert.equal(result.employeeBonusTotal, 576_000);
+  assert.equal(result.managerBonus, 144_000);
+  assert.equal(result.kpiPool, 720_000);
+
+  const managerOnly = distributeStoreKpiByPolicy(980_000, [], policy);
+  assert.equal(managerOnly.employeeBonusTotal, 0);
+  assert.equal(managerOnly.managerBonus, 19_600);
+  assert.equal(managerOnly.kpiPool, 19_600);
 });
 
 test("the supplied 130/120/100-hour example uses its real 490-hour denominator", async () => {

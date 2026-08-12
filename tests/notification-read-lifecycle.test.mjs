@@ -70,7 +70,7 @@ function request(managerKey, path = "", init = {}) {
 }
 
 async function responseOf(response) {
-  return { status: response.status, body: await response.json() };
+  return { status: response.status, body: await response.json(), headers: response.headers };
 }
 
 function readRequest(managerKey, id, storeId) {
@@ -81,12 +81,20 @@ function readRequest(managerKey, id, storeId) {
   });
 }
 
+function clearRequest(managerKey, storeId) {
+  return request(managerKey, storeId ? `?storeId=${encodeURIComponent(storeId)}` : "", {
+    method: "DELETE",
+  });
+}
+
 test("GET returns only unread rows in the manager's store and an exact badge count", async () => {
   const result = await responseOf(await notificationRoute.GET(request("ct")));
   assert.equal(result.status, 200);
   assert.deepEqual(result.body.notifications.map((item) => item.id), ["ct-2", "ct-1"]);
   assert.equal(result.body.unreadCount, 2);
   assert.ok(result.body.notifications.every((item) => item.readAt === null && item.storeId === "st-can-tho"));
+  assert.equal(result.headers.get("cache-control"), "private, no-store, no-cache, must-revalidate, max-age=0");
+  assert.equal(result.headers.get("vary"), "Cookie");
 });
 
 test("concurrent/repeated reads persist one timestamp, remove the row and keep count correct", async () => {
@@ -128,4 +136,38 @@ test("global manager can scope list and returned count to the selected store", a
   const allStores = await responseOf(await notificationRoute.GET(request("global")));
   assert.deepEqual(allStores.body.notifications.map((item) => item.id), ["global-tn"]);
   assert.equal(allStores.body.unreadCount, 1);
+});
+
+test("clear-all atomically tombstones only unread notifications in the authenticated scope", async () => {
+  const [first, raced] = await Promise.all([
+    notificationRoute.DELETE(clearRequest("tn", "st-thot-not")).then(responseOf),
+    notificationRoute.DELETE(clearRequest("tn", "st-thot-not")).then(responseOf),
+  ]);
+  assert.equal(first.status, 200);
+  assert.equal(raced.status, 200);
+  assert.equal(first.body.unreadCount, 0);
+  assert.equal(raced.body.unreadCount, 0);
+  assert.equal(first.body.clearedCount + raced.body.clearedCount, 1, "one racing request owns the unread row");
+  assert.ok(await db.prepare("SELECT read_at FROM notifications WHERE id = 'tn-1'").first("read_at"));
+  assert.equal(await db.prepare("SELECT read_at FROM notifications WHERE id = 'ct-foreign'").first("read_at"), null);
+
+  const repeated = await responseOf(await notificationRoute.DELETE(clearRequest("tn", "st-thot-not")));
+  assert.equal(repeated.status, 200);
+  assert.equal(repeated.body.clearedCount, 0);
+  assert.equal(repeated.body.unreadCount, 0);
+
+  const forbidden = await responseOf(await notificationRoute.DELETE(clearRequest("ct", "st-thot-not")));
+  assert.equal(forbidden.status, 403);
+  assert.equal(await db.prepare("SELECT read_at FROM notifications WHERE id = 'ct-foreign'").first("read_at"), null);
+});
+
+test("clear-all UI exposes an accessible destructive action and stale-scope guard", async () => {
+  const portal = await import("node:fs/promises").then(({ readFile }) => readFile(new URL("../app/components/Portal.tsx", import.meta.url), "utf8"));
+  assert.match(portal, /aria-label="Xóa tất cả thông báo chưa đọc"/u);
+  assert.match(portal, /<Trash2 size=\{17\}/u);
+  assert.match(portal, /method: "DELETE"/u);
+  assert.match(portal, /const notificationMutationRequest = useRef\(0\)/u);
+  assert.match(portal, /selectedNotificationScope\.current === clearedScope/u);
+  assert.match(portal, /disabled=\{clearing \|\| unreadCount === 0\}/u);
+  assert.match(portal, /aria-busy=\{clearing\}/u);
 });

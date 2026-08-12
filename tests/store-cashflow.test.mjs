@@ -118,7 +118,7 @@ test("manager attendance fallback uses the stored grace snapshot and dynamic gui
   assert.match(component, /attendanceDeltaMinutes\(shift\.started_at, shift\.scheduled_start_at\)/u);
   assert.match(component, /attendanceGraceMinutes\?: number \| null; attendance_grace_minutes\?: number \| null/u);
   assert.match(component, /attendanceStatusAt\(shift\.started_at, shift\.scheduled_start_at, graceMinutes\)/u);
-  assert.match(component, /ảnh chụp ngưỡng được lưu tại thời điểm nhân viên điểm danh/u);
+  assert.match(component, /dùng ngưỡng đã lưu tại thời điểm nhân viên điểm danh/u);
   assert.doesNotMatch(component, /ATTENDANCE_ON_TIME_GRACE_MINUTES/u);
   assert.doesNotMatch(component, /actual === scheduled \? "ON_TIME"/u);
 });
