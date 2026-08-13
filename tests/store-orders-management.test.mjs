@@ -102,8 +102,14 @@ test("manager order UI is wired to store/period filters, grouping, focus, edit, 
   assert.match(component, /method: "DELETE"/u);
   assert.match(component, /scrollIntoView/u);
   assert.match(component, /periodOrders = orders\.filter/u);
+  assert.match(component, /formatDateVn\(order\.workDate \|\| order\.shiftStartedAt \|\| order\.created_at\)/u);
+  assert.match(component, /<small>Tổng tiền<\/small>/u);
   assert.match(portal, /<StoreOrdersManagement store=\{store\} period=\{period\} focusedOrderId=\{focusedOrderId\} focusRequestKey=\{focusedOrderRequest\} onChanged=\{onReload\}/u);
   assert.match(css, /@media \(max-width: 640px\)[\s\S]*\.table thead \{ display: none;/u);
+  assert.match(css, /\.panelHeader > b \{[\s\S]*font-weight: 900;/u);
+  assert.match(css, /\.group \{[\s\S]*border: 3px solid #96cdaa;/u);
+  assert.match(css, /\.groupTitle h3 \{[\s\S]*font-size: 19px;[\s\S]*font-weight: 900;/u);
+  assert.match(css, /@media \(max-width: 640px\)[\s\S]*\.groupTitle span \{ max-width: 44%;/u);
 });
 
 function patchBody(amount, paymentMethod = "CASH") {

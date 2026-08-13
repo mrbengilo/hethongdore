@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Banknote, Landmark, Pencil, ReceiptText, RefreshCw, Search, ShoppingBag, Trash2, X } from "lucide-react";
-import { formatDateTime24, formatMonthVn, formatVndDisplay, formatVndInput, parseVndInput } from "../lib/format";
+import { formatDateTime24, formatDateVn, formatMonthVn, formatVndDisplay, formatVndInput, parseVndInput } from "../lib/format";
 import styles from "./StoreOrdersManagement.module.css";
 import { useAccessibleModal } from "./useAccessibleModal";
 
@@ -51,9 +51,11 @@ const periodLabel = (value: string) => formatMonthVn(value).replace(/^Tháng\s+/
 
 function shiftLabel(order: StoreOrder) {
   const name = order.shiftName?.trim() || order.shift_code || "Ca chưa xác định";
-  return order.scheduledStart && order.scheduledEnd
+  const schedule = order.scheduledStart && order.scheduledEnd
     ? `${name} · ${order.scheduledStart}–${order.scheduledEnd}`
     : name;
+  const date = formatDateVn(order.workDate || order.shiftStartedAt || order.created_at);
+  return `${schedule} · ${date}`;
 }
 
 function groupKey(order: StoreOrder, groupBy: "none" | "employee" | "shift") {
@@ -278,7 +280,7 @@ export function StoreOrdersManagement({ store, period, focusedOrderId, focusRequ
     <section className={styles.panel}>
       <header className={styles.panelHeader}><div><h2>Danh sách đơn hàng {store.name}</h2><p>Hiển thị đầy đủ người tạo, ca, thời điểm và lịch sử cập nhật của quản lý.</p></div><b>{filtered.length} đơn</b></header>
       {!groups.length ? <div className={styles.empty}>{loading ? "Đang tải đơn hàng…" : "Không có đơn phù hợp bộ lọc."}</div> : groups.map((group) => <section className={styles.group} key={groupKey(group[0], groupBy)}>
-        <div className={styles.groupTitle}><div><h3>{groupTitle(group[0], groupBy)}</h3><small>{groupBy === "none" ? `Kỳ ${period}` : `${group.length} đơn trong nhóm`}</small></div><span>{formatVndDisplay(group.filter((order) => order.status === "COMPLETED").reduce((total, order) => total + Number(order.amount), 0))}</span></div>
+        <div className={styles.groupTitle}><div><h3>{groupTitle(group[0], groupBy)}</h3><small>{groupBy === "none" ? `Kỳ ${period}` : `${group.length} đơn trong nhóm`}</small></div><span><small>Tổng tiền</small>{formatVndDisplay(group.filter((order) => order.status === "COMPLETED").reduce((total, order) => total + Number(order.amount), 0))}</span></div>
         <div className={styles.tableWrap}><table className={styles.table}>
           <thead><tr><th>Đơn / trạng thái</th><th>Thời gian tạo</th><th>Khách hàng</th><th>Người tạo</th><th>Ca làm việc</th><th>Thanh toán</th><th>Giá trị</th><th>Cập nhật gần nhất</th><th>Thao tác</th></tr></thead>
           <tbody>{group.map((order) => {
