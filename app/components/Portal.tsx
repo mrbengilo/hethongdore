@@ -139,6 +139,7 @@ const comparisonNote = (current: number, previous: number) => {
 };
 const dateTime = (value: string) => new Intl.DateTimeFormat("vi-VN", { dateStyle: "short", timeStyle: "short", timeZone: "Asia/Ho_Chi_Minh", hourCycle: "h23" }).format(new Date(value));
 const localDate = (value: string) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh" }).format(new Date(value));
+const todayLocalDate = () => localDate(new Date().toISOString());
 function exportCsvFile(filename: string, rows: Array<Array<string | number | null>>) {
     const cell = (value: string | number | null) => { const raw = String(value ?? ""); const safe = /^[=+\-@]/.test(raw) ? `'${raw}` : raw; return `"${safe.replaceAll('"', '""')}"`; };
     const blob = new Blob(["\uFEFF" + rows.map(row => row.map(cell).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" });
@@ -1019,8 +1020,8 @@ function EmployeeOrders({ user, shift, orders, reload }: {
 }) {
     const emptyForm = { customerName: "", phone: "", age: "", amount: "", paymentMethod: "CASH" };
     const [search, setSearch] = useState("");
-    const [fromDate, setFromDate] = useState("");
-    const [toDate, setToDate] = useState("");
+    const [fromDate, setFromDate] = useState(todayLocalDate);
+    const [toDate, setToDate] = useState(todayLocalDate);
     const [payment, setPayment] = useState("ALL");
     const [page, setPage] = useState(1);
     const [message, setMessage] = useState("");
@@ -1092,9 +1093,10 @@ function EmployeeOrders({ user, shift, orders, reload }: {
         }
     }
     function resetFilters() {
+        const today = todayLocalDate();
         setSearch("");
-        setFromDate("");
-        setToDate("");
+        setFromDate(today);
+        setToDate(today);
         setPayment("ALL");
         setPage(1);
         reload();
@@ -1129,15 +1131,15 @@ function EmployeeOrders({ user, shift, orders, reload }: {
                 <div className="orders-actions"><button className="secondary-button" onClick={exportCsv} disabled={filtered.length === 0}><Download size={17}/> Xuất Excel</button><button className="primary-button" disabled={!shift.active} onClick={beginAdd}><Plus size={18}/> Thêm đơn hàng</button></div>
             </div>
             <div className="order-stats">
-                <div className="order-stat-card"><i><ShoppingBag size={26}/></i><span>Tổng số đơn<strong>{completed.length}</strong></span></div>
-                <div className="order-stat-card"><i><BadgeDollarSign size={26}/></i><span>Tổng tiền CK<strong>{money(bank)}</strong></span></div>
-                <div className="order-stat-card"><i><Banknote size={26}/></i><span>Tổng tiền TM<strong>{money(cash)}</strong></span></div>
-                <div className="order-stat-card"><i><WalletCards size={26}/></i><span>Tổng tiền<strong>{money(cash + bank)}</strong></span></div>
+                <div className="order-stat-card order-stat-orders"><i><ShoppingBag size={26}/></i><span>Tổng số đơn<strong>{completed.length}</strong></span></div>
+                <div className="order-stat-card order-stat-bank"><i><BadgeDollarSign size={26}/></i><span>Tổng tiền CK<strong>{money(bank)}</strong></span></div>
+                <div className="order-stat-card order-stat-cash"><i><Banknote size={26}/></i><span>Tổng tiền TM<strong>{money(cash)}</strong></span></div>
+                <div className="order-stat-card order-stat-total"><i><WalletCards size={26}/></i><span>Tổng tiền<strong>{money(cash + bank)}</strong></span></div>
             </div>
             <div className="order-filters">
                 <label className="order-search"><span className="sr-only">Tìm kiếm đơn hàng</span><input value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} placeholder="Tìm kiếm mã đơn hàng, tên khách hàng, SĐT..."/></label>
-                <label><span className="sr-only">Từ ngày</span><input type="date" value={fromDate} onChange={event => { setFromDate(event.target.value); setPage(1); }}/></label>
-                <label><span className="sr-only">Đến ngày</span><input type="date" value={toDate} onChange={event => { setToDate(event.target.value); setPage(1); }}/></label>
+                <label><span className="order-filter-label">Từ ngày</span><input type="date" aria-label="Từ ngày" value={fromDate} onChange={event => { setFromDate(event.target.value); setPage(1); }}/></label>
+                <label><span className="order-filter-label">Đến ngày</span><input type="date" aria-label="Đến ngày" value={toDate} onChange={event => { setToDate(event.target.value); setPage(1); }}/></label>
                 <label><span>Hình thức thanh toán</span><select value={payment} onChange={event => { setPayment(event.target.value); setPage(1); }}><option value="ALL">Tất cả</option><option value="CASH">Tiền mặt</option><option value="BANK_TRANSFER">Chuyển khoản</option></select></label>
                 <button className="refresh-button" onClick={resetFilters}><RefreshCw size={17}/> Làm mới</button>
             </div>

@@ -136,15 +136,16 @@
 .shiftCard {
   align-items: center;
   background: #fff;
-  border: 1px solid var(--line);
+  border: 2px solid #cbded1;
   border-radius: 14px;
+  box-shadow: 0 5px 14px rgba(14, 83, 43, 0.07);
   display: flex;
   flex: 1 1 0;
   gap: 10px;
   min-width: 0;
-  min-height: 108px;
+  min-height: 96px;
   overflow: hidden;
-  padding: 14px;
+  padding: 11px 12px;
   position: relative;
 }
 
@@ -224,6 +225,7 @@
 
 .tone1 {
   background: linear-gradient(135deg, #f2fbf4, #fff 68%);
+  border-color: #add9ba;
 }
 
 .tone1::before { background: #12a343; }
@@ -232,6 +234,7 @@
 
 .tone2 {
   background: linear-gradient(135deg, #fff7f1, #fff 68%);
+  border-color: #f3c6a8;
 }
 
 .tone2::before { background: #fb6a15; }
@@ -240,6 +243,7 @@
 
 .tone3 {
   background: linear-gradient(135deg, #f5f2ff, #fff 68%);
+  border-color: #cbbdf3;
 }
 
 .tone3::before { background: #6d42e8; }
@@ -423,14 +427,21 @@
 .scheduleTable {
   border-collapse: separate;
   border-spacing: 0;
-  min-width: 680px;
+  min-width: 640px;
   table-layout: fixed;
-  width: min(100%, 760px);
+  width: min(100%, 640px);
+}
+
+.scheduleTable:not(.weekTable) {
+  border: 3px solid #91c7a2;
+  border-radius: 12px;
+  box-shadow: 0 5px 14px rgba(14, 83, 43, 0.06);
+  overflow: hidden;
 }
 
 .scheduleTable:not(.weekTable) th:not(:first-child),
 .scheduleTable:not(.weekTable) td:not(:first-child) {
-  width: 192px;
+  width: 128px;
 }
 
 .scheduleTable th,
@@ -443,12 +454,33 @@
   vertical-align: middle;
 }
 
-.scheduleTable th:first-child,
-.scheduleTable td:first-child {
-  border-left: 1px solid #e8ece9;
+.scheduleTable:not(.weekTable) th,
+.scheduleTable:not(.weekTable) td {
+  border-bottom: 2px solid #c6d9cb;
+  border-right: 2px solid #c6d9cb;
+}
+
+.scheduleTable:not(.weekTable) th:first-child,
+.scheduleTable:not(.weekTable) td:first-child {
+  min-width: 256px;
+  text-align: left;
+  width: 256px;
+}
+
+.weekTable th:first-child,
+.weekTable td:first-child {
   min-width: 184px;
   text-align: left;
   width: 184px;
+}
+
+.scheduleTable th:last-child,
+.scheduleTable td:last-child {
+  border-right: 0;
+}
+
+.scheduleTable tbody tr:last-child td {
+  border-bottom: 0;
 }
 
 .scheduleTable tbody td {
@@ -456,8 +488,8 @@
 }
 
 .scheduleTable thead th {
-  background: #f8faf9;
-  color: #145d2d;
+  background: #f1f8f3;
+  color: #0c682d;
   font-weight: 800;
   white-space: nowrap;
 }
@@ -521,6 +553,15 @@
 .employeeName small {
   color: #667085;
   font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scheduleTable:not(.weekTable) .employeeName b,
+.scheduleTable:not(.weekTable) .employeeName small {
+  overflow: visible;
+  text-overflow: clip;
 }
 
 .assignmentChip,
@@ -1305,8 +1346,14 @@
     padding-inline: 6px;
   }
 
-  .scheduleTable th:first-child,
-  .scheduleTable td:first-child {
+  .scheduleTable:not(.weekTable) th:first-child,
+  .scheduleTable:not(.weekTable) td:first-child {
+    min-width: 244px;
+    width: 244px;
+  }
+
+  .weekTable th:first-child,
+  .weekTable td:first-child {
     min-width: 166px;
     width: 166px;
   }
