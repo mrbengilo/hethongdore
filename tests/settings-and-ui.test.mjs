@@ -168,6 +168,7 @@ test("store month controls, expense breakdown and system back action stay touch-
 
   assert.match(reports, /function MonthPickerControl[\s\S]*<Calendar size=\{18\}[\s\S]*className="month-picker-native"/u);
   assert.match(reports, /const period = onPeriodChange \? \(initialPeriod \?\? localPeriod\) : localPeriod;[\s\S]*const setPeriod = onPeriodChange \?\? setLocalPeriod;/u);
+  assert.match(reports, /className="manager-panel table-panel financial-expense-table"/u);
   assert.match(styles, /\.month-picker-control\{[^}]*min-height:46px;[^}]*cursor:pointer;[^}]*touch-action:manipulation/u);
   assert.match(styles, /\.date-control \.month-picker-native\{[^}]*position:absolute;[^}]*inset:0;[^}]*width:100%;[^}]*height:100%;[^}]*opacity:0;/u);
   assert.match(styles, /\.store-expense-breakdown \.comparison-grid>p\{[^}]*grid-template-columns:minmax\(148px,210px\) max-content max-content;[^}]*justify-content:start;[^}]*padding:15px 0;[^}]*font-size:13px;/u);
@@ -176,6 +177,12 @@ test("store month controls, expense breakdown and system back action stay touch-
   assert.match(styles, /\.store-expense-breakdown \.comparison-grid span\{grid-column:1\/-1;max-width:100%\}/u);
   assert.match(styles, /\.store-expense-breakdown \.comparison-grid b\{grid-column:1;text-align:left;white-space:normal;overflow-wrap:anywhere\}/u);
   assert.match(styles, /\.back-system\{[^}]*font-size:12px!important/u);
+  assert.match(styles, /\.sidebar nav button\.active\{[^}]*font-weight:850;[^}]*box-shadow:/u);
+  assert.match(styles, /\.light \.back-system\{[^}]*border-color:#77be8e;[^}]*background:linear-gradient/u);
+  assert.match(styles, /\.financial-expense-table \.data-table\{[^}]*width:min\(100%,1080px\);[^}]*table-layout:fixed/u);
+  assert.match(styles, /\.financial-expense-table \.data-table td:nth-child\(2\)\{[^}]*font-size:16px;[^}]*font-weight:900/u);
+  assert.match(styles, /\.app-shell\.light \.main-area \.page-content :is\(\.stat-card,\.table-card,\.manager-panel,\.employee-panel,\.orders-panel\)\{[^}]*border-color:#abd7b8;[^}]*box-shadow:/u);
+  assert.match(styles, /@media\(max-width:720px\)[\s\S]*\.app-shell\.light \.main-area \.page-content :is\(\.stat-card,\.table-card,\.manager-panel,\.employee-panel,\.orders-panel\)\{border-width:1px;/u);
 });
 
 test("manager password change verifies the current secret and revokes other sessions", async () => {

@@ -3,6 +3,13 @@ import { isVnd, sumVnd } from "../../lib/finance";
 import { fixedCostRecordId, normalizeFixedCostClientRequestId } from "../../lib/fixed-cost";
 import { summarizeInventoryHistory } from "../../lib/inventory";
 import {
+  inventoryReceiptDateToken,
+  inventoryReceiptPayloadHash,
+  inventoryReceiptRecordId,
+  inventoryReceiptServerDate,
+  normalizeInventoryReceiptClientRequestId,
+} from "../../lib/inventory-receipt-code";
+import {
   commitScheduleBatch, inspectScheduleBatch, scheduleBatchEntryId, scheduleBatchMarkerId, scheduleBatchPayloadHash,
 } from "../../lib/schedule-batch";
 import {
@@ -39,6 +46,13 @@ const existingRecordPeriodSql = `CASE
 END`;
 const existingPeriodLockGuardSql = storePeriodUnlockedSql("business_records.store_id", existingRecordPeriodSql);
 const incomingPeriodLockGuardSql = incomingStorePeriodUnlockedSql;
+const inventoryReceiptWriteGuardSql = `EXISTS (
+  SELECT 1 FROM stores receipt_store
+  JOIN users receipt_actor ON receipt_actor.id = ?
+  WHERE receipt_store.id = ? AND receipt_store.status = 'ACTIVE'
+    AND receipt_actor.role = 'MANAGER'
+    AND (COALESCE(receipt_actor.is_super_admin, 0) = 1 OR receipt_actor.store_id IS NULL OR receipt_actor.store_id = receipt_store.id)
+)`;
 
 const shiftDefinitionMutableGuardSql = `NOT EXISTS (
   SELECT 1 FROM business_records AS schedule
@@ -230,8 +244,10 @@ async function validateStoreRecord(
 
   if (category === "NHAP_HANG") {
     const date = String(source.date ?? "");
+    const clientRequestId = normalizeInventoryReceiptClientRequestId(source.clientRequestId);
     const note = String(source.note ?? "").trim();
     const rawItems = Array.isArray(source.items) ? source.items : [];
+    if (!clientRequestId) return { message: "Mã chống lưu trùng của phiếu nhập không hợp lệ." };
     if (!validDate(date) || rawItems.length === 0 || rawItems.length > 100) return { message: "Phiếu nhập phải có ngày và từ 1 đến 100 mặt hàng." };
     if (await isStorePeriodLocked(db, storeId, date.slice(0, 7))) return { message: "Kỳ đã chốt lương và KPI, không thể thêm hoặc sửa phiếu nhập hàng." };
     const units = new Set(["Bao", "Kiện", "Thùng", "Cái", "Kg"]);
@@ -255,7 +271,7 @@ async function validateStoreRecord(
     }
     const goodsTotal = sumVnd(items.map((item) => Number(item.goodsAmount)));
     const shippingTotal = sumVnd(items.map((item) => Number(item.shipping)));
-    return { data: { date, period: date.slice(0, 7), note, items, goodsTotal, shippingTotal, total: sumVnd([goodsTotal, shippingTotal]) } };
+    return { data: { date, period: date.slice(0, 7), clientRequestId, note, items, goodsTotal, shippingTotal, total: sumVnd([goodsTotal, shippingTotal]) } };
   }
 
   if (category === "DONG_TIEN") {
@@ -671,6 +687,7 @@ export async function POST(request: Request) {
   if (body.category === "LICH_PHAN_CA") return json({ message: "Lịch phân ca mới phải được lưu bằng thao tác lô nguyên tử." }, 400);
   let id: string = crypto.randomUUID();
   let fixedCostClientRequestId: string | null = null;
+  let inventoryClientRequestId: string | null = null;
   if (body.category === "CHI_PHI_CO_DINH") {
     if (!body.storeId) return json({ message: "Lần nhập chi phí phải thuộc một cửa hàng." }, 400);
     fixedCostClientRequestId = normalizeFixedCostClientRequestId(body.data?.clientRequestId);
@@ -687,6 +704,20 @@ export async function POST(request: Request) {
       return json({ message: "Mã chống lưu trùng đã được sử dụng cho dữ liệu khác." }, 409);
     }
   }
+  if (body.category === "NHAP_HANG") {
+    if (!body.storeId) return json({ message: "Phiếu nhập phải thuộc một cửa hàng." }, 400);
+    inventoryClientRequestId = normalizeInventoryReceiptClientRequestId(body.data?.clientRequestId);
+    if (!inventoryClientRequestId) return json({ message: "Mã chống lưu trùng của phiếu nhập không hợp lệ." }, 400);
+    id = await inventoryReceiptRecordId(body.storeId, user.id, inventoryClientRequestId);
+    const payloadHash = await inventoryReceiptPayloadHash({ title: body.title.trim(), data: body.data ?? {} });
+    const replay = await db.prepare(`SELECT request.record_id AS id, request.receipt_no AS receiptNo, request.payload_hash AS payloadHash
+      FROM inventory_receipt_requests request JOIN business_records record ON record.id = request.record_id
+      WHERE request.store_id = ? AND request.actor_user_id = ? AND request.client_request_id = ? LIMIT 1`)
+      .bind(body.storeId, user.id, inventoryClientRequestId).first<{ id: string; receiptNo: string; payloadHash: string }>();
+    if (replay) return replay.payloadHash === payloadHash
+      ? json({ id: replay.id, receiptNo: replay.receiptNo, idempotent: true, message: "Phiếu nhập này đã được lưu trước đó." })
+      : json({ message: "Mã chống lưu trùng đã được dùng cho phiếu nhập khác." }, 409);
+  }
   if (body.storeId && !await isStoreActive(body.storeId)) return json({ message: INACTIVE_STORE_MESSAGE }, 409);
   const now = new Date().toISOString();
   const validated = await validateStoreRecord(db, body.category, body.storeId ?? null, body.data ?? {});
@@ -699,7 +730,81 @@ export async function POST(request: Request) {
     savedBy: user.id,
     changeHistory: [{ action: "CREATE", at: now, by: user.id, total: data.total, items: data.items }],
   };
-  if (body.category === "NHAP_HANG") data = { ...data, receiptNo: `PN-${String(data.date).replaceAll("-", "")}-${id.slice(0, 6).toUpperCase()}`, savedAt: now, savedBy: user.id };
+  if (body.category === "NHAP_HANG") {
+    if (!body.storeId || !inventoryClientRequestId) return json({ message: "Phiếu nhập thiếu phạm vi lưu." }, 400);
+    const receiptDate = inventoryReceiptServerDate(now);
+    const payloadHash = await inventoryReceiptPayloadHash({ title: body.title.trim(), data: body.data ?? {} });
+    const receiptScope = financialWriteScope(body.category, body.storeId, data);
+    if (!receiptScope) return json({ message: "Dữ liệu kỳ lương không hợp lệ." }, 400);
+    try {
+      const [, requestInsert, recordInsert, created] = await db.batch([
+        db.prepare(`INSERT INTO inventory_receipt_code_sequences (id, last_value, updated_at)
+          SELECT 1, 1, ?
+          WHERE NOT EXISTS (SELECT 1 FROM inventory_receipt_requests WHERE store_id = ? AND actor_user_id = ? AND client_request_id = ?)
+            AND ${incomingPeriodLockGuardSql} AND ${inventoryReceiptWriteGuardSql}
+            AND NOT EXISTS (SELECT 1 FROM inventory_receipt_code_sequences WHERE id = 1 AND last_value >= 99999)
+          ON CONFLICT(id) DO UPDATE SET last_value = inventory_receipt_code_sequences.last_value + 1, updated_at = excluded.updated_at`)
+          .bind(now, body.storeId, user.id, inventoryClientRequestId, receiptScope.storeId, receiptScope.period, user.id, body.storeId),
+        db.prepare(`INSERT INTO inventory_receipt_requests
+            (record_id, store_id, actor_user_id, client_request_id, payload_hash, receipt_date, sequence_value, receipt_no, created_at)
+          SELECT ?, ?, ?, ?, ?, ?, sequence.last_value, printf('PN-%s-%05d', ?, sequence.last_value), ?
+          FROM inventory_receipt_code_sequences sequence
+          WHERE sequence.id = 1
+            AND NOT EXISTS (SELECT 1 FROM inventory_receipt_requests WHERE store_id = ? AND actor_user_id = ? AND client_request_id = ?)
+            AND ${incomingPeriodLockGuardSql} AND ${inventoryReceiptWriteGuardSql}`)
+          .bind(id, body.storeId, user.id, inventoryClientRequestId, payloadHash, receiptDate, inventoryReceiptDateToken(receiptDate), now,
+            body.storeId, user.id, inventoryClientRequestId, receiptScope.storeId, receiptScope.period, user.id, body.storeId),
+        db.prepare(`INSERT INTO business_records (id, category, store_id, owner_id, title, data_json, status, created_at, updated_at)
+          SELECT request.record_id, 'NHAP_HANG', request.store_id, request.actor_user_id, ?,
+            json_set(?, '$.receiptNo', request.receipt_no, '$.savedAt', ?, '$.savedBy', ?), ?, ?, ?
+          FROM inventory_receipt_requests request
+          WHERE request.record_id = ? AND request.payload_hash = ? AND ${incomingPeriodLockGuardSql}
+            AND ${inventoryReceiptWriteGuardSql}
+          ON CONFLICT(id) DO NOTHING`)
+          .bind(body.title.trim(), JSON.stringify(data), now, user.id, body.status ?? "ACTIVE", now, now,
+            id, payloadHash, receiptScope.storeId, receiptScope.period, user.id, body.storeId),
+        db.prepare(`SELECT request.record_id AS id, request.receipt_no AS receiptNo, request.payload_hash AS payloadHash
+          FROM inventory_receipt_requests request JOIN business_records record ON record.id = request.record_id
+          WHERE request.store_id = ? AND request.actor_user_id = ? AND request.client_request_id = ? LIMIT 1`)
+          .bind(body.storeId, user.id, inventoryClientRequestId),
+      ]);
+      const row = created.results[0] as { id: string; receiptNo: string; payloadHash: string } | undefined;
+      if (!row) {
+        const gate = await db.prepare(`SELECT store.status AS storeStatus, actor.role,
+            actor.store_id AS actorStoreId, COALESCE(actor.is_super_admin, 0) AS isSuperAdmin
+          FROM stores store LEFT JOIN users actor ON actor.id = ? WHERE store.id = ? LIMIT 1`)
+          .bind(user.id, body.storeId).first<{ storeStatus: string; role: string | null; actorStoreId: string | null; isSuperAdmin: number | null }>();
+        if (!gate || gate.storeStatus !== "ACTIVE") return json({ message: INACTIVE_STORE_MESSAGE }, 409);
+        if (gate.role !== "MANAGER" || (!gate.isSuperAdmin && gate.actorStoreId !== null && gate.actorStoreId !== body.storeId)) {
+          return json({ message: "Quyền quản lý cửa hàng đã thay đổi trong lúc lưu; phiếu và số phiếu chưa được ghi." }, 409);
+        }
+        const exhausted = await db.prepare("SELECT last_value AS lastValue FROM inventory_receipt_code_sequences WHERE id = 1")
+          .first<{ lastValue: number }>();
+        if (Number(exhausted?.lastValue ?? 0) >= 99999) return json({ message: "Kho số phiếu nhập 5 chữ số đã hết. Không có dữ liệu nào được ghi." }, 409);
+        if (await isStorePeriodLocked(db, receiptScope.storeId, receiptScope.period)) return periodLockMessage();
+        if (affectedRows(requestInsert) === 0 || affectedRows(recordInsert) === 0) {
+          return json({ message: "Phiếu nhập không còn hợp lệ tại thời điểm lưu; dữ liệu và số phiếu chưa được ghi." }, 409);
+        }
+        throw new Error("Receipt transaction committed without a record");
+      }
+      if (row.payloadHash !== payloadHash) return json({ message: "Mã chống lưu trùng đã được dùng cho phiếu nhập khác." }, 409);
+      if (affectedRows(recordInsert) === 1) await writeAudit(user.id, "CREATE", body.category, row.id, body.title);
+      return json({ id: row.id, receiptNo: row.receiptNo, idempotent: affectedRows(recordInsert) === 0, message: "Đã lưu dữ liệu" }, affectedRows(recordInsert) === 1 ? 201 : 200);
+    } catch (error) {
+      const replay = await db.prepare(`SELECT request.record_id AS id, request.receipt_no AS receiptNo, request.payload_hash AS payloadHash
+        FROM inventory_receipt_requests request JOIN business_records record ON record.id = request.record_id
+        WHERE request.store_id = ? AND request.actor_user_id = ? AND request.client_request_id = ? LIMIT 1`)
+        .bind(body.storeId, user.id, inventoryClientRequestId).first<{ id: string; receiptNo: string; payloadHash: string }>();
+      if (replay) return replay.payloadHash === payloadHash
+        ? json({ id: replay.id, receiptNo: replay.receiptNo, idempotent: true, message: "Phiếu nhập này đã được lưu trước đó." })
+        : json({ message: "Mã chống lưu trùng đã được dùng cho phiếu nhập khác." }, 409);
+      const exhausted = await db.prepare("SELECT last_value AS lastValue FROM inventory_receipt_code_sequences WHERE id = 1")
+        .first<{ lastValue: number }>();
+      if (Number(exhausted?.lastValue ?? 0) >= 99999) return json({ message: "Kho số phiếu nhập 5 chữ số đã hết. Không có dữ liệu nào được ghi." }, 409);
+      console.error("Unable to atomically create inventory receipt", error);
+      return json({ message: "Không thể lưu phiếu nhập. Dữ liệu và số phiếu chưa được ghi nhận." }, 500);
+    }
+  }
   const scope = financialWriteScope(body.category, body.storeId ?? null, data);
   if (payrollSensitiveCategories.has(body.category) && !scope) return json({ message: "D\u1eef li\u1ec7u k\u1ef3 l\u01b0\u01a1ng kh\u00f4ng h\u1ee3p l\u1ec7." }, 400);
   if (scope) {

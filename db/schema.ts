@@ -206,6 +206,27 @@ export const businessRecords = sqliteTable("business_records", {
   updatedAt: text("updated_at").notNull(),
 });
 
+export const inventoryReceiptCodeSequences = sqliteTable("inventory_receipt_code_sequences", {
+  id: integer("id").primaryKey(),
+  lastValue: integer("last_value").notNull().default(0),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const inventoryReceiptRequests = sqliteTable("inventory_receipt_requests", {
+  recordId: text("record_id").primaryKey(),
+  storeId: text("store_id").notNull(),
+  actorUserId: text("actor_user_id").notNull(),
+  clientRequestId: text("client_request_id").notNull(),
+  payloadHash: text("payload_hash").notNull(),
+  receiptDate: text("receipt_date").notNull(),
+  sequenceValue: integer("sequence_value").notNull(),
+  receiptNo: text("receipt_no").notNull().unique(),
+  createdAt: text("created_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_inventory_receipt_actor_request").on(table.storeId, table.actorUserId, table.clientRequestId),
+  uniqueIndex("idx_inventory_receipt_sequence").on(table.sequenceValue),
+]);
+
 export const dailyShiftDefinitions = sqliteTable("daily_shift_definitions", {
   id: text("id").primaryKey(),
   storeId: text("store_id").notNull(),

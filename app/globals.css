@@ -374,6 +374,33 @@
   .store-expense-breakdown .comparison-grid b,.store-expense-breakdown .comparison-grid em{font-size:13px}
   .attendance-page{width:100%;overflow-x:clip}.attendance-page .ref-toolbar-actions{display:grid;grid-template-columns:minmax(0,1fr);width:100%}.attendance-page .ref-toolbar-actions>button{width:100%;min-width:0;min-height:46px}.attendance-records{width:100%;min-width:0}.attendance-table-head{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;width:100%;padding:14px}.attendance-table-head>.attendance-history-filters{display:grid;grid-template-columns:minmax(0,1fr);width:100%;max-width:none}.attendance-mode-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));width:100%;overflow:visible}.attendance-mode-tabs button{display:flex;align-items:center;justify-content:center;min-width:0;min-height:48px;padding:7px 6px!important;font-size:10px;line-height:1.25;text-align:center;white-space:normal}.attendance-guidance{margin-top:11px!important;border:1px solid #d8e9dd;border-radius:9px;padding:10px 11px;background:#f3faf5;font-size:10px!important;line-height:1.5}.attendance-table-head .ref-search{width:100%;min-width:0;min-height:48px}.attendance-desktop-table{display:none}.attendance-mobile-list{display:grid;gap:11px;margin:0;padding:12px;list-style:none}.attendance-mobile-empty{display:block;margin:0;padding:28px 16px;color:#667085;text-align:center}.attendance-mobile-card{min-width:0;overflow:hidden;border:1px solid #dfe8e2;border-radius:12px;background:#fff;box-shadow:0 5px 16px rgba(20,65,37,.05)}.attendance-mobile-card>header{display:grid;grid-template-columns:34px minmax(0,1fr);align-items:center;gap:9px;border-bottom:1px solid #e7eee9;padding:13px;background:linear-gradient(120deg,#f3faf5,#fff)}.attendance-mobile-index{display:grid;place-items:center;width:34px;height:34px;border-radius:9px;background:#e5f5e9;color:#087d36;font-size:12px;font-weight:850}.attendance-mobile-card>header>.status-pill{grid-column:2;justify-self:start;margin-top:2px}.attendance-mobile-card .ref-person{min-width:0}.attendance-mobile-card .ref-person span{min-width:0}.attendance-mobile-card .ref-person b,.attendance-mobile-card .ref-person small{white-space:normal;overflow-wrap:anywhere}.attendance-mobile-card dl{margin:0;padding:2px 13px 9px}.attendance-mobile-card dl>div{display:grid;grid-template-columns:minmax(92px,38%) minmax(0,1fr);gap:9px;border-bottom:1px solid #edf1ee;padding:11px 0}.attendance-mobile-card dl>div:last-child{border-bottom:0}.attendance-mobile-card dt{color:#557064;font-size:9px;font-weight:850;line-height:1.4;text-transform:uppercase}.attendance-mobile-card dd{min-width:0;margin:0;color:#273a2e;font-size:11px;line-height:1.5;overflow-wrap:anywhere}.attendance-mobile-card dd .shift-text,.attendance-mobile-card dd .money-green{white-space:normal}.attendance-mobile-location dd{align-self:start}.attendance-location-item>a{min-height:44px;padding:8px 10px}.attendance-location-group>summary{display:flex;align-items:center;min-height:44px}.attendance-table .attendance-location-cell{min-width:190px;max-width:220px}
 }
+
+/* Stronger store navigation and clearer financial hierarchy. */
+.sidebar nav button.active{font-weight:850;box-shadow:0 7px 18px rgba(4,53,31,.2)}
+.dark .sidebar nav button.active{border:1px solid rgba(116,225,157,.4);background:linear-gradient(135deg,rgba(30,177,93,.4),rgba(7,113,58,.48));color:#fff}
+.light .sidebar nav button.active{border:1px solid #8bcba0;background:linear-gradient(135deg,#e4f7e9,#f4fbf6);color:#056d30;box-shadow:0 7px 18px rgba(8,125,54,.13)}
+.back-system{min-height:42px;border-width:2px;background:rgba(255,255,255,.11);font-weight:850;box-shadow:0 6px 16px rgba(4,45,28,.14)}
+.light .back-system{border-color:#77be8e;background:linear-gradient(135deg,#eefaf1,#fff);color:#056d30;box-shadow:0 6px 16px rgba(8,125,54,.11)}
+.back-system:hover{transform:translateY(-1px);filter:brightness(1.025)}
+
+.financial-expense-table .data-table{width:min(100%,1080px);min-width:760px;table-layout:fixed}
+.financial-expense-table .data-table th:first-child{width:25%}
+.financial-expense-table .data-table th:nth-child(2){width:18%}
+.financial-expense-table .data-table td:not(:first-child){font-size:14px;font-weight:800;font-variant-numeric:tabular-nums}
+.financial-expense-table .data-table td:nth-child(2){color:#163d25;font-size:16px;font-weight:900}
+.financial-expense-table .data-table tfoot td{font-size:15px;font-weight:900}
+
+.app-shell.light .main-area .page-content :is(.stat-card,.table-card,.manager-panel,.employee-panel,.orders-panel){border-color:#abd7b8;box-shadow:0 9px 24px rgba(8,125,54,.09)}
+.app-shell.light .main-area .page-content :is(.table-card,.manager-panel,.employee-panel,.orders-panel){border-width:2px}
+
+@media(max-width:720px){
+  .sidebar nav button.active{box-shadow:0 5px 13px rgba(4,53,31,.16)}
+  .back-system{min-height:44px}
+  .financial-expense-table .data-table{width:100%;min-width:720px}
+  .financial-expense-table .data-table td:not(:first-child){font-size:12px}
+  .financial-expense-table .data-table td:nth-child(2){font-size:13px}
+  .app-shell.light .main-area .page-content :is(.stat-card,.table-card,.manager-panel,.employee-panel,.orders-panel){border-width:1px;box-shadow:0 5px 14px rgba(8,125,54,.07)}
+}
 @media(max-width:420px){
   .store-expense-breakdown .comparison-grid{padding-right:13px;padding-left:13px}
   .store-expense-breakdown .comparison-grid>p{grid-template-columns:minmax(0,max-content) max-content;gap:5px 8px;width:fit-content;max-width:100%}
@@ -457,6 +484,136 @@
   .fixed-cost-entry-row,.fixed-cost-entry-row.is-default{grid-template-columns:22px minmax(72px,1fr) minmax(88px,42%);gap:4px;padding-right:6px;padding-left:6px}
   .fixed-cost-entry-row.is-custom{grid-template-columns:22px minmax(62px,1fr) minmax(78px,38%) 44px}
   .payroll-workflow-actions{grid-template-columns:minmax(0,1fr)}
+}
+
+/* Employee workspace: brighter hierarchy without leaking into store/admin shells. */
+.app-shell.employee .sidebar nav button.active{
+  min-height:44px;
+  border:2px solid #64c982;
+  border-left-width:5px;
+  background:linear-gradient(135deg,#d9f7e2,#f3fff6);
+  color:#056d30;
+  font-weight:900;
+  box-shadow:0 8px 20px rgba(8,125,54,.18),inset 0 0 0 1px rgba(255,255,255,.75);
+}
+.app-shell.employee .sidebar nav button.active i{color:#078332}
+.app-shell.employee .page-content :is(
+  .employee-filter,
+  .employee-history-filter,
+  .employee-metric,
+  .employee-detail-strip,
+  .employee-panel,
+  .employee-home-reference .attendance-card,
+  .employee-home-reference .info-card,
+  .employee-home-reference .shift-card,
+  .employee-task-reference,
+  .employee-closing-reference
+){
+  border:2px solid #94d3a6;
+  box-shadow:0 10px 27px rgba(8,125,54,.09);
+}
+.app-shell.employee .employee-metric{
+  --employee-metric-accent:#078332;
+  --employee-metric-border:#8dcc9f;
+  --employee-metric-surface:#edf9f1;
+  position:relative;
+  min-width:0;
+  overflow:hidden;
+  border-color:var(--employee-metric-border);
+  background:linear-gradient(135deg,#fff 26%,var(--employee-metric-surface));
+}
+.app-shell.employee .employee-metric::before{
+  position:absolute;
+  inset:0 auto 0 0;
+  width:5px;
+  background:var(--employee-metric-accent);
+  content:"";
+}
+.app-shell.employee .employee-metric.blue{--employee-metric-accent:#1769d7;--employee-metric-border:#9ec4ef;--employee-metric-surface:#edf5ff}
+.app-shell.employee .employee-metric.orange{--employee-metric-accent:#e46212;--employee-metric-border:#edb985;--employee-metric-surface:#fff1e6}
+.app-shell.employee .employee-metric>i{
+  border:1px solid color-mix(in srgb,var(--employee-metric-accent) 25%,#fff);
+  background:color-mix(in srgb,var(--employee-metric-accent) 12%,#fff);
+  color:var(--employee-metric-accent);
+  box-shadow:0 6px 16px color-mix(in srgb,var(--employee-metric-accent) 14%,transparent);
+}
+.app-shell.employee .employee-metric span{
+  color:var(--employee-metric-accent);
+  font-size:12px;
+  font-weight:900;
+  letter-spacing:.025em;
+}
+.app-shell.employee .employee-metric strong{
+  color:var(--employee-metric-accent);
+  font-size:clamp(23px,1.8vw,30px);
+  font-weight:900;
+  line-height:1.18;
+  white-space:normal;
+  overflow-wrap:anywhere;
+  font-variant-numeric:tabular-nums;
+}
+.app-shell.employee .employee-metric small{color:#4d6355;font-size:10px;font-weight:650;line-height:1.45}
+.app-shell.employee .employee-detail-strip{background:linear-gradient(135deg,#fff,#f6fcf8)}
+.app-shell.employee .employee-detail-strip h2,
+.app-shell.employee .employee-panel h2,
+.app-shell.employee .employee-home-reference :is(.attendance-card,.info-card,.shift-card)>span,
+.app-shell.employee :is(.employee-task-reference,.employee-closing-reference) h2{
+  color:#056d30;
+  font-size:16px;
+  font-weight:900;
+  letter-spacing:.015em;
+}
+.app-shell.employee .employee-detail-strip span{color:#365a43;font-size:11px;font-weight:750}
+.app-shell.employee .employee-detail-strip b{color:#102a1b;font-size:17px;font-weight:900;font-variant-numeric:tabular-nums}
+.app-shell.employee .employee-panel>.panel-title{
+  border-bottom:2px solid #c8e6d0;
+  background:linear-gradient(135deg,#fbfefc,#f1faf4);
+}
+.app-shell.employee .shift-overview>div{
+  --employee-shift-accent:#078332;
+  border:2px solid #9bd1aa;
+  background:linear-gradient(135deg,#fff,#f2faf4);
+  box-shadow:0 8px 21px rgba(8,125,54,.07);
+}
+.app-shell.employee .shift-overview>div.orange{--employee-shift-accent:#e46212;border-color:#efbf91;background:linear-gradient(135deg,#fff,#fff2e8)}
+.app-shell.employee .shift-overview>div.blue{--employee-shift-accent:#1769d7;border-color:#a8c8ee;background:linear-gradient(135deg,#fff,#edf5ff)}
+.app-shell.employee .shift-overview>div>span{color:var(--employee-shift-accent);font-size:13px;font-weight:900}
+.app-shell.employee .shift-overview>div>strong{color:var(--employee-shift-accent);font-size:clamp(23px,1.65vw,29px);font-weight:900;line-height:1.2;overflow-wrap:anywhere}
+.app-shell.employee .attendance-status.attendance-late{
+  border:2px solid #ee756b;
+  background:#ffe5e2;
+  color:#b42318;
+  box-shadow:0 5px 13px rgba(180,35,24,.14);
+  font-weight:900;
+}
+
+@media(max-width:720px){
+  .app-shell.employee .sidebar nav button.active{min-height:44px;box-shadow:0 6px 15px rgba(8,125,54,.16)}
+  .app-shell.employee .page-content :is(
+    .employee-filter,
+    .employee-history-filter,
+    .employee-metric,
+    .employee-detail-strip,
+    .employee-panel,
+    .employee-home-reference .attendance-card,
+    .employee-home-reference .info-card,
+    .employee-home-reference .shift-card,
+    .employee-task-reference,
+    .employee-closing-reference
+  ){border-width:1.5px;box-shadow:0 6px 17px rgba(8,125,54,.08)}
+  .app-shell.employee .employee-metrics.four{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .app-shell.employee .employee-metric{display:grid;grid-template-columns:38px minmax(0,1fr);gap:9px;min-height:96px;padding:11px 10px 11px 13px}
+  .app-shell.employee .employee-metric>i{width:38px;height:38px;border-radius:10px}
+  .app-shell.employee .employee-metric>i svg{width:19px;height:19px}
+  .app-shell.employee .employee-metric span{font-size:9px;line-height:1.25}
+  .app-shell.employee .employee-metric strong{margin:5px 0 3px;font-size:clamp(16px,4.5vw,20px)}
+  .app-shell.employee .employee-metric small{font-size:8px}
+  .app-shell.employee .employee-detail-strip h2,
+  .app-shell.employee .employee-panel h2,
+  .app-shell.employee .employee-home-reference :is(.attendance-card,.info-card,.shift-card)>span,
+  .app-shell.employee :is(.employee-task-reference,.employee-closing-reference) h2{font-size:14px}
+  .app-shell.employee .shift-overview>div{min-height:124px;padding:14px}
+  .app-shell.employee .shift-overview>div>strong{font-size:20px}
 }
 
 /* Employee order history is deliberately view-only after an order is saved. */

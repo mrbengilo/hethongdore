@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Banknote, ChevronDown, ChevronRight, Download, PackageOpen, Plus, ReceiptText, Save, Trash2, Truck } from "lucide-react";
 import { formatDateVn } from "../lib/format";
 import { DatePickerControl } from "./DatePickerControl";
@@ -276,6 +276,7 @@ function exportInventoryCsv(store: InventoryStore, receipts: InventoryReceipt[])
 }
 
 export function StoreInventoryManagement({ store }: { store: InventoryStore }) {
+  const pendingSave = useRef<{ fingerprint: string; clientRequestId: string } | null>(null);
   const [items, setItems] = useState<DraftInventoryItem[]>(() => [createDraftItem()]);
   const [date, setDate] = useState(todayInVietnam());
   const [note, setNote] = useState("");
@@ -404,6 +405,11 @@ export function StoreInventoryManagement({ store }: { store: InventoryStore }) {
       shipping: Number(item.shipping || 0),
       amount: calculateDraftAmount(item),
     }));
+    const fingerprint = JSON.stringify({ date, note: note.trim(), items: payloadItems });
+    if (pendingSave.current?.fingerprint !== fingerprint) {
+      pendingSave.current = { fingerprint, clientRequestId: crypto.randomUUID() };
+    }
+    const clientRequestId = pendingSave.current.clientRequestId;
 
     setSaving(true);
     try {
@@ -414,7 +420,7 @@ export function StoreInventoryManagement({ store }: { store: InventoryStore }) {
           category: "NHAP_HANG",
           storeId: store.id,
           title: `Phiếu nhập ${date} · ${payloadItems.length} mặt hàng`,
-          data: { date, period: date.slice(0, 7), note: note.trim(), items: payloadItems },
+          data: { date, period: date.slice(0, 7), clientRequestId, note: note.trim(), items: payloadItems },
         }),
       });
       const result = await response.json().catch(() => ({})) as { message?: string };
@@ -424,6 +430,7 @@ export function StoreInventoryManagement({ store }: { store: InventoryStore }) {
       setItems([createDraftItem()]);
       setDate(todayInVietnam());
       setNote("");
+      pendingSave.current = null;
       setSuccess(result.message ?? "Đã lưu phiếu nhập hàng và ghi nhận vào lịch sử.");
       await reloadHistory();
     } catch (error) {

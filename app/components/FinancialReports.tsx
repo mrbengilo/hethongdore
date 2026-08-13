@@ -368,7 +368,7 @@ function ExpenseBreakdownTable({ current, previous }: {
   current: FinancialSnapshot;
   previous?: FinancialSnapshot | null;
 }) {
-  return <section className="manager-panel table-panel"><div className="panel-title"><div><h2>CƠ CẤU CHI PHÍ ĐẦY ĐỦ</h2><p>Đối chiếu từng nhóm chi phí với kỳ trước</p></div></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>Nhóm chi phí</th><th>Kỳ hiện tại</th><th>Kỳ trước</th><th>Chênh lệch</th><th>Biến động</th></tr></thead><tbody>
+  return <section className="manager-panel table-panel financial-expense-table"><div className="panel-title"><div><h2>CƠ CẤU CHI PHÍ ĐẦY ĐỦ</h2><p>Đối chiếu từng nhóm chi phí với kỳ trước</p></div></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>Nhóm chi phí</th><th>Kỳ hiện tại</th><th>Kỳ trước</th><th>Chênh lệch</th><th>Biến động</th></tr></thead><tbody>
     {EXPENSE_FIELDS.map(({ key, label }) => {
       const currentValue = current.expenseBreakdown?.[key];
       const previousValue = previous?.expenseBreakdown?.[key];

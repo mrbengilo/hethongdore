@@ -148,6 +148,13 @@
       "when": 1787616000000,
       "tag": "0025_employee_cccd_number",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1787702400000,
+      "tag": "0026_inventory_receipt_sequence",
+      "breakpoints": true
     }
   ]
 }

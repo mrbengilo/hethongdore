@@ -32,8 +32,9 @@ test("employee profiles persist the required address, age and CCCD fields", asyn
 });
 
 test("inventory receipts use a persistent mobile-safe list and server-calculated totals", async () => {
-  const [recordsApi, inventoryUi, styles] = await sources([
+  const [recordsApi, receiptCode, inventoryUi, styles] = await sources([
     "../app/api/records/route.ts",
+    "../app/lib/inventory-receipt-code.ts",
     "../app/components/InventoryManagement.tsx",
     "../app/globals.css",
   ]);
@@ -42,8 +43,10 @@ test("inventory receipts use a persistent mobile-safe list and server-calculated
   assert.match(recordsApi, /rawItems\.length === 0 \|\| rawItems\.length > 100/u);
   assert.match(recordsApi, /const goodsAmount = Math\.round\(weight \* unitPrice\)/u);
   assert.match(recordsApi, /goodsTotal, shippingTotal, total: sumVnd\(\[goodsTotal, shippingTotal\]\)/u);
-  assert.match(recordsApi, /receiptNo: `PN-/u);
-  assert.match(recordsApi, /savedAt: now, savedBy: user\.id/u);
+  assert.match(recordsApi, /inventoryReceiptDateToken\(receiptDate\)/u);
+  assert.match(recordsApi, /printf\('PN-%s-%05d'/u);
+  assert.match(receiptCode, /return `PN-\$\{inventoryReceiptDateToken\(receiptDate\)\}-\$\{String\(sequence\)\.padStart\(5, "0"\)\}`/u);
+  assert.match(recordsApi, /json_set\(\?, '\$\.receiptNo', request\.receipt_no, '\$\.savedAt', \?, '\$\.savedBy', \?\)/u);
   assert.match(recordsApi, /import \{ summarizeInventoryHistory \} from "\.\.\/\.\.\/lib\/inventory"/u);
   assert.match(recordsApi, /historySummary: summarizeInventoryHistory\(summaryRows\.map\(\(row\) => parseRow\(row\)\.data\)\)/u);
   assert.match(recordsApi, /const includeAllHistory = params\.get\("all"\) === "1"/u);

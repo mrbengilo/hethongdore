@@ -9,13 +9,14 @@ process.env.DORE_DB_PLATFORM = "sqlite";
 process.env.DORE_DATABASE_PATH = join(directory, "dore.sqlite");
 process.env.DORE_MANAGER_PASSWORD_HASH = "pbkdf2$100000$ZG9yZS1tYW5hZ2VyLTIwMjY=$d5VqMFL5PfeL24Iqy9+fDO394WhyMImlit02OntW4OM=";
 
-const [runtime, auth, advancesRoute, payrollRoute, cashflowRoute, salaryAdvanceLibrary] = await Promise.all([
+const [runtime, auth, advancesRoute, payrollRoute, cashflowRoute, salaryAdvanceLibrary, finance] = await Promise.all([
   import("../db/runtime.ts"),
   import("../app/api/_lib/auth.ts"),
   import("../app/api/salary-advances/route.ts"),
   import("../app/api/payroll/route.ts"),
   import("../app/api/cashflow/route.ts"),
   import("../app/lib/salary-advances.ts"),
+  import("../app/lib/finance.ts"),
 ]);
 
 const db = await runtime.initDb();
@@ -278,8 +279,9 @@ test("draft advances support CAS editing, payment confirmation and payroll net a
     "advance settles payroll liability and must not duplicate salary expense",
   );
 
+  const paidDate = finance.localDate(new Date(confirmed.body.advance.paidAt));
   const cashflow = await response(cashflowRoute.GET(request(
-    `/api/cashflow?storeId=${storeA}&period=${period}&granularity=day&from=2026-08-01&to=2026-08-12`,
+    `/api/cashflow?storeId=${storeA}&period=${period}&granularity=day&from=2026-08-01&to=${paidDate}`,
     tokenA,
   )));
   assert.equal(cashflow.status, 200);

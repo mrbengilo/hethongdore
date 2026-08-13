@@ -490,8 +490,8 @@ test("schedule screen creates versioned shifts for only the selected day and mob
   const storeMenu = portal.match(/const storeMenu = \[([^\]]+)\]/u)?.[1] ?? "";
   assert.doesNotMatch(storeMenu, /Ca làm việc/u);
   assert.match(storeMenu, /Lịch phân ca/u);
-  assert.match(css, /@media \(max-width: 820px\)[\s\S]*?\.shiftCard\s*\{[\s\S]*?flex:\s*0 0 min\(205px, 68vw\);[\s\S]*?min-height:\s*96px;/u);
-  assert.match(css, /@media \(max-width: 600px\)[\s\S]*?\.shiftCard\s*\{[\s\S]*?flex-basis:\s*min\(188px, 76vw\);[\s\S]*?min-height:\s*88px;/u);
+  assert.match(css, /@media \(max-width: 820px\)[\s\S]*?\.shiftCard\s*\{[\s\S]*?flex:\s*0 0 min\(198px, 66vw\);[\s\S]*?min-height:\s*90px;/u);
+  assert.match(css, /@media \(max-width: 600px\)[\s\S]*?\.shiftCard\s*\{[\s\S]*?flex-basis:\s*min\(180px, 72vw\);[\s\S]*?min-height:\s*84px;/u);
   assert.match(css, /@media \(max-width: 600px\)[\s\S]*?\.shiftCard > i,[\s\S]*?display:\s*none;/u);
 });
 
