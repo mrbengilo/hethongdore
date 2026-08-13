@@ -395,7 +395,7 @@ function exportCsv(filename: string, rows: Array<Array<string | number>>) {
 function EmployeeName({ employee }: { employee: Employee }) {
   return <div className={styles.employeeName}>
     <i>{employee.name.slice(0, 1).toLocaleUpperCase("vi-VN")}</i>
-    <span><b>{employee.name}</b><small>{employee.code} · {employee.position}</small></span>
+    <span><b title={employee.name}>{employee.name}</b><small>{employee.code} · {employee.position}</small></span>
   </div>;
 }
 

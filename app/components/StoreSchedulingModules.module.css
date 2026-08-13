@@ -424,7 +424,13 @@
   border-collapse: separate;
   border-spacing: 0;
   min-width: 680px;
-  width: 100%;
+  table-layout: fixed;
+  width: min(100%, 760px);
+}
+
+.scheduleTable:not(.weekTable) th:not(:first-child),
+.scheduleTable:not(.weekTable) td:not(:first-child) {
+  width: 192px;
 }
 
 .scheduleTable th,
@@ -502,9 +508,14 @@
 
 .employeeName b {
   color: #17211b;
+  display: block;
   font-size: 13px;
   line-height: 1.3;
-  overflow-wrap: anywhere;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .employeeName small {

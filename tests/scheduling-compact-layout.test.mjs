@@ -3,15 +3,21 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const stylesUrl = new URL("../app/components/StoreSchedulingModules.module.css", import.meta.url);
+const sourceUrl = new URL("../app/components/StoreSchedulingModules.tsx", import.meta.url);
 
 test("schedule grids keep the employee column compact and scroll inside their panel", async () => {
   const styles = await readFile(stylesUrl, "utf8");
 
   assert.match(styles, /\.tableWrap\s*\{[^}]*min-width:\s*0;[^}]*overflow-x:\s*auto;[^}]*padding:\s*0 10px 12px;/su);
-  assert.match(styles, /\.scheduleTable\s*\{[^}]*min-width:\s*680px;[^}]*width:\s*100%;/su);
+  assert.match(styles, /\.scheduleTable\s*\{[^}]*min-width:\s*680px;[^}]*table-layout:\s*fixed;[^}]*width:\s*min\(100%, 760px\);/su);
+  assert.match(styles, /\.scheduleTable:not\(\.weekTable\) th:not\(:first-child\),[\s\S]*?\.scheduleTable:not\(\.weekTable\) td:not\(:first-child\)\s*\{[^}]*width:\s*192px;/u);
+  assert.match(styles, /\.weekTable th:not\(:first-child\),[\s\S]*?\.weekTable td:not\(:first-child\)\s*\{[^}]*min-width:\s*116px;/u);
   assert.match(styles, /\.scheduleTable th:first-child,[\s\S]*?\.scheduleTable td:first-child\s*\{[^}]*min-width:\s*184px;[^}]*width:\s*184px;/u);
   assert.match(styles, /\.employeeName\s*\{[^}]*gap:\s*8px;[^}]*min-width:\s*0;/su);
   assert.match(styles, /\.employeeName > span:last-child\s*\{[^}]*min-width:\s*0;/su);
+  assert.match(styles, /\.employeeName b\s*\{[^}]*overflow:\s*hidden;[^}]*text-overflow:\s*ellipsis;[^}]*white-space:\s*nowrap;/su);
+  assert.doesNotMatch(styles, /\.employeeName b\s*\{[^}]*overflow-wrap:\s*anywhere;/su);
+  assert.match(await readFile(sourceUrl, "utf8"), /<b title=\{employee\.name\}>\{employee\.name\}<\/b>/u);
 });
 
 test("created schedule rows are denser without shrinking interactive targets", async () => {
