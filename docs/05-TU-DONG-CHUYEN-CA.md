@@ -1,49 +1,129 @@
-# Quy tắc tự động chuyển ca
+# 05. Quy tắc ca làm, overtime và chấm công thực tế
 
-## Mục tiêu
+## 1. Mục tiêu
 
-Khi nhân viên vẫn đang làm việc sau ca hiện tại và chưa bấm **KẾT CA**, hệ thống giữ thời gian chấm công liên tục nhưng tách lịch sử thành từng ca độc lập.
+Hệ thống phải ghi nhận đúng thời gian nhân viên thực tế làm việc và không tự biến thời gian làm thêm thành một ca kế tiếp chỉ vì đã vượt giờ kết thúc dự kiến.
 
-## Quy tắc 60 phút
+Nguyên tắc chính:
 
-- Ca 1: 07:00–12:00.
-- Ca 2: 12:00–17:00.
-- Ca 3: 17:00–23:00.
-- Trong 60 phút sau giờ kết thúc, nhân viên vẫn có thể tự kết ca hiện tại.
-- Khi thời gian hiện tại vượt quá giờ kết thúc **hơn 60 phút**, hệ thống tự động:
-  1. Chốt ca cũ tại đúng giờ kết thúc theo lịch.
-  2. Tạo ca kế tiếp có thời gian bắt đầu đúng bằng thời gian kết thúc ca cũ.
-  3. Giữ `work_session_id` để nhận biết đây là một chuỗi làm việc liên tục.
-  4. Chuyển `current_shift` của nhân viên sang mã ca mới.
-  5. Ghi audit log `SHIFT_AUTO_ROLLOVER`.
+`Lịch ca là kế hoạch.`
 
-Ví dụ: nhân viên bắt đầu Ca 1 lúc 07:05 và đến sau 13:00 vẫn chưa kết ca. Hệ thống lưu:
+`Chấm công thực tế là dữ liệu tính công.`
 
-- Ca 1: 07:05–12:00, trạng thái `AUTO_COMPLETED`.
-- Ca 2: bắt đầu 12:00 và tiếp tục chạy đến khi nhân viên kết ca hoặc tiếp tục vượt mốc chuyển ca sau.
+Hai khái niệm này phải được tách riêng.
 
-Không có khoảng trống và không có thời gian bị tính hai lần.
+## 2. Dữ liệu thời gian
 
-## Điểm kích hoạt kiểm tra
+Mỗi ca/chấm công phải phân biệt tối thiểu:
 
-Hệ thống đối soát ca đang hoạt động khi:
+- `scheduled_start_at`: giờ bắt đầu theo lịch;
+- `scheduled_end_at`: giờ kết thúc theo lịch;
+- `actual_start_at` hoặc `started_at`: giờ bắt đầu thực tế;
+- `actual_end_at` hoặc `ended_at`: giờ kết thúc thực tế.
 
-- Màn hình nhân viên tải hoặc tự làm mới trạng thái ca.
-- Nhân viên xem, tạo, sửa hoặc hủy đơn hàng.
-- Quản lý xem lịch sử ca làm.
-- Hệ thống tổng hợp báo cáo tài chính và tính lương.
+Giờ làm dùng để tính lương:
 
-Màn hình nhân viên tự kiểm tra lại mỗi 20 giây và khi tab trình duyệt được mở lại.
+`WORKED_HOURS = actual_end_at - actual_start_at`
 
-## Dữ liệu lịch sử
+Không lấy `scheduled_end_at` thay cho giờ kết ca thực tế.
 
-Mỗi bản ghi `shift_sessions` lưu thêm:
+## 3. Overtime
 
-- `shift_name`
-- `scheduled_start_at`
-- `scheduled_end_at`
-- `rollover_from`
-- `work_session_id`
-- `auto_rolled`
+Nếu nhân viên vẫn làm sau giờ kết thúc dự kiến và chưa bấm **KẾT CA**, hệ thống tiếp tục giữ cùng phiên làm việc.
 
-Các trường này giúp báo cáo hiển thị hai ca riêng trong khi vẫn chứng minh chuỗi thời gian làm việc liên tục.
+Ví dụ:
+
+- Ca 3 dự kiến: 17:00–23:00.
+- Nhân viên bắt đầu thực tế: 17:05.
+- Nhân viên kết ca thực tế: 00:30 ngày hôm sau.
+
+Kết quả đúng:
+
+- scheduled: 17:00–23:00;
+- actual: 17:05–00:30;
+- thời gian 23:00–00:30 là overtime của phiên làm việc đó;
+- không tự động chuyển thành Ca 1 của ngày hôm sau.
+
+## 4. Không auto-rollover theo mốc thời gian
+
+Không được sử dụng quy tắc kiểu:
+
+- quá giờ kết thúc 60 phút thì tự đóng ca cũ;
+- tự tạo ca mới;
+- tự đổi `current_shift` sang ca kế tiếp.
+
+Nếu code cũ còn `SHIFT_AUTO_ROLLOVER`, grace period hoặc logic chia phiên theo ca kế tiếp thì xem đó là legacy behavior cần loại bỏ/di trú khi sửa module chấm công.
+
+Không xóa dữ liệu lịch sử cũ; chỉ ngừng tạo dữ liệu mới theo logic sai.
+
+## 5. Khi nào được tạo ca/phiên mới
+
+Chỉ tạo ca/phiên mới khi có nghiệp vụ rõ ràng, ví dụ:
+
+- nhân viên đã kết ca trước đó rồi bắt đầu một ca mới;
+- quản lý phân công một ca làm khác;
+- quản lý tạo ca linh động;
+- business rule mới được xác nhận yêu cầu tách phiên.
+
+Không tự suy diễn chỉ từ việc vượt giờ dự kiến.
+
+## 6. Ca linh động
+
+Quản lý được phép:
+
+- tạo ca linh động theo ngày;
+- sửa giờ bắt đầu/kết thúc dự kiến;
+- điều chỉnh lịch phân ca;
+- điều chỉnh chấm công thực tế khi có lý do hợp lệ.
+
+Việc thay đổi lịch ca không được tự ý thay đổi lịch sử thời gian thực tế đã ghi nhận.
+
+## 7. Điều chỉnh chấm công
+
+Khi quản lý sửa giờ thực tế, bắt buộc lưu audit:
+
+- người sửa;
+- thời gian sửa;
+- giá trị trước;
+- giá trị sau;
+- lý do;
+- bản ghi liên quan.
+
+Sau khi sửa thời gian thuộc kỳ chưa khóa, các số liệu phụ thuộc phải được tính lại đúng thứ tự:
+
+`Worked Hours → Salary → KPI Allocation → Payroll`
+
+## 8. Qua 00:00
+
+Một ca có thể đi qua ngày mới.
+
+Ví dụ 17:00 ngày 24/08 đến 00:30 ngày 25/08 vẫn có thể là một phiên làm việc liên tục.
+
+Không tách phiên chỉ vì đổi ngày.
+
+Việc quy ca vào kỳ/tháng phải dựa trên business rule tài chính được xác nhận và phải có test boundary timezone `Asia/Ho_Chi_Minh`.
+
+## 9. Tính lương và lịch sử
+
+Lương phải lấy giờ thực tế hợp lệ.
+
+Nếu đơn giá giờ có thể thay đổi theo thời gian thì phải snapshot đơn giá được áp dụng cho phiên/kỳ để thay đổi cấu hình sau này không làm sai lịch sử.
+
+Nhân viên đã làm trong kỳ vẫn phải xuất hiện trong payroll kỳ đó dù sau này nghỉ việc, archive hoặc chuyển cửa hàng.
+
+## 10. Kỳ đã khóa
+
+Dữ liệu thuộc kỳ `LOCKED` là immutable.
+
+Không sửa trực tiếp giờ chấm công của kỳ đã khóa.
+
+Nếu cần điều chỉnh, sử dụng adjustment/workflow điều chỉnh có audit thay vì rewrite lịch sử.
+
+## 11. Tiêu chí nghiệm thu
+
+- Làm quá giờ không tự tạo ca kế tiếp.
+- Làm qua 00:00 vẫn tính đúng thời gian thực tế.
+- Ca linh động không làm sai dữ liệu lịch sử.
+- Quản lý chỉnh giờ có audit đầy đủ.
+- Thay đổi chấm công ở kỳ chưa khóa cập nhật đúng salary/KPI/payroll.
+- Kỳ đã khóa không bị thay đổi trực tiếp.
