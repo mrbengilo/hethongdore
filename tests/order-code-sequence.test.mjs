@@ -253,12 +253,18 @@ test("concurrent requests stay unique and contiguous independently in both store
 
 test("a rejected create does not consume that store's number and employee PATCH/DELETE remain forbidden", async () => {
   const prior = await db.prepare("SELECT last_value FROM store_order_code_sequences WHERE store_id = ?").bind(actors.ct.storeId).first("last_value");
-  await db.prepare("UPDATE shift_sessions SET status = 'COMPLETED' WHERE shift_code = ?").bind(actors.ct.shiftCode).run();
+  await db.prepare(`UPDATE shift_sessions
+      SET status = 'COMPLETED', ended_at = started_at, close_status = 'CONFIRMED'
+      WHERE shift_code = ?`)
+    .bind(actors.ct.shiftCode).run();
   const rejected = await responseOf(await orderRoute.POST(createRequest("ct", 100, 45_000)));
   assert.equal(rejected.status, 409);
   assert.equal(await db.prepare("SELECT last_value FROM store_order_code_sequences WHERE store_id = ?").bind(actors.ct.storeId).first("last_value"), prior);
 
-  await db.prepare("UPDATE shift_sessions SET status = 'ACTIVE' WHERE shift_code = ?").bind(actors.ct.shiftCode).run();
+  await db.prepare(`UPDATE shift_sessions
+      SET status = 'ACTIVE', ended_at = NULL, close_status = 'OPEN'
+      WHERE shift_code = ?`)
+    .bind(actors.ct.shiftCode).run();
   const created = await responseOf(await orderRoute.POST(createRequest("ct", 101, 45_000)));
   assert.equal(created.status, 201);
   assert.equal(created.body.code, `CT-${String(prior + 1).padStart(5, "0")}`);

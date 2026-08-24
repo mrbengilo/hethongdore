@@ -3,212 +3,82 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import ts from "typescript";
 
-async function payrollModule() {
-  const financeSource = await readFile(new URL("../app/lib/finance.ts", import.meta.url), "utf8");
-  const financeOutput = ts.transpileModule(financeSource, {
-    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
-  }).outputText;
-  const financeUrl = `data:text/javascript;base64,${Buffer.from(financeOutput).toString("base64")}`;
-  const source = (await readFile(new URL("../app/lib/payroll.ts", import.meta.url), "utf8"))
-    .replace('from "./finance"', `from "${financeUrl}"`);
+async function moduleFromTypescript(path, replacements = []) {
+  let source = await readFile(new URL(path, import.meta.url), "utf8");
+  for (const [from, to] of replacements) source = source.replace(from, to);
   const output = ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
   }).outputText;
   return import(`data:text/javascript;base64,${Buffer.from(output).toString("base64")}`);
 }
 
-test("employee KPI uses the highest reached tier without stacking", async () => {
-  const { employeeKpiRate } = await payrollModule();
-  assert.equal(employeeKpiRate(6_999, 1), 0);
-  assert.equal(employeeKpiRate(7_000, 1), 0.03);
-  assert.equal(employeeKpiRate(14_999, 1), 0.03);
-  assert.equal(employeeKpiRate(15_000, 1), 0.05);
-  assert.equal(employeeKpiRate(29_999, 1), 0.05);
-  assert.equal(employeeKpiRate(30_000, 1), 0.07);
-  assert.equal(employeeKpiRate(100_000, 1), 0.07);
-});
+async function payrollModule() {
+  const financeSource = await readFile(new URL("../app/lib/finance.ts", import.meta.url), "utf8");
+  const financeOutput = ts.transpileModule(financeSource, {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const financeUrl = `data:text/javascript;base64,${Buffer.from(financeOutput).toString("base64")}`;
+  return moduleFromTypescript("../app/lib/payroll.ts", [['from "./finance"', `from "${financeUrl}"`]]);
+}
 
-test("employee KPI is proportional to actual hours", async () => {
-  const { employeeKpiBonus, distributeEmployeeKpi } = await payrollModule();
-  assert.equal(employeeKpiBonus(1_000_000, 100, 40), 12_000);
-  assert.deepEqual(distributeEmployeeKpi(1_000_000, [
-    { employeeId: "a", hours: 40 },
-    { employeeId: "b", hours: 60 },
-  ]), [
-    { employeeId: "a", hours: 40, bonus: 12_000 },
-    { employeeId: "b", hours: 60, bonus: 18_000 },
-  ]);
-});
+async function kpiModule() {
+  return moduleFromTypescript("../app/lib/kpi-engine.ts");
+}
 
-test("inactive employee below 15 completed shifts is excluded from KPI and its denominator", async () => {
-  const { distributeEmployeeKpiByPolicy } = await payrollModule();
-  const result = distributeEmployeeKpiByPolicy(1_000_000, [
-    { employeeId: "active", employmentStatus: "ACTIVE", completedShiftCount: 8, durationSeconds: 40 * 3_600 },
-    { employeeId: "left-early", employmentStatus: "INACTIVE", completedShiftCount: 14, durationSeconds: 10 * 3_600 },
-  ]);
+const canonicalConfig = {
+  tiers: [
+    { minProfitPerHour: 30_000, employeeRateBps: 700 },
+    { minProfitPerHour: 15_000, employeeRateBps: 500 },
+    { minProfitPerHour: 7_000, employeeRateBps: 300 },
+  ],
+  managerRateBps: 200,
+};
 
-  assert.deepEqual(result.map(({ employeeId, eligible, bonus }) => ({ employeeId, eligible, bonus })), [
-    { employeeId: "active", eligible: true, bonus: 50_000 },
-    { employeeId: "left-early", eligible: false, bonus: 0 },
-  ]);
-});
+test("canonical KPI uses actual employee seconds and independent manager policy", async () => {
+  const { calculateKpi } = await kpiModule();
+  const result = calculateKpi({
+    operatingProfit: 3_000_000,
+    employees: [
+      { employeeId: "active", actualSeconds: 40 * 3_600 },
+      { employeeId: "archived-after-period", actualSeconds: 60 * 3_600 },
+    ],
+    config: canonicalConfig,
+  });
 
-test("inactive employee with at least 15 completed shifts remains in KPI allocation", async () => {
-  const { distributeEmployeeKpiByPolicy } = await payrollModule();
-  const result = distributeEmployeeKpiByPolicy(1_000_000, [
-    { employeeId: "active", employmentStatus: "ACTIVE", completedShiftCount: 8, durationSeconds: 40 * 3_600 },
-    { employeeId: "left-qualified", employmentStatus: "INACTIVE", completedShiftCount: 15, durationSeconds: 10 * 3_600 },
-  ]);
-
-  assert.deepEqual(result.map(({ employeeId, eligible, bonus }) => ({ employeeId, eligible, bonus })), [
-    { employeeId: "active", eligible: true, bonus: 40_000 },
-    { employeeId: "left-qualified", eligible: true, bonus: 10_000 },
-  ]);
-});
-
-test("active employees always participate by actual worked time", async () => {
-  const { distributeEmployeeKpiByPolicy } = await payrollModule();
-  const result = distributeEmployeeKpiByPolicy(1_000_000, [
-    { employeeId: "active", employmentStatus: "ACTIVE", completedShiftCount: 1, durationSeconds: 30 * 3_600 },
-    { employeeId: "left-early", employmentStatus: "INACTIVE", completedShiftCount: 14, durationSeconds: 10 * 3_600 },
-    { employeeId: "left-qualified", employmentStatus: "INACTIVE", completedShiftCount: 20, durationSeconds: 20 * 3_600 },
-  ]);
-
-  assert.deepEqual(result.map(({ employeeId, eligible, bonus }) => ({ employeeId, eligible, bonus })), [
-    { employeeId: "active", eligible: true, bonus: 30_000 },
-    { employeeId: "left-early", eligible: false, bonus: 0 },
-    { employeeId: "left-qualified", eligible: true, bonus: 20_000 },
-  ]);
-});
-
-test("store KPI includes 140 manager hours and shares one tier pool exactly", async () => {
-  const {
-    MANAGER_FIXED_WORK_HOURS_PER_STORE,
-    distributeStoreKpiByPolicy,
-  } = await payrollModule();
-  const result = distributeStoreKpiByPolicy(7_200_000, [
-    { employeeId: "active", employmentStatus: "ACTIVE", completedShiftCount: 8, durationSeconds: 60 * 3_600 },
-    { employeeId: "left-early", employmentStatus: "INACTIVE", completedShiftCount: 14, durationSeconds: 20 * 3_600 },
-    { employeeId: "left-qualified", employmentStatus: "INACTIVE", completedShiftCount: 15, durationSeconds: 40 * 3_600 },
-  ]);
-
-  assert.equal(MANAGER_FIXED_WORK_HOURS_PER_STORE, 140);
-  assert.equal(result.eligibleEmployeeHours, 100);
-  assert.equal(result.totalHours, 240);
+  assert.equal(result.totalEmployeeHours, 100);
   assert.equal(result.profitPerHour, 30_000);
-  assert.equal(result.kpiRate, 0.07);
-  assert.equal(result.kpiPool, 504_000);
-  assert.deepEqual(result.employees.map(({ employeeId, eligible, bonus }) => ({ employeeId, eligible, bonus })), [
-    { employeeId: "active", eligible: true, bonus: 126_000 },
-    { employeeId: "left-early", eligible: false, bonus: 0 },
-    { employeeId: "left-qualified", eligible: true, bonus: 84_000 },
+  assert.equal(result.employeeRateBps, 700);
+  assert.equal(result.employeeKpiPool, 210_000);
+  assert.deepEqual(result.employeeAllocations.map(({ employeeId, employeeKpi }) => ({ employeeId, employeeKpi })), [
+    { employeeId: "active", employeeKpi: 84_000 },
+    { employeeId: "archived-after-period", employeeKpi: 126_000 },
   ]);
-  assert.equal(result.employeeBonusTotal, 210_000);
-  assert.deepEqual(result.manager, { durationSeconds: 140 * 3_600, hours: 140, bonus: 294_000 });
-  assert.equal(result.employeeBonusTotal + result.managerBonus, result.kpiPool);
+  assert.equal(result.employeeKpiTotal, 210_000);
+  assert.equal(result.managerRateBps, 200);
+  assert.equal(result.managerKpi, 60_000);
 });
 
-test("the supplied 130/120/100-hour example uses its real 490-hour denominator", async () => {
-  const { distributeStoreKpiByPolicy } = await payrollModule();
-  const result = distributeStoreKpiByPolicy(15_000_000, [
-    { employeeId: "employee-1", employmentStatus: "ACTIVE", completedShiftCount: 26, durationSeconds: 130 * 3_600 },
-    { employeeId: "employee-2", employmentStatus: "ACTIVE", completedShiftCount: 24, durationSeconds: 120 * 3_600 },
-    { employeeId: "employee-3", employmentStatus: "ACTIVE", completedShiftCount: 20, durationSeconds: 100 * 3_600 },
-  ]);
-
-  // 140 + 130 + 120 + 100 is 490 (not 510), so 15m / 490 reaches the 7% tier.
-  assert.equal(result.eligibleEmployeeHours, 350);
-  assert.equal(result.totalHours, 490);
-  assert.equal(result.profitPerHour, 30_612);
-  assert.equal(result.kpiRate, 0.07);
-  assert.equal(result.kpiPool, 1_050_000);
-  assert.deepEqual(result.employees.map(({ employeeId, bonus }) => ({ employeeId, bonus })), [
-    { employeeId: "employee-1", bonus: 278_571 },
-    { employeeId: "employee-2", bonus: 257_143 },
-    { employeeId: "employee-3", bonus: 214_286 },
-  ]);
-  assert.equal(result.managerBonus, 300_000);
-  assert.equal(result.employeeBonusTotal + result.managerBonus, 1_050_000);
+test("KPI does not invent manager hours and manager KPI remains policy-based without employee hours", async () => {
+  const { calculateKpi } = await kpiModule();
+  const result = calculateKpi({ operatingProfit: 980_000, employees: [], config: canonicalConfig });
+  assert.equal(result.totalEmployeeSeconds, 0);
+  assert.equal(result.totalEmployeeHours, 0);
+  assert.equal(result.profitPerHour, 0);
+  assert.equal(result.employeeKpiTotal, 0);
+  assert.equal(result.managerKpi, 19_600);
 });
 
-test("a consistent 510-hour example selects 5 percent and allocates every VND", async () => {
-  const { distributeStoreKpiByPolicy } = await payrollModule();
-  const result = distributeStoreKpiByPolicy(15_000_000, [
-    { employeeId: "employee-1", employmentStatus: "ACTIVE", completedShiftCount: 26, durationSeconds: 130 * 3_600 },
-    { employeeId: "employee-2", employmentStatus: "ACTIVE", completedShiftCount: 24, durationSeconds: 120 * 3_600 },
-    { employeeId: "employee-3", employmentStatus: "ACTIVE", completedShiftCount: 24, durationSeconds: 120 * 3_600 },
-  ]);
-
-  assert.equal(result.totalHours, 510);
-  assert.equal(result.profitPerHour, 29_411);
-  assert.equal(result.kpiRate, 0.05);
-  assert.equal(result.kpiPool, 750_000);
-  assert.deepEqual(result.employees.map(({ employeeId, bonus }) => ({ employeeId, bonus })), [
-    { employeeId: "employee-1", bonus: 191_176 },
-    { employeeId: "employee-2", bonus: 176_471 },
-    { employeeId: "employee-3", bonus: 176_471 },
-  ]);
-  assert.equal(result.managerBonus, 205_882);
-  assert.equal(result.employeeBonusTotal + result.managerBonus, 750_000);
-});
-
-test("manager-only store reaches the 3 percent threshold and VND allocation never leaks rounding", async () => {
-  const { distributeStoreKpiByPolicy } = await payrollModule();
-  const below = distributeStoreKpiByPolicy(979_999, []);
-  assert.equal(below.kpiRate, 0);
-  assert.equal(below.managerBonus, 0);
-
-  const threshold = distributeStoreKpiByPolicy(980_000, []);
-  assert.equal(threshold.profitPerHour, 7_000);
-  assert.equal(threshold.kpiRate, 0.03);
-  assert.equal(threshold.kpiPool, 29_400);
-  assert.equal(threshold.managerBonus, 29_400);
-
-  const rounding = distributeStoreKpiByPolicy(10_000_001, [
-    { employeeId: "one-second", employmentStatus: "ACTIVE", completedShiftCount: 1, durationSeconds: 1 },
-    { employeeId: "two-seconds", employmentStatus: "ACTIVE", completedShiftCount: 1, durationSeconds: 2 },
-  ]);
-  assert.equal(rounding.employeeBonusTotal + rounding.managerBonus, rounding.kpiPool);
-});
-
-test("multi-store employee payroll is locked and paid only when every source is complete", async () => {
-  const { employeePayrollOverallState } = await payrollModule();
-
-  assert.deepEqual(employeePayrollOverallState([
-    { locked: true, paymentStatus: "LOCKED" },
-    { locked: false, paymentStatus: "PROVISIONAL" },
-  ]), { locked: false, paid: false });
-  assert.deepEqual(employeePayrollOverallState([
-    { locked: true, paymentStatus: "PAYMENT_CONFIRMED" },
-    { locked: true, paymentStatus: "PENDING" },
-  ]), { locked: true, paid: false });
-  assert.deepEqual(employeePayrollOverallState([
-    { locked: true, paymentStatus: "PAYMENT_CONFIRMED" },
-    { locked: true, paymentStatus: "LOCKED" },
-  ]), { locked: true, paid: true });
-  assert.deepEqual(employeePayrollOverallState([]), { locked: false, paid: false });
-});
-
-test("employee KPI handles invalid or non-positive values", async () => {
-  const { employeeKpiBonus, employeeKpiRate } = await payrollModule();
-  assert.equal(employeeKpiRate(0, 100), 0);
-  assert.equal(employeeKpiRate(100_000, 0), 0);
-  assert.equal(employeeKpiBonus(-1, 100, 10), 0);
-  assert.equal(employeeKpiBonus(1_000_000, 100, 0), 0);
-  assert.equal(employeeKpiBonus(Number.NaN, 100, 10), 0);
-});
-
-test("mid-month offboarding freezes deterministic pay but defers KPI until period close", async () => {
-  const { employeePayWithKpi } = await payrollModule();
-  const lockedComponents = {
-    baseSalary: 2_000_000,
-    tiktokAllowance: 100_000,
-    supportAllowance: 200_000,
-    manualAllowance: 50_000,
-    manualBonus: 75_000,
-  };
-  assert.equal(employeePayWithKpi(lockedComponents, 0), 2_425_000);
-  assert.equal(employeePayWithKpi(lockedComponents, 350_000), 2_775_000);
+test("non-positive operating profit pays no employee or manager KPI", async () => {
+  const { calculateKpi } = await kpiModule();
+  for (const operatingProfit of [0, -1_000_000]) {
+    const result = calculateKpi({
+      operatingProfit,
+      employees: [{ employeeId: "employee", actualSeconds: 100 * 3_600 }],
+      config: canonicalConfig,
+    });
+    assert.equal(result.employeeKpiTotal, 0);
+    assert.equal(result.managerKpi, 0);
+  }
 });
 
 test("manual allowance and bonus remain explicit in preview and closing pay", async () => {
@@ -225,4 +95,50 @@ test("manual allowance and bonus remain explicit in preview and closing pay", as
     supportAllowance: 0,
     ...adjustments,
   }, 0), 113_556);
+});
+
+test("mid-period offboarding freezes deterministic pay but adds finalized KPI exactly once", async () => {
+  const { employeePayWithKpi } = await payrollModule();
+  const lockedComponents = {
+    baseSalary: 2_000_000,
+    tiktokAllowance: 100_000,
+    supportAllowance: 200_000,
+    manualAllowance: 50_000,
+    manualBonus: 75_000,
+  };
+  assert.equal(employeePayWithKpi(lockedComponents, 0), 2_425_000);
+  assert.equal(employeePayWithKpi(lockedComponents, 350_000), 2_775_000);
+});
+
+test("multi-store employee payroll is locked and paid only when every source is complete", async () => {
+  const { employeePayrollOverallState } = await payrollModule();
+  assert.deepEqual(employeePayrollOverallState([
+    { locked: true, paymentStatus: "LOCKED" },
+    { locked: false, paymentStatus: "PROVISIONAL" },
+  ]), { locked: false, paid: false });
+  assert.deepEqual(employeePayrollOverallState([
+    { locked: true, paymentStatus: "PAYMENT_CONFIRMED" },
+    { locked: true, paymentStatus: "PENDING" },
+  ]), { locked: true, paid: false });
+  assert.deepEqual(employeePayrollOverallState([
+    { locked: true, paymentStatus: "PAYMENT_CONFIRMED" },
+    { locked: true, paymentStatus: "LOCKED" },
+  ]), { locked: true, paid: true });
+  assert.deepEqual(employeePayrollOverallState([]), { locked: false, paid: false });
+});
+
+test("production payroll is wired to the canonical KPI engine and support snapshots", async () => {
+  const [payroll, route, component] = await Promise.all([
+    readFile(new URL("../app/lib/payroll.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/payroll/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/StorePayrollClosing.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.doesNotMatch(payroll, /MANAGER_FIXED_WORK_HOURS|INACTIVE_EMPLOYEE_KPI|distributeStoreKpiByPolicy/u);
+  assert.match(route, /import \{ calculateKpi \} from "\.\.\/\.\.\/lib\/kpi-engine"/u);
+  assert.match(route, /COALESCE\(MAX\(s\.applied_support_allowance\), 0\) AS supportAllowance/u);
+  assert.match(route, /COALESCE\(s\.applied_support_allowance, 0\) AS supportAllowance/u);
+  assert.doesNotMatch(route, /MAX\(t\.support_allowance\)|t\.support_allowance AS supportAllowance/u);
+  assert.doesNotMatch(route, /MANAGER_FIXED_WORK_HOURS|managerFixedHours/u);
+  assert.doesNotMatch(component, /managerFixedHours|140 giờ|ca chính thực tế/u);
+  assert.match(component, /assertPayrollSummaryInvariants\(payload\.summary\)/u);
 });

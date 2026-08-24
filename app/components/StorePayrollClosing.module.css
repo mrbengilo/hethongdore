@@ -1,0 +1,270 @@
+.desktopTableWrap {
+  max-width: 100%;
+}
+
+.mobilePayrollList {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .desktopTableWrap {
+    display: none;
+  }
+
+  .mobilePayrollList {
+    display: grid;
+    gap: 12px;
+    min-width: 0;
+    margin: 0;
+    padding: 12px;
+    list-style: none;
+  }
+
+  .mobileListState {
+    min-height: 96px;
+    display: grid;
+    place-items: center;
+    border: 2px dashed #b8d9c2;
+    border-radius: 12px;
+    padding: 18px;
+    background: #f7fcf8;
+    color: #5f7166;
+    font-size: 12px;
+    font-weight: 700;
+    text-align: center;
+  }
+
+  .mobilePayrollCard {
+    min-width: 0;
+    overflow: hidden;
+    border: 2px solid #96cfaa;
+    border-radius: 14px;
+    background: linear-gradient(145deg, #fff, #f6fcf8);
+    box-shadow: 0 8px 20px rgb(8 125 54 / 10%);
+  }
+
+  .mobilePayrollCardInactive {
+    border-color: #edc483;
+    background: linear-gradient(145deg, #fff, #fffaf0);
+  }
+
+  .mobilePayrollHeader {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 8px;
+    min-width: 0;
+    padding: 13px;
+    border-bottom: 1px solid #dcebe0;
+    background: linear-gradient(135deg, #edf9f1, #fbfefc);
+  }
+
+  .mobilePayrollCardInactive .mobilePayrollHeader {
+    border-bottom-color: #f0dfbd;
+    background: linear-gradient(135deg, #fff7e7, #fffdf8);
+  }
+
+  .mobilePayrollHeader > div {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+  }
+
+  .mobilePayrollHeader b {
+    color: #123a22;
+    font-size: 14px;
+    font-weight: 900;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+  }
+
+  .mobilePayrollHeader > div > span {
+    color: #627268;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+  }
+
+  .mobilePayrollHeader > :global(.status-pill) {
+    max-width: 108px;
+    white-space: normal;
+    text-align: center;
+  }
+
+  .mobilePayrollSummary {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    min-width: 0;
+    margin: 0;
+    padding: 0 12px;
+  }
+
+  .mobilePayrollSummary > div {
+    min-width: 0;
+    padding: 11px 6px;
+    border-bottom: 1px solid #e7efe9;
+  }
+
+  .mobilePayrollSummary > div:nth-child(odd) {
+    border-right: 1px solid #e7efe9;
+  }
+
+  .mobilePayrollSummary dt,
+  .mobilePayrollDetails dt {
+    margin-bottom: 4px;
+    color: #607368;
+    font-size: 9px;
+    font-weight: 850;
+    letter-spacing: .025em;
+    text-transform: uppercase;
+  }
+
+  .mobilePayrollSummary dd,
+  .mobilePayrollDetails dd {
+    min-width: 0;
+    margin: 0;
+    color: #1d3024;
+    font-size: 11px;
+    font-weight: 800;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+
+  .mobileAvailablePay dd {
+    color: #087d36;
+    font-size: 13px;
+    font-weight: 900;
+  }
+
+  .mobilePayrollDetails {
+    margin: 0 12px;
+    border-bottom: 1px solid #e7efe9;
+  }
+
+  .mobilePayrollDetails summary {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    color: #176b38;
+    font-size: 11px;
+    font-weight: 850;
+    cursor: pointer;
+  }
+
+  .mobilePayrollDetails summary:focus-visible {
+    outline: 3px solid rgb(11 145 63 / 18%);
+    outline-offset: 2px;
+  }
+
+  .mobilePayrollDetails > dl {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    min-width: 0;
+    margin: 0 0 10px;
+    border: 1px solid #dce9df;
+    border-radius: 10px;
+    background: #fff;
+  }
+
+  .mobilePayrollDetails > dl > div {
+    min-width: 0;
+    padding: 9px;
+    border-bottom: 1px solid #edf2ee;
+  }
+
+  .mobilePayrollDetails > dl > div:nth-child(odd) {
+    border-right: 1px solid #edf2ee;
+  }
+
+  .mobilePayrollAction {
+    min-width: 0;
+    padding: 12px;
+  }
+
+  .mobilePayrollAction > button {
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    border: 1px solid #91caa2;
+    border-radius: 9px;
+    padding: 7px 11px;
+    background: #eaf8ee;
+    color: #087333;
+    font-size: 11px;
+    font-weight: 850;
+  }
+
+  .mobilePayrollAction > button:focus-visible {
+    outline: 3px solid rgb(11 145 63 / 20%);
+    outline-offset: 2px;
+  }
+
+  .mobilePayrollAction > button:disabled {
+    border-color: #dce3de;
+    background: #f4f6f4;
+    color: #98a2a0;
+    cursor: not-allowed;
+  }
+
+  .mobileClosingState {
+    display: grid;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .mobileClosingState > :global(.status-pill) {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    white-space: normal;
+    text-align: center;
+  }
+
+  .mobileClosingState small {
+    color: #667085;
+    font-size: 9px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+
+  .mobilePayrollTotals {
+    display: grid;
+    gap: 5px;
+    border: 2px solid #78bd8d;
+    border-radius: 12px;
+    padding: 12px 14px;
+    background: #eaf7ee;
+    color: #185d33;
+  }
+
+  .mobilePayrollTotals b {
+    font-size: 12px;
+    font-weight: 900;
+    text-transform: uppercase;
+  }
+
+  .mobilePayrollTotals span {
+    font-size: 11px;
+    font-weight: 750;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (max-width: 360px) {
+  .mobilePayrollHeader {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mobilePayrollHeader > :global(.status-pill) {
+    justify-self: start;
+    max-width: 100%;
+  }
+}

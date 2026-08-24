@@ -26,6 +26,7 @@ export type AttendanceObservation = {
   scheduledStartAt: string | null;
   attendanceStatus?: string | null;
   attendanceDeltaMinutes?: number | null;
+  attendanceGraceMinutes?: number | null;
 };
 
 const localDatePattern = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
@@ -195,7 +196,7 @@ export function resolveAttendanceObservation(row: AttendanceObservation) {
     ? attendanceDeltaMinutes(row.startedAt, row.scheduledStartAt)
     : null;
   const computedStatus = row.scheduledStartAt
-    ? attendanceStatusAt(row.startedAt, row.scheduledStartAt)
+    ? attendanceStatusAt(row.startedAt, row.scheduledStartAt, row.attendanceGraceMinutes ?? undefined)
     : null;
   const deltaMinutes = persistedDelta != null && Number.isSafeInteger(persistedDelta)
     ? persistedDelta

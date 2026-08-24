@@ -320,7 +320,7 @@ async function seedStartableSupportSchedule() {
   return { preview: preview.body.startPreview };
 }
 
-async function seedInactivePayrollTarget(period, { withCompletedShift = false } = {}) {
+async function seedInactivePayrollTarget(period, { withCompletedShift = false, withOpenShift = false } = {}) {
   const workDate = `${period}-01`;
   const startedAt = `${workDate}T01:00:00.000Z`;
   const endedAt = `${workDate}T05:00:00.000Z`;
@@ -336,6 +336,15 @@ async function seedInactivePayrollTarget(period, { withCompletedShift = false } 
         VALUES ('payroll-target-shift', 'PAYROLL-TARGET-SHIFT', 'st-can-tho', 'employee-payroll-target',
           'Ca đã hoàn tất', '08:00', '12:00', ?, ?, ?, 20000, 25000, ?, ?, 14400, 'CONFIRMED', 'COMPLETED')`)
       .bind(startedAt, endedAt, workDate, startedAt, endedAt).run();
+  }
+  if (withOpenShift) {
+    await db.prepare(`INSERT INTO shift_sessions
+        (id, shift_code, store_id, employee_id, shift_name, scheduled_start, scheduled_end,
+         scheduled_start_at, scheduled_end_at, work_date, applied_hourly_rate, applied_tiktok_allowance,
+         started_at, close_status, status)
+        VALUES ('payroll-target-open-shift', 'PAYROLL-TARGET-OPEN-SHIFT', 'st-can-tho', 'employee-payroll-target',
+          'Ca đang mở', '08:00', '12:00', ?, ?, ?, 20000, 25000, ?, 'OPEN', 'ACTIVE')`)
+      .bind(startedAt, endedAt, workDate, startedAt).run();
   }
 }
 
@@ -355,7 +364,7 @@ function payrollRequest(period) {
   }, {}, managerCookie);
 }
 
-test("FINALIZE_SINGLE_EMPLOYEE wins before START and blocks the new store-period shift", async () => {
+test("FINALIZE_SINGLE_EMPLOYEE checkpoints only its employee and does not block another shift", async () => {
   const { preview, period } = await seedStartableEarlySchedule();
   await seedManagerSession();
   await seedInactivePayrollTarget(period, { withCompletedShift: true });
@@ -377,25 +386,40 @@ test("FINALIZE_SINGLE_EMPLOYEE wins before START and blocks the new store-period
       capturedAt: new Date().toISOString(),
     },
   })));
-  assert.equal(start.status, 423);
-  assert.equal(await db.prepare("SELECT COUNT(*) AS count FROM shift_sessions WHERE employee_id = 'employee-atomic' AND status = 'ACTIVE'").first("count"), 0);
-  assert.equal(await db.prepare("SELECT shift_active FROM users WHERE id = 'user-atomic'").first("shift_active"), 0);
+  assert.equal(start.status, 200);
+  assert.equal(await db.prepare("SELECT COUNT(*) AS count FROM shift_sessions WHERE employee_id = 'employee-atomic' AND status = 'ACTIVE'").first("count"), 1);
+  assert.equal(await db.prepare("SELECT shift_active FROM users WHERE id = 'user-atomic'").first("shift_active"), 1);
 });
 
-test("START wins before FINALIZE_SINGLE_EMPLOYEE and any unended store shift blocks finalization", async () => {
+test("an unrelated active shift does not deadlock historical employee finalization", async () => {
   await seedActiveShift();
   await seedManagerSession();
   const period = vietnamDateAndClock(new Date()).date.slice(0, 7);
   await seedInactivePayrollTarget(period);
 
   const finalized = await responseBody(await payrollRoute.POST(payrollRequest(period)));
+  assert.equal(finalized.status, 201);
+  assert.equal(
+    await db.prepare("SELECT COUNT(*) AS count FROM employee_payroll_closings WHERE employee_id = 'employee-payroll-target' AND period = ?").bind(period).first("count"),
+    1,
+  );
+  assert.equal(await db.prepare("SELECT status FROM shift_sessions WHERE id = 'session-atomic'").first("status"), "ACTIVE");
+});
+
+test("the target employee's own open shift still blocks finalization", async () => {
+  await seedActiveShift();
+  await seedManagerSession();
+  const period = vietnamDateAndClock(new Date()).date.slice(0, 7);
+  await seedInactivePayrollTarget(period, { withOpenShift: true });
+
+  const finalized = await responseBody(await payrollRoute.POST(payrollRequest(period)));
   assert.equal(finalized.status, 409);
-  assert.match(finalized.body.message, /ca làm chưa kết thúc|kết toàn bộ ca/u);
+  assert.match(finalized.body.message, /ca làm chưa kết thúc|kết ca/u);
   assert.equal(
     await db.prepare("SELECT COUNT(*) AS count FROM employee_payroll_closings WHERE employee_id = 'employee-payroll-target' AND period = ?").bind(period).first("count"),
     0,
   );
-  assert.equal(await db.prepare("SELECT status FROM shift_sessions WHERE id = 'session-atomic'").first("status"), "ACTIVE");
+  assert.equal(await db.prepare("SELECT status FROM shift_sessions WHERE id = 'payroll-target-open-shift'").first("status"), "ACTIVE");
 });
 
 function employeePatchBody(overrides = {}) {
@@ -410,6 +434,7 @@ function employeePatchBody(overrides = {}) {
     ward: "Phường Thốt Nốt",
     addressLine: "1 Đường thử nghiệm",
     age: 25,
+    cccdNumber: "092000000001",
     cccdImageKey: "cccd/00000000-0000-4000-8000-000000000001.jpg",
     cccdImageName: "cccd.jpg",
     hourlyRate: 20000,
@@ -428,6 +453,7 @@ function employeeCreateBody(overrides = {}) {
     ward: "PhÆ°á»ng Thá»‘t Ná»‘t",
     addressLine: "99 ÄÆ°á»ng thá»­ nghiá»‡m",
     age: 26,
+    cccdNumber: "092000000099",
     cccdImageKey: "cccd/00000000-0000-4000-8000-000000000099.jpg",
     cccdImageName: "cccd-create.jpg",
     hourlyRate: 20000,
@@ -447,7 +473,7 @@ function storePatchBody(id, status) {
   };
 }
 
-test("employee lifecycle ignores payroll locks while payroll configuration races still fail closed", async () => {
+test("employee checkpoints do not block lifecycle or payroll configuration updates", async () => {
   await seedActiveShift();
   await db.prepare("DELETE FROM shift_sessions WHERE employee_id = 'employee-atomic'").run();
   await db.prepare("UPDATE users SET shift_active = 0, current_shift = NULL, shift_started_at = NULL WHERE id = 'user-atomic'").run();
@@ -479,19 +505,19 @@ test("employee lifecycle ignores payroll locks while payroll configuration races
   };
   try {
     const payrollConfigChange = await responseBody(await employeeRoute.PATCH(jsonRequest("/api/employees", "PATCH", employeePatchBody({
-      name: "Tên không được lưu",
+      name: "Tên được cập nhật",
       hourlyRate: 21000,
       tiktokAllowance: 49000,
     }), {}, managerCookie)));
-    assert.equal(payrollConfigChange.status, 423);
+    assert.equal(payrollConfigChange.status, 200);
   } finally {
     db.batch = originalBatch;
   }
   assert.deepEqual(
     { ...await db.prepare("SELECT name, hourly_rate AS hourlyRate, tiktok_allowance AS tiktokAllowance FROM employees WHERE id = 'employee-atomic'").first() },
-    { name: "Nhân viên Atomic", hourlyRate: 20000, tiktokAllowance: 25000 },
+    { name: "Tên được cập nhật", hourlyRate: 21000, tiktokAllowance: 49000 },
   );
-  assert.equal(await db.prepare("SELECT COUNT(*) AS count FROM audit_logs WHERE entity_id = 'employee-atomic' AND action = 'EMPLOYEE_PAYROLL_CONFIG_UPDATE'").first("count"), 0);
+  assert.equal(await db.prepare("SELECT COUNT(*) AS count FROM audit_logs WHERE entity_id = 'employee-atomic' AND action = 'EMPLOYEE_PAYROLL_CONFIG_UPDATE'").first("count"), 1);
 
   const profileOnly = await responseBody(await employeeRoute.PATCH(jsonRequest("/api/employees", "PATCH", employeePatchBody({
     name: "Hồ sơ mới",
@@ -499,11 +525,11 @@ test("employee lifecycle ignores payroll locks while payroll configuration races
   }), {}, managerCookie)));
   assert.equal(profileOnly.status, 200);
   assert.equal(await db.prepare("SELECT name FROM employees WHERE id = 'employee-atomic'").first("name"), "Hồ sơ mới");
-  assert.equal(await db.prepare("SELECT hourly_rate FROM employees WHERE id = 'employee-atomic'").first("hourly_rate"), 20000);
-  assert.equal(await db.prepare("SELECT tiktok_allowance FROM employees WHERE id = 'employee-atomic'").first("tiktok_allowance"), 25000);
+  assert.equal(await db.prepare("SELECT hourly_rate FROM employees WHERE id = 'employee-atomic'").first("hourly_rate"), 21000);
+  assert.equal(await db.prepare("SELECT tiktok_allowance FROM employees WHERE id = 'employee-atomic'").first("tiktok_allowance"), 49000);
 });
 
-test("employee store reassignment is blocked when either source or target store period is locked", async () => {
+test("employee checkpoints do not block reassignment while source or target store races still fail closed", async () => {
   await seedActiveShift();
   await db.prepare("DELETE FROM shift_sessions WHERE employee_id = 'employee-atomic'").run();
   await db.prepare("UPDATE users SET shift_active = 0, current_shift = NULL, shift_started_at = NULL WHERE id = 'user-atomic'").run();
@@ -511,25 +537,29 @@ test("employee store reassignment is blocked when either source or target store 
   await seedManagerSession();
   const period = vietnamDateAndClock(new Date()).date.slice(0, 7);
 
-  const assertReassignmentBlocked = async (lockStoreId, lockId) => {
+  for (const [lockStoreId, lockId] of [
+    ["st-can-tho", "source-store-move-checkpoint"],
+    ["st-thot-not", "target-store-move-checkpoint"],
+  ]) {
     await db.prepare(`INSERT INTO employee_payroll_closings
         (id, store_id, employee_id, period, snapshot_json, employee_status_at_lock, status, locked_at, locked_by)
       VALUES (?, ?, 'different-employee', ?, '{}', 'ACTIVE', 'BASE_LOCKED', ?, 'manager-atomic')`)
       .bind(lockId, lockStoreId, period, new Date().toISOString()).run();
-    const response = await responseBody(await employeeRoute.PATCH(jsonRequest("/api/employees", "PATCH", employeePatchBody({
-      storeId: "st-thot-not",
-    }), {}, managerCookie)));
-    assert.equal(response.status, 423);
-    assert.deepEqual(
-      { ...await db.prepare("SELECT e.store_id AS employeeStore, u.store_id AS userStore FROM employees e JOIN users u ON u.employee_id = e.id WHERE e.id = 'employee-atomic'").first() },
-      { employeeStore: "st-can-tho", userStore: "st-can-tho" },
-    );
-    assert.equal(await db.prepare("SELECT COUNT(*) AS count FROM audit_logs WHERE entity_id = 'employee-atomic'").first("count"), 0);
-    await db.prepare("DELETE FROM employee_payroll_closings WHERE id = ?").bind(lockId).run();
-  };
+  }
+  const reassignment = await responseBody(await employeeRoute.PATCH(jsonRequest("/api/employees", "PATCH", employeePatchBody({
+    storeId: "st-thot-not",
+  }), {}, managerCookie)));
+  assert.equal(reassignment.status, 200);
+  assert.deepEqual(
+    { ...await db.prepare("SELECT e.store_id AS employeeStore, u.store_id AS userStore FROM employees e JOIN users u ON u.employee_id = e.id WHERE e.id = 'employee-atomic'").first() },
+    { employeeStore: "st-thot-not", userStore: "st-thot-not" },
+  );
+  assert.equal(await db.prepare("SELECT COUNT(*) AS count FROM audit_logs WHERE entity_id = 'employee-atomic' AND action = 'EMPLOYEE_PAYROLL_CONFIG_UPDATE'").first("count"), 1);
 
-  await assertReassignmentBlocked("st-can-tho", "source-store-move-lock");
-  await assertReassignmentBlocked("st-thot-not", "target-store-move-lock");
+  await db.prepare("DELETE FROM employee_payroll_closings WHERE id IN ('source-store-move-checkpoint', 'target-store-move-checkpoint')").run();
+  await db.prepare("DELETE FROM audit_logs WHERE entity_id = 'employee-atomic'").run();
+  await db.prepare("UPDATE employees SET store_id = 'st-can-tho' WHERE id = 'employee-atomic'").run();
+  await db.prepare("UPDATE users SET store_id = 'st-can-tho' WHERE employee_id = 'employee-atomic'").run();
 
   const assertReassignmentRaceBlocked = async (inject, cleanup) => {
     const originalBatch = db.batch.bind(db);

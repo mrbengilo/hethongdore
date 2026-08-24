@@ -48,13 +48,16 @@ test("fixed-cost rows and payroll actions stay compact, visible and accessible o
   assert.match(styles, /\.fixed-cost-entry-name input,\.fixed-cost-entry-amount input\{min-height:44px/u);
 
   for (const label of [
-    "Khóa bảng lương cửa hàng",
-    "Chốt lương quản lý",
-    "Xác nhận chi lương",
-    "Xác nhận thưởng và phụ cấp",
-    "Chốt sổ",
-    "Khóa kỳ chi lương thưởng",
+    "Tính bảng lương kỳ",
+    "Bắt đầu đối soát",
+    "Xác nhận đối soát lương",
+    "Xác nhận số liệu toàn kỳ",
+    "Xác nhận đã chi",
+    "Khóa kỳ",
   ]) assert.match(payroll, new RegExp(label, "u"));
+  assert.match(payroll, /expectedRevision: data\.financialPeriod\?\.revision \?\? 0/u);
+  assert.match(payroll, /reason: payrollActionReason\(action, employee\)/u);
+  assert.match(payroll, /canonicalStatus \? canonicalStatus === "LOCKED"/u);
   assert.match(payroll, /className="payroll-workflow-actions" role="list" aria-label="Các bước chốt và khóa kỳ lương thưởng"/u);
   assert.match(payroll, /aria-describedby=\{reasonId\}/u);
   assert.match(payroll, /disabled=\{disabled\}/u);
@@ -101,8 +104,9 @@ test("employee editor exposes a per-employee formatted TikTok allowance", async 
     source("../app/globals.css"),
   ]);
 
-  assert.match(management, /tiktokAllowance: Number\(row\.tiktok_allowance \?\? row\.tiktokAllowance \?\? 25_000\)/u);
-  assert.match(management, /tiktokAllowance: "25,000"/u);
+  assert.match(management, /tiktokAllowance: Number\(row\.tiktok_allowance \?\? row\.tiktokAllowance \?\? 0\)/u);
+  assert.match(management, /employeeTikTokAllowanceDefault/u);
+  assert.match(management, /emptyEmployeeForm\(policyTikTokAllowanceDefault\)/u);
   assert.match(management, /tiktokAllowance: formatVndInput\(employee\.tiktokAllowance\)/u);
   assert.match(management, /tiktokAllowance: parseVndInput\(form\.tiktokAllowance\)/u);
   assert.match(management, /Phụ cấp TikTok phải là số nguyên từ 0 đồng trở lên/u);
@@ -110,13 +114,13 @@ test("employee editor exposes a per-employee formatted TikTok allowance", async 
   assert.match(management, /className="employee-tiktok-allowance">\{formatMoney\(employee\.tiktokAllowance\)\}/u);
   assert.match(management, /id="employee-tiktok-allowance"[\s\S]*?inputMode="numeric"[\s\S]*?aria-describedby="employee-tiktok-allowance-help"/u);
   assert.match(management, /updateForm\("tiktokAllowance", formatVndInput\(event\.target\.value\)\)/u);
-  assert.match(management, /áp dụng riêng cho mỗi ca có TikTok của nhân viên này/u);
+  assert.match(management, /áp dụng riêng cho mỗi ca có TikTok; ca đã bắt đầu giữ nguyên mức đã chụp/u);
   assert.match(styles, /\.employee-tiktok-field\{[^}]*grid-column:1\/-1;[^}]*min-width:0;/u);
   assert.match(styles, /\.employee-tiktok-field>input\{[^}]*width:100%;[^}]*min-width:0;/u);
   assert.match(styles, /\.employee-tiktok-allowance\{[^}]*white-space:nowrap/u);
 });
 
-test("employee home renders the employee-specific TikTok allowance with a legacy-safe fallback", async () => {
+test("employee home renders the employee-specific TikTok allowance without a code-level business default", async () => {
   const [portal, employeeHome] = await Promise.all([
     source("../app/components/Portal.tsx"),
     source("../app/components/ReferenceEmployeeHome.tsx"),
@@ -127,7 +131,7 @@ test("employee home renders the employee-specific TikTok allowance with a legacy
   const normalize = runInNewContext(`(value) => {${normalizer[1]}}`);
   assert.equal(normalize(0), 0, "an explicitly configured zero allowance must be preserved");
   assert.equal(normalize(49_000), 49_000, "an employee-specific allowance must be preserved");
-  for (const legacyValue of [undefined, null, -1, 1.5, "49,000"]) assert.equal(normalize(legacyValue), 25_000);
+  for (const invalidValue of [undefined, null, -1, 1.5, "49,000"]) assert.equal(normalize(invalidValue), 0);
 
   const resolverSource = employeeHome.match(/export function resolveEmployeeTiktokAllowanceSnapshot\([\s\S]*?\n\) \{([\s\S]*?)\n\}/u);
   assert.ok(resolverSource, "shift snapshot resolver must remain independently testable");
@@ -147,7 +151,7 @@ test("employee home renders the employee-specific TikTok allowance with a legacy
   assert.match(portal, /const tiktokAllowanceChanged = nextEmployeeTiktokAllowance !== normalizeEmployeeTiktokAllowance\(user\.employeeTiktokAllowance\)/u);
   assert.match(portal, /resolveEmployeeTiktokAllowanceSnapshot\("sync", data, user\.employeeTiktokAllowance\)/u);
   assert.match(portal, /resolveEmployeeTiktokAllowanceSnapshot\(action, data, user\.employeeTiktokAllowance\)/u);
-  assert.match(portal, /Ca này có làm clip TikTok \(\+\{money\(tiktokAllowanceAmount\)\}\)/u);
+  assert.match(employeeHome, /Ca này có làm clip TikTok<\/span>[\s\S]*Phụ cấp TikTok: \+\{money\(tiktokAllowanceAmount\)\}/u);
   assert.doesNotMatch(portal, /Ca này có làm clip TikTok \(\+25\.000 đ\)/u);
 });
 
@@ -168,6 +172,7 @@ test("store month controls, expense breakdown and system back action stay touch-
 
   assert.match(reports, /function MonthPickerControl[\s\S]*<Calendar size=\{18\}[\s\S]*className="month-picker-native"/u);
   assert.match(reports, /const period = onPeriodChange \? \(initialPeriod \?\? localPeriod\) : localPeriod;[\s\S]*const setPeriod = onPeriodChange \?\? setLocalPeriod;/u);
+  assert.match(reports, /className="manager-panel table-panel financial-expense-table"/u);
   assert.match(styles, /\.month-picker-control\{[^}]*min-height:46px;[^}]*cursor:pointer;[^}]*touch-action:manipulation/u);
   assert.match(styles, /\.date-control \.month-picker-native\{[^}]*position:absolute;[^}]*inset:0;[^}]*width:100%;[^}]*height:100%;[^}]*opacity:0;/u);
   assert.match(styles, /\.store-expense-breakdown \.comparison-grid>p\{[^}]*grid-template-columns:minmax\(148px,210px\) max-content max-content;[^}]*justify-content:start;[^}]*padding:15px 0;[^}]*font-size:13px;/u);
@@ -176,6 +181,12 @@ test("store month controls, expense breakdown and system back action stay touch-
   assert.match(styles, /\.store-expense-breakdown \.comparison-grid span\{grid-column:1\/-1;max-width:100%\}/u);
   assert.match(styles, /\.store-expense-breakdown \.comparison-grid b\{grid-column:1;text-align:left;white-space:normal;overflow-wrap:anywhere\}/u);
   assert.match(styles, /\.back-system\{[^}]*font-size:12px!important/u);
+  assert.match(styles, /\.sidebar nav button\.active\{[^}]*font-weight:850;[^}]*box-shadow:/u);
+  assert.match(styles, /\.light \.back-system\{[^}]*border-color:#77be8e;[^}]*background:linear-gradient/u);
+  assert.match(styles, /\.financial-expense-table \.data-table\{[^}]*width:min\(100%,1080px\);[^}]*table-layout:fixed/u);
+  assert.match(styles, /\.financial-expense-table \.data-table td:nth-child\(2\)\{[^}]*font-size:16px;[^}]*font-weight:900/u);
+  assert.match(styles, /\.app-shell\.light \.main-area \.page-content :is\(\.stat-card,\.table-card,\.manager-panel,\.employee-panel,\.orders-panel\)\{[^}]*border-color:#abd7b8;[^}]*box-shadow:/u);
+  assert.match(styles, /@media\(max-width:720px\)[\s\S]*\.app-shell\.light \.main-area \.page-content :is\(\.stat-card,\.table-card,\.manager-panel,\.employee-panel,\.orders-panel\)\{border-width:1px;/u);
 });
 
 test("manager password change verifies the current secret and revokes other sessions", async () => {

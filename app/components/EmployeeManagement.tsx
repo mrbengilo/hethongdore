@@ -26,6 +26,7 @@ type Employee = {
   ward: string;
   addressLine: string;
   age: number;
+  cccdNumber: string;
   position: string;
   hourlyRate: number;
   tiktokAllowance: number;
@@ -44,6 +45,7 @@ type EmployeeForm = {
   ward: string;
   addressLine: string;
   age: string;
+  cccdNumber: string;
   position: string;
   hourlyRate: string;
   tiktokAllowance: string;
@@ -57,7 +59,7 @@ type EmployeeForm = {
 const MAX_CCCD_BYTES = 5 * 1024 * 1024;
 const ALLOWED_CCCD_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
-function emptyEmployeeForm(): EmployeeForm {
+function emptyEmployeeForm(defaultTikTokAllowanceVnd: number | null = null): EmployeeForm {
   return {
     code: "",
     name: "",
@@ -66,9 +68,10 @@ function emptyEmployeeForm(): EmployeeForm {
     ward: "",
     addressLine: "",
     age: "",
+    cccdNumber: "",
     position: "Nhân viên bán hàng",
     hourlyRate: "20,000",
-    tiktokAllowance: "25,000",
+    tiktokAllowance: defaultTikTokAllowanceVnd === null ? "" : formatVndInput(defaultTikTokAllowanceVnd),
     username: "",
     password: "",
     status: "ACTIVE",
@@ -95,9 +98,10 @@ function normalizeEmployee(value: unknown): Employee | null {
     ward: String(row.ward ?? ""),
     addressLine: String(row.address_line ?? row.addressLine ?? ""),
     age: Number(row.age ?? 0),
+    cccdNumber: String(row.cccd_number ?? row.cccdNumber ?? ""),
     position: String(row.position ?? ""),
     hourlyRate: Number(row.hourly_rate ?? row.hourlyRate ?? 0),
-    tiktokAllowance: Number(row.tiktok_allowance ?? row.tiktokAllowance ?? 25_000),
+    tiktokAllowance: Number(row.tiktok_allowance ?? row.tiktokAllowance ?? 0),
     username: String(row.username ?? ""),
     status: row.status === "SUSPENDED" ? "SUSPENDED"
       : row.status === "TERMINATED" || row.status === "INACTIVE" ? "TERMINATED"
@@ -154,6 +158,7 @@ function EmployeePhoto({ employee, size = 46 }: { employee: Employee; size?: num
 
 export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [policyTikTokAllowanceDefault, setPolicyTikTokAllowanceDefault] = useState<number | null>(null);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"ALL" | EmployeeStatus>("ALL");
   const [open, setOpen] = useState(false);
@@ -190,9 +195,17 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
     setListError("");
     try {
       const response = await fetch(`/api/employees?storeId=${encodeURIComponent(store.id)}`);
-      const result = await response.json().catch(() => ({})) as { employees?: unknown[]; message?: string };
+      const result = await response.json().catch(() => ({})) as {
+        employees?: unknown[];
+        employeeTikTokAllowanceDefault?: unknown;
+        message?: string;
+      };
       if (!response.ok) throw new Error(result.message ?? "Không thể tải danh sách nhân viên.");
       setEmployees((result.employees ?? []).map(normalizeEmployee).filter((employee): employee is Employee => employee !== null));
+      const configuredDefault = Number(result.employeeTikTokAllowanceDefault);
+      setPolicyTikTokAllowanceDefault(
+        Number.isSafeInteger(configuredDefault) && configuredDefault >= 0 ? configuredDefault : null,
+      );
     } catch (error) {
       setListError(error instanceof Error ? error.message : "Không thể tải danh sách nhân viên.");
     } finally {
@@ -216,7 +229,7 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
     const needle = query.trim().toLocaleLowerCase("vi-VN");
     return employees.filter((employee) => {
       const matchesStatus = statusFilter === "ALL" || employee.status === statusFilter;
-      const searchValue = [employee.code, employee.name, employee.phone, employee.username, fullAddress(employee)].join(" ").toLocaleLowerCase("vi-VN");
+      const searchValue = [employee.code, employee.name, employee.phone, employee.cccdNumber, employee.username, fullAddress(employee)].join(" ").toLocaleLowerCase("vi-VN");
       return matchesStatus && (!needle || searchValue.includes(needle));
     });
   }, [employees, query, statusFilter]);
@@ -232,6 +245,7 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
       ward: employee.ward,
       addressLine: employee.addressLine,
       age: employee.age ? String(employee.age) : "",
+      cccdNumber: employee.cccdNumber,
       position: employee.position,
       hourlyRate: formatVndInput(employee.hourlyRate),
       tiktokAllowance: formatVndInput(employee.tiktokAllowance),
@@ -240,7 +254,7 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
       status: employee.status,
       cccdImageKey: employee.cccdImageKey,
       cccdImageName: employee.cccdImageName,
-    } : emptyEmployeeForm());
+    } : emptyEmployeeForm(policyTikTokAllowanceDefault));
     setCccdFile(null);
     setFileInputVersion((current) => current + 1);
     setFormError("");
@@ -279,8 +293,10 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
     if (!form.province.trim() || !form.ward.trim() || !form.addressLine.trim()) return "Vui lòng nhập đủ tỉnh, phường và đường/ấp.";
     const age = Number(form.age);
     if (!Number.isInteger(age) || age < 15 || age > 100) return "Tuổi nhân viên phải là số nguyên từ 15 đến 100.";
+    if (!/^\d{12}$/.test(form.cccdNumber)) return "Số CCCD phải gồm đúng 12 chữ số.";
     const hourlyRate = parseVndInput(form.hourlyRate);
     if (!Number.isSafeInteger(hourlyRate) || hourlyRate <= 0) return "Lương theo giờ phải là số nguyên dương.";
+    if (!form.tiktokAllowance.trim()) return "Chưa có mức phụ cấp TikTok mặc định. Vui lòng nhập số tiền hoặc thiết lập tại Cài Đặt Chính Sách.";
     const tiktokAllowance = parseVndInput(form.tiktokAllowance);
     if (!Number.isSafeInteger(tiktokAllowance) || tiktokAllowance < 0) return "Phụ cấp TikTok phải là số nguyên từ 0 đồng trở lên.";
     if (!form.position.trim()) return "Vui lòng chọn chức vụ.";
@@ -331,6 +347,7 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
           ward: form.ward.trim(),
           addressLine: form.addressLine.trim(),
           age: Number(form.age),
+          cccdNumber: form.cccdNumber,
           position: form.position.trim(),
           hourlyRate: parseVndInput(form.hourlyRate),
           tiktokAllowance: parseVndInput(form.tiktokAllowance),
@@ -418,17 +435,23 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
     <div className={`employee-ref-layout ${open ? "with-drawer" : ""}`}>
       <section className="table-card">
         <div className="table-head"><div><h2>Danh sách nhân viên</h2><p>{filteredEmployees.length} / {employees.length} nhân viên</p></div></div>
-        <div className="data-table-wrap">
+        <div
+          className={`data-table-wrap ${styles.desktopTableWrap}`}
+          role="region"
+          aria-label="Bảng danh sách nhân viên, cuộn ngang để xem đầy đủ"
+        >
           <table className="data-table employee-management-table" style={{ minWidth: 1680 }}>
+            <caption className="sr-only">Danh sách nhân viên của {store.name}</caption>
             <thead><tr>
-              <th>Mã NV</th><th>Nhân viên</th><th>SĐT</th><th>Địa chỉ</th><th>Tuổi</th>
+              <th>Mã NV</th><th>Nhân viên</th><th>SĐT</th><th>Số CCCD</th><th>Địa chỉ</th><th>Tuổi</th>
               <th>Chức vụ</th><th>Lương/giờ</th><th>Phụ cấp TikTok</th><th>Username</th><th>Ảnh CCCD</th>
               <th>Trạng thái</th><th>Thao tác</th>
             </tr></thead>
-            <tbody>{loading ? <tr><td colSpan={12} className="empty-cell">Đang tải danh sách nhân viên...</td></tr> : filteredEmployees.length === 0 ? <tr><td colSpan={12} className="empty-cell">Không có nhân viên phù hợp.</td></tr> : filteredEmployees.map((employee) => <tr key={employee.id}>
+            <tbody>{loading ? <tr><td colSpan={13} className="empty-cell">Đang tải danh sách nhân viên...</td></tr> : filteredEmployees.length === 0 ? <tr><td colSpan={13} className="empty-cell">Không có nhân viên phù hợp.</td></tr> : filteredEmployees.map((employee) => <tr key={employee.id}>
               <td><b>{employee.code}</b></td>
               <td><div style={{ display: "flex", alignItems: "center", gap: 9 }}><i style={{ width: 35, height: 35, display: "grid", placeItems: "center", borderRadius: "50%", background: "#e7f5ea", color: "#087d36" }}><UserRound size={18}/></i><b>{employee.name}</b></div></td>
               <td>{employee.phone}</td>
+              <td><b>{employee.cccdNumber || "—"}</b></td>
               <td title={fullAddress(employee)} style={{ maxWidth: 260, whiteSpace: "normal" }}>{fullAddress(employee)}</td>
               <td>{employee.age || "—"}</td>
               <td>{employee.position}</td>
@@ -461,6 +484,59 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
             </tr>)}</tbody>
           </table>
         </div>
+
+        <ol className={styles.mobileEmployeeList} aria-label={`Danh sách nhân viên của ${store.name}`}>
+          {loading ? <li className={styles.mobileListState} role="status">Đang tải danh sách nhân viên...</li> : filteredEmployees.length === 0 ? <li className={styles.mobileListState}>Không có nhân viên phù hợp.</li> : filteredEmployees.map((employee) => <li className={styles.mobileEmployeeCard} key={employee.id}>
+            <header className={styles.mobileEmployeeHeader}>
+              <i className={styles.mobileEmployeeAvatar} aria-hidden="true"><UserRound size={20}/></i>
+              <div>
+                <b>{employee.name}</b>
+                <span>{employee.code} · {employee.position}</span>
+              </div>
+              <span className={`status-pill ${employeeStatusStyle(employee.status)}`}>● {employeeStatusLabel(employee.status)}</span>
+            </header>
+
+            <dl className={styles.mobileEmployeeDetails}>
+              <div><dt>Số điện thoại</dt><dd>{employee.phone || "—"}</dd></div>
+              <div><dt>Số CCCD</dt><dd>{employee.cccdNumber || "—"}</dd></div>
+              <div><dt>Lương/giờ</dt><dd>{formatMoney(employee.hourlyRate)}</dd></div>
+              <div><dt>Phụ cấp TikTok</dt><dd className="employee-tiktok-allowance">{formatMoney(employee.tiktokAllowance)}</dd></div>
+              <div><dt>Tuổi</dt><dd>{employee.age || "—"}</dd></div>
+              <div><dt>Tên đăng nhập</dt><dd>{employee.username || "—"}</dd></div>
+              <div className={styles.mobileDetailWide}><dt>Địa chỉ</dt><dd>{fullAddress(employee)}</dd></div>
+              <div className={styles.mobileDetailWide}><dt>Ảnh CCCD</dt><dd className={styles.mobileEmployeePhoto}><EmployeePhoto employee={employee}/></dd></div>
+            </dl>
+
+            {employee.status === "SUSPENDED" && <small className={`${styles.mobileEmployeeNote} ${styles.loginSuspendedNote}`}>Đã khóa đăng nhập</small>}
+            {employee.status === "TERMINATED" && <small className={styles.mobileEmployeeNote}>Lịch sử lương được giữ nguyên</small>}
+
+            <div className={styles.mobileEmployeeActions}>
+              <label className={`${styles.statusControl} ${employeeStatusControlStyle(employee.status)}`}>
+                <Power size={16} aria-hidden="true"/>
+                <span className="sr-only">Trạng thái của {employee.name}</span>
+                <select
+                  aria-label={`Trạng thái làm việc của ${employee.name}`}
+                  disabled={Boolean(statusBusyId)}
+                  value={employee.status}
+                  onChange={(event) => void setEmployeeStatus(employee, event.target.value as EmployeeStatus)}
+                >
+                  <option value="ACTIVE">Đang làm việc</option>
+                  <option value="SUSPENDED">Tạm ngưng</option>
+                  <option value="TERMINATED">Đã nghỉ việc</option>
+                </select>
+              </label>
+              <button
+                type="button"
+                className={styles.mobileEditButton}
+                disabled={inactive || Boolean(statusBusyId)}
+                onClick={() => begin(employee)}
+                aria-label={`Sửa hồ sơ ${employee.name}`}
+              >
+                <Edit3 size={17}/><span>Sửa hồ sơ</span>
+              </button>
+            </div>
+          </li>)}
+        </ol>
       </section>
 
       {open && <aside ref={drawerRef} className="employee-drawer" role="dialog" aria-modal="true" aria-labelledby="employee-drawer-title" tabIndex={-1}>
@@ -476,6 +552,7 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
               <label>Mã nhân viên *<input ref={drawerInitialFocusRef} required value={form.code} onChange={(event) => updateForm("code", event.target.value)} placeholder="NV001"/></label>
               <label>Tên nhân viên *<input required value={form.name} onChange={(event) => updateForm("name", event.target.value)} placeholder="Họ và tên"/></label>
               <label>Số điện thoại *<input required inputMode="tel" value={form.phone} onChange={(event) => updateForm("phone", event.target.value)} placeholder="Số điện thoại"/></label>
+              <label>Số CCCD *<input required inputMode="numeric" autoComplete="off" pattern="[0-9]{12}" minLength={12} maxLength={12} value={form.cccdNumber} onChange={(event) => updateForm("cccdNumber", event.target.value.replace(/\D/g, "").slice(0, 12))} placeholder="Nhập đúng 12 chữ số"/><small>CCCD gồm chính xác 12 chữ số.</small></label>
               <label>Tuổi *<input type="number" min="15" max="100" step="1" required value={form.age} onChange={(event) => updateForm("age", event.target.value)}/></label>
               <label>Chức vụ *<select value={form.position} onChange={(event) => updateForm("position", event.target.value)}><option>Nhân viên bán hàng</option><option>Thu ngân</option><option>Kho</option><option>Quản lý ca</option></select></label>
               <label>Lương theo giờ *<input type="text" inputMode="numeric" required value={form.hourlyRate} onChange={(event) => updateForm("hourlyRate", formatVndInput(event.target.value))} placeholder="20,000"/><small>{formatMoney(parseVndInput(form.hourlyRate))}/giờ</small></label>
@@ -488,9 +565,12 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
                   aria-describedby="employee-tiktok-allowance-help"
                   value={form.tiktokAllowance}
                   onChange={(event) => updateForm("tiktokAllowance", formatVndInput(event.target.value))}
-                  placeholder="25,000"
+                  placeholder="Theo chính sách hệ thống"
                 />
-                <small id="employee-tiktok-allowance-help">{formatMoney(parseVndInput(form.tiktokAllowance))} · áp dụng riêng cho mỗi ca có TikTok của nhân viên này</small>
+                <small id="employee-tiktok-allowance-help">
+                  {form.tiktokAllowance ? formatMoney(parseVndInput(form.tiktokAllowance)) : "Chưa thiết lập"}
+                  {" · "}áp dụng riêng cho mỗi ca có TikTok; ca đã bắt đầu giữ nguyên mức đã chụp.
+                </small>
               </label>
             </div>
 

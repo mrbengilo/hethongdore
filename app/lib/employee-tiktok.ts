@@ -1,5 +1,3 @@
-export const DEFAULT_EMPLOYEE_TIKTOK_ALLOWANCE = 25_000;
-
 type AllowanceInput = number | string | null | undefined;
 
 function validAllowance(value: number) {
@@ -12,10 +10,17 @@ function parsedAllowance(input: AllowanceInput) {
   return validAllowance(value) ? value : null;
 }
 
-/** New employees retain the historical 25,000 VND behavior when omitted. */
-export function employeeTikTokAllowanceForCreate(input: AllowanceInput) {
+/**
+ * New employees inherit the persisted, versioned policy when the field is
+ * omitted. The business value is deliberately supplied by the caller so this
+ * module never becomes a second source of truth.
+ */
+export function employeeTikTokAllowanceForCreate(
+  input: AllowanceInput,
+  configuredDefault: unknown,
+) {
   return input === undefined
-    ? DEFAULT_EMPLOYEE_TIKTOK_ALLOWANCE
+    ? employeeTikTokAllowanceSnapshot(configuredDefault)
     : parsedAllowance(input);
 }
 
@@ -27,6 +32,7 @@ export function employeeTikTokAllowanceForPatch(input: AllowanceInput, current: 
 
 /** Validate the effective ACTIVE-shift allowance. Explicit zero is valid. */
 export function employeeTikTokAllowanceSnapshot(configured: unknown) {
+  if (configured === null || configured === undefined || configured === "") return null;
   const value = Number(configured);
   return validAllowance(value) ? value : null;
 }

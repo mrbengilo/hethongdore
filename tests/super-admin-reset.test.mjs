@@ -300,7 +300,7 @@ test("order edit and delete archive full preimages and reconcile shift/store rev
     attendance_status = 'ON_TIME', attendance_delta_minutes = 0,
     clock_in_latitude = 10.0301, clock_in_longitude = 105.7702,
     clock_in_accuracy_meters = 8.5, clock_in_location_captured_at = '2026-08-10T01:00:00.000Z',
-    duration_seconds = 14400, tiktok = 2, tiktok_allowance = 25000, tasks_completed = 6,
+    duration_seconds = 14400, tiktok = 1, tiktok_allowance = 25000, tasks_completed = 1,
     expense_note = 'Chi phí ca', close_reason = 'Kết ca', close_status = 'CONFIRMED'
     WHERE id = 'shift-reset'`).run();
 
@@ -487,14 +487,40 @@ test("attendance timestamp edit recomputes duration and signed status while pres
   const archive = JSON.parse(await db.prepare("SELECT snapshot_json FROM admin_reset_archives WHERE kind = 'ATTENDANCE_EDIT'").first("snapshot_json"));
   assert.equal(archive.schemaVersion, 2);
   assert.equal(archive.before.startedAt, "2026-08-10T01:00:00.000Z");
-  assert.deepEqual(archive.after, {
+  assert.deepEqual({
+    employeeId: archive.after.employeeId,
+    storeId: archive.after.storeId,
+    shiftCode: archive.after.shiftCode,
+    startedAt: archive.after.startedAt,
+    endedAt: archive.after.endedAt,
+    durationSeconds: archive.after.durationSeconds,
+    status: archive.after.status,
+    attendanceStatus: archive.after.attendanceStatus,
+    attendanceDeltaMinutes: archive.after.attendanceDeltaMinutes,
+    attendanceGraceMinutes: archive.after.attendanceGraceMinutes,
+  }, {
+    employeeId: "employee-reset",
+    storeId: "st-can-tho",
+    shiftCode: "SHIFT-RESET",
     startedAt: "2026-08-10T00:45:00.000Z",
     endedAt: "2026-08-10T05:15:00.000Z",
     durationSeconds: 16200,
     status: "COMPLETED",
     attendanceStatus: "EARLY",
     attendanceDeltaMinutes: -15,
+    attendanceGraceMinutes: 15,
   });
+  const structuredAudit = await db.prepare(`SELECT user_id AS actorId, before_json AS beforeJson,
+      after_json AS afterJson, reason, store_id AS storeId, created_at AS createdAt
+    FROM audit_logs WHERE action = 'SUPER_ADMIN_ATTENDANCE_UPDATE' AND entity_id = 'shift-reset'
+    ORDER BY created_at DESC LIMIT 1`).first();
+  assert.equal(structuredAudit.actorId, "user-manager");
+  assert.equal(structuredAudit.reason, "Điều chỉnh giờ vào và kết ca theo biên bản");
+  assert.equal(structuredAudit.storeId, "st-can-tho");
+  assert.ok(Number.isFinite(new Date(structuredAudit.createdAt).getTime()));
+  assert.equal(JSON.parse(structuredAudit.beforeJson).startedAt, "2026-08-10T01:00:00.000Z");
+  assert.equal(JSON.parse(structuredAudit.afterJson).employeeId, "employee-reset");
+  assert.equal(JSON.parse(structuredAudit.afterJson).startedAt, "2026-08-10T00:45:00.000Z");
 
   const stale = await itemMutation("PATCH", {
     storeId: "st-can-tho", resource: "ATTENDANCE", id: row.id, versionToken: row.versionToken,
@@ -673,8 +699,12 @@ test("attendance delete rejects active, linked and negative-counter states then 
   }
 });
 
-test("active attendance and every store payroll lifecycle status fail closed", async () => {
-  await db.prepare("UPDATE shift_sessions SET status = 'ACTIVE', ended_at = NULL WHERE id = 'shift-reset'").run();
+test("active attendance, legacy LOCKED payroll, and every employee closing fail closed", async () => {
+  await db.prepare(`UPDATE shift_sessions SET status = 'ACTIVE', ended_at = NULL,
+    duration_seconds = 0, admin_adjusted_duration_seconds = NULL,
+    reconciliation_status = 'CLEAR', reconciliation_reason = NULL,
+    reconciled_at = NULL, reconciled_by = NULL
+    WHERE id = 'shift-reset'`).run();
   let listed = await itemList("ATTENDANCE");
   let row = listed.body.rows[0];
   let blocked = await itemMutation("PATCH", {
@@ -682,7 +712,9 @@ test("active attendance and every store payroll lifecycle status fail closed", a
     reason: "Không sửa ca đang hoạt động", durationHours: "2",
   });
   assert.equal(blocked.response.status, 409);
-  await db.prepare("UPDATE shift_sessions SET status = 'COMPLETED', ended_at = '2026-08-10T05:00:00.000Z' WHERE id = 'shift-reset'").run();
+  await db.prepare(`UPDATE shift_sessions SET status = 'COMPLETED',
+    ended_at = '2026-08-10T05:00:00.000Z', duration_seconds = 14400
+    WHERE id = 'shift-reset'`).run();
 
   const lifecycle = ["MANAGER_FINALIZED", "SALARY_CONFIRMED", "REWARDS_CONFIRMED", "PAYMENT_CONFIRMED", "LOCKED", "FUTURE_STATUS"];
   for (const status of lifecycle) {
@@ -692,12 +724,13 @@ test("active attendance and every store payroll lifecycle status fail closed", a
       .bind(`closing-${status}`, status, new Date().toISOString(), new Date().toISOString()).run();
     listed = await itemList("ATTENDANCE");
     row = listed.body.rows[0];
-    assert.equal(row.locked, 1, `status ${status} must mark the row locked`);
+    const legacyLocked = status === "LOCKED";
+    assert.equal(row.locked, legacyLocked ? 1 : 0, `status ${status} must follow the canonical legacy-lock rule`);
     blocked = await itemMutation("PATCH", {
       storeId: "st-can-tho", resource: "ATTENDANCE", id: row.id, versionToken: row.versionToken,
       reason: `Không sửa sau trạng thái ${status}`, durationHours: "2",
     });
-    assert.equal(blocked.response.status, 423, `status ${status} must block mutation`);
+    assert.equal(blocked.response.status, legacyLocked ? 423 : 200, `status ${status} must follow the canonical legacy-lock rule`);
     await db.prepare("DELETE FROM business_records WHERE id = ?").bind(`closing-${status}`).run();
   }
 

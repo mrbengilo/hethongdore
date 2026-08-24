@@ -37,7 +37,7 @@ test("financial and order summaries use strong semantic cards and separated grou
   assert.match(globalStyles, /\.stat-card,\.manager-metric,\.ref-metric,\.store-cashflow-metric\{[^}]*--metric-accent/u);
   assert.match(globalStyles, /\.stat-card strong,\.manager-metric strong,\.ref-metric strong,\.store-cashflow-metric strong\{[^}]*font-size:clamp\(23px,1\.8vw,30px\);[^}]*font-weight:850/u);
   for (const icon of ["ShoppingBag", "Banknote", "Landmark", "ReceiptText"]) assert.match(orders, new RegExp(`<${icon} size=\\{23\\}`, "u"));
-  assert.match(orderStyles, /\.group\s*\{[^}]*margin: 14px;[^}]*border: 1px solid #cfe2d5;[^}]*border-radius: 14px;[^}]*box-shadow:/su);
+  assert.match(orderStyles, /\.group\s*\{[^}]*margin: 14px;[^}]*border: 3px solid #96cdaa;[^}]*border-radius: 14px;[^}]*box-shadow:/su);
 });
 
 test("attendance statuses retain distinct early, on-time and late colors", async () => {

@@ -1,0 +1,117 @@
+.card {
+  padding: 20px;
+  border: 1px solid #dce7df;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 8px 28px rgba(21, 75, 43, .06);
+}
+
+.card > header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #edf1ee;
+}
+
+.card > header > span {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  flex: none;
+  place-items: center;
+  border-radius: 12px;
+  background: #eaf7ed;
+  color: #087d36;
+}
+
+.card h3 { margin: 0; color: #0b5f31; }
+.card header p { margin: 4px 0 0; color: #667085; font-size: 13px; line-height: 1.45; }
+
+.card header button,
+.actions button {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 13px;
+  border: 1px solid #bcd7c5;
+  border-radius: 10px;
+  background: #fff;
+  color: #087d36;
+  font-weight: 800;
+}
+
+.card header button { margin-left: auto; }
+.card form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding-top: 16px; }
+.card fieldset { min-width: 0; margin: 0; padding: 14px; border: 1px solid #dce7df; border-radius: 12px; background: #fbfdfb; }
+.card legend { display: flex; align-items: center; gap: 7px; padding: 0 6px; color: #0b5f31; font-weight: 850; }
+.card label { display: block; margin: 4px 0 7px; color: #244e34; font-size: 12px; font-weight: 750; }
+.card small { display: block; margin-top: 7px; color: #667085; font-size: 11px; line-height: 1.45; }
+
+.wide,
+.scope,
+.actions,
+.success,
+.error { grid-column: 1 / -1; }
+
+.moneyInput,
+.percentInput {
+  width: min(100%, 360px);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid #baccc0;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.moneyInput input,
+.percentInput input { min-width: 0; min-height: 44px; border: 0; padding: 8px 11px; font: inherit; font-weight: 800; }
+.moneyInput input:focus,
+.percentInput input:focus { outline: 3px solid rgba(12, 142, 65, .16); outline-offset: -3px; }
+.moneyInput span,
+.percentInput span { padding: 0 11px; color: #52665a; font-weight: 800; }
+
+.tiers { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.tiers .percentInput { width: min(100%, 220px); }
+.scope { display: grid; gap: 4px; padding: 12px 14px; border: 1px solid #c6e5cf; border-radius: 11px; background: #eff9f2; color: #245f39; font-size: 12px; line-height: 1.5; }
+.actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.actions p { margin: 0; color: #667085; font-size: 11px; }
+.actions button { border-color: #087d36; background: #087d36; color: #fff; }
+.card button:disabled { opacity: .55; cursor: not-allowed; }
+.success,
+.error,
+.loading { margin: 0; padding: 11px 13px; border-radius: 10px; font-size: 13px; }
+.success { border: 1px solid #bde5c7; background: #eaf7ed; color: #087d36; }
+.error { border: 1px solid #f3c5c5; background: #fff1f1; color: #b42318; }
+.loading { background: #f7faf8; color: #667085; }
+
+@media (max-width: 1000px) {
+  .card form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .wide,
+  .scope,
+  .actions,
+  .success,
+  .error { grid-column: 1 / -1; }
+}
+
+@media (max-width: 800px) {
+  .card { padding: 16px; }
+  .card form { grid-template-columns: 1fr; }
+  .wide,
+  .scope,
+  .actions,
+  .success,
+  .error { grid-column: 1; }
+  .tiers { grid-template-columns: 1fr; }
+  .moneyInput,
+  .percentInput,
+  .tiers .percentInput { width: 100%; }
+  .card > header { flex-wrap: wrap; }
+  .card header button { margin-left: 56px; }
+  .actions { align-items: stretch; flex-direction: column; }
+  .actions button { width: 100%; }
+}

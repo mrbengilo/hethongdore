@@ -35,7 +35,7 @@ test("a store enters reports only after its Vietnam-local creation boundary", as
   assert.equal(storeExistsInPeriod("invalid", "2026-09"), false);
 });
 
-test("finance, payroll and cash-flow queries prioritize work_date with one legacy fallback", async () => {
+test("accounting uses work_date while actual cashflow uses the payment timestamp", async () => {
   const [storeFinance, payroll, cashflow, records] = await Promise.all([
     readFile(new URL("../app/api/_lib/store-finance.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/payroll/route.ts", import.meta.url), "utf8"),
@@ -46,12 +46,20 @@ test("finance, payroll and cash-flow queries prioritize work_date with one legac
   const unaliasedPredicate = /\(NULLIF\(work_date, ''\) IS NOT NULL AND work_date >= \? AND work_date < \?\)[\s\S]*?OR \(NULLIF\(work_date, ''\) IS NULL AND started_at >= \? AND started_at < \?\)/u;
 
   assert.match(storeFinance, aliasedPredicate);
-  assert.match(cashflow, aliasedPredicate);
   assert.match(payroll, aliasedPredicate);
   assert.match(payroll, unaliasedPredicate);
-  assert.match(cashflow, /shiftAccountingDate\(row\.workDate, row\.startedAt\)/u);
-  assert.doesNotMatch(cashflow, /localDate\(row\.endedAt\)/u);
+  assert.match(cashflow, /s\.ended_at >= \? AND s\.ended_at < \?/u);
+  assert.match(cashflow, /recognizedLocalDate\(row\.endedAt\)/u);
+  assert.doesNotMatch(cashflow, /shiftAccountingDate\(row\.workDate, row\.startedAt\)/u);
   assert.match(records, /COALESCE\(NULLIF\(s\.work_date, ''\), date\(s\.started_at, '\+7 hours'\)\)/u);
+});
+
+test("finance recognizes revenue only from completed orders at their Vietnam transaction boundary", async () => {
+  const storeFinance = await readFile(new URL("../app/api/_lib/store-finance.ts", import.meta.url), "utf8");
+
+  assert.match(storeFinance, /FROM orders[\s\S]*?status = 'COMPLETED'[\s\S]*?created_at >= \? AND created_at < \?/u);
+  assert.doesNotMatch(storeFinance, /SELECT[\s\S]*?cash_revenue AS cashRevenue/u);
+  assert.doesNotMatch(storeFinance, /LEFT JOIN shift_sessions s[\s\S]*?o\.status = 'COMPLETED'/u);
 });
 
 test("reports and payroll reject periods before the store existed", async () => {
@@ -65,5 +73,5 @@ test("reports and payroll reject periods before the store existed", async () => 
   assert.match(storeFinance, /!store \|\| !storeExistsInPeriod\(store\.createdAt, period\)/u);
   assert.match(reports, /const population = financeComparisonPopulation\(rows\)/u);
   assert.match(reports, /row\.current[\s\S]*evaluation: effectiveness\(row\.current, row\.previous\)/u);
-  assert.match(payroll, /const store = await storePeriodFinance\(db, storeId, period\);[\s\S]*?if \(!store\) return null;/u);
+  assert.match(payroll, /const store = await storePeriodFinance\(db, storeId, period, financePolicy\);[\s\S]*?if \(!store\) return null;/u);
 });

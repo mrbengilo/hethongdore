@@ -1,3 +1,5 @@
+import { incomingStorePeriodUnlockedSql } from "../api/_lib/store-period-lock";
+
 export const SCHEDULE_BATCH_CATEGORY = "LICH_PHAN_CA_BATCH";
 
 export type ScheduleBatchEntry = {
@@ -15,6 +17,7 @@ export type ScheduleBatchCommitInput = {
   date: string;
   entries: ScheduleBatchEntry[];
   now: string;
+  reason: string;
 };
 
 export type ScheduleBatchCommitResult =
@@ -117,6 +120,8 @@ export async function commitScheduleBatch(
 ): Promise<ScheduleBatchCommitResult> {
   const existing = await inspectScheduleBatch(db, input);
   if (existing) return existing;
+  const reason = String(input.reason ?? "").normalize("NFKC").trim().replace(/\s+/gu, " ");
+  if (reason.length < 5 || reason.length > 500) throw new TypeError("Schedule batch reason is required");
 
   const entryIds = input.entries.map((entry) => entry.id);
   const markerData = JSON.stringify({
@@ -197,21 +202,7 @@ export async function commitScheduleBatch(
           )
         )
     ) = ?
-    AND NOT EXISTS (
-      SELECT 1 FROM (SELECT ? AS store_id, ? AS period) schedule_scope
-      WHERE EXISTS (
-        SELECT 1 FROM business_records store_period_lock
-        WHERE store_period_lock.category IN ('KPI_SUMMARY', 'PAYROLL_CLOSING')
-          AND store_period_lock.store_id = schedule_scope.store_id
-          AND COALESCE(store_period_lock.status, '') != 'DELETED'
-          AND json_extract(store_period_lock.data_json, '$.period') = schedule_scope.period
-      ) OR EXISTS (
-        SELECT 1 FROM employee_payroll_closings employee_period_lock
-        WHERE employee_period_lock.store_id = schedule_scope.store_id
-          AND employee_period_lock.period = schedule_scope.period
-          AND COALESCE(employee_period_lock.status, '') != 'DELETED'
-      )
-    )`;
+    AND ${incomingStorePeriodUnlockedSql}`;
   const markerStatement = db.prepare(`INSERT INTO business_records
       (id, category, store_id, owner_id, title, data_json, status, created_at, updated_at)
       SELECT ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?
@@ -267,11 +258,47 @@ export async function commitScheduleBatch(
         input.clientRequestId,
         input.payloadHash,
       )),
+    db.prepare(`INSERT INTO audit_logs
+        (id, user_id, store_id, action, entity_type, entity_id, detail,
+          before_json, after_json, reason, created_at)
+      SELECT ?, ?, marker.store_id, 'CREATE_SCHEDULE_BATCH', 'LICH_PHAN_CA', marker.id, ?,
+        NULL, ?, ?, ?
+      FROM business_records marker
+      WHERE marker.id = ? AND marker.category = ? AND marker.store_id = ?
+        AND marker.created_at = ?
+        AND json_extract(marker.data_json, '$.clientRequestId') = ?
+        AND json_extract(marker.data_json, '$.payloadHash') = ?`)
+      .bind(
+        `schedule-batch-audit:${input.markerId}`,
+        input.ownerId,
+        `Tạo ${entryIds.length} lịch phân ca ngày ${input.date}`,
+        JSON.stringify({
+          markerId: input.markerId,
+          storeId: input.storeId,
+          date: input.date,
+          entryIds,
+          entries: input.entries.map((entry) => ({
+            id: entry.id,
+            title: entry.title,
+            data: entry.data,
+            status: "ACTIVE",
+          })),
+        }),
+        reason,
+        input.now,
+        input.markerId,
+        SCHEDULE_BATCH_CATEGORY,
+        input.storeId,
+        input.now,
+        input.clientRequestId,
+        input.payloadHash,
+      ),
   ];
 
   try {
     const results = await db.batch(statements);
     if (Number(results[0]?.meta?.changes ?? 0) === 0) throw new ScheduleBatchConflictError();
+    if (Number(results.at(-1)?.meta?.changes ?? 0) !== 1) throw new Error("Schedule batch audit invariant failed");
     return { status: "CREATED", entryIds };
   } catch (error) {
     const raced = await inspectScheduleBatch(db, input);

@@ -9,6 +9,7 @@ $project = (Resolve-Path -LiteralPath $ProjectRoot).Path
 $output = (Resolve-Path -LiteralPath $OutputDirectory).Path
 $entries = @(
   '.gitattributes', '.gitignore',
+  '.openai/hosting.json',
   'app', 'build', 'db', 'docs', 'drizzle', 'examples', 'ops', 'public',
   'scripts', 'tests', 'worker',
   'cloudflare-env.d.ts', 'drizzle.config.ts', 'eslint.config.mjs',
@@ -31,13 +32,14 @@ try {
   $manifest = @(& tar.exe -tzf $pending)
   if ($LASTEXITCODE -ne 0) { throw 'Could not read the archive manifest.' }
 
-  $required = @('package.json', 'ops/scripts/deploy.sh', 'build/sites-vite-plugin.ts')
+  $required = @('package.json', '.openai/hosting.json', 'ops/scripts/deploy.sh', 'build/sites-vite-plugin.ts')
   foreach ($entry in $required) {
     if ($manifest -notcontains $entry) { throw "Archive is missing: $entry" }
   }
 
   $forbidden = $manifest | Where-Object {
-    $_ -match '(^|/)(\.git|node_modules|\.next|\.vinext|dist|\.openai|\.vps-access|\.qa-[^/]*|\.codex-dev|\.wrangler|coverage|outputs)(/|$)' -or
+    $_ -match '(^|/)(\.git|node_modules|\.next|\.vinext|dist|\.vps-access|\.qa-[^/]*|\.codex-dev|\.wrangler|coverage|outputs)(/|$)' -or
+    $_ -match '(^|/)\.openai/(?!hosting\.json$)' -or
     $_ -match '(^|/)\.env[^/]*$' -or
     $_ -match '(^|/)(Cookies|History|Login Data)$' -or
     $_ -match '(?i)(\.sqlite(?:-wal|-shm)?|\.pem|\.key|\.pfx|\.p12)$' -or

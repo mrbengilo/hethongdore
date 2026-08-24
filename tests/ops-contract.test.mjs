@@ -118,13 +118,13 @@ test("release deployment is immutable, health-gated and automatically reversible
   assert.match(recovery, /PRESERVE_CADDY_BACKUP=1/u);
   assert.match(recovery, /PRESERVE_TOOL_BACKUPS=1/u);
   assert.match(deploy, /could not publish rescue tool:[\s\S]*return 1/u);
-  assert.match(deploy, /PRE_DEPLOY_BACKUP="\$\(sudo "\$RELEASE_DIR\/ops\/scripts\/backup\.sh"\)"/u);
+  assert.match(deploy, /PRE_DEPLOY_BACKUP="\$\(sudo bash "\$RELEASE_DIR\/ops\/scripts\/backup\.sh"\)"/u);
   assert.match(deploy, /pre-deploy backup failed; the active release was not changed/u);
   assert.match(deploy, /Pre-deploy backup: %s/u);
   assert.ok(
     deploy.indexOf('if ! prepare_toolset')
-      < deploy.indexOf('PRE_DEPLOY_BACKUP="$(sudo "$RELEASE_DIR/ops/scripts/backup.sh")"')
-      && deploy.indexOf('PRE_DEPLOY_BACKUP="$(sudo "$RELEASE_DIR/ops/scripts/backup.sh")"')
+      < deploy.indexOf('PRE_DEPLOY_BACKUP="$(sudo bash "$RELEASE_DIR/ops/scripts/backup.sh")"')
+      && deploy.indexOf('PRE_DEPLOY_BACKUP="$(sudo bash "$RELEASE_DIR/ops/scripts/backup.sh")"')
         < deploy.indexOf('switch_current "$RELEASE_DIR"'),
     "the coherent backup must run after release preflight and immediately before promotion",
   );
@@ -288,7 +288,8 @@ test("Windows release packaging is allowlisted and rejects local data or browser
   const pack = await text("../ops/scripts/package-source.ps1");
   assert.match(pack, /\$entries\s*=\s*@\(/u);
   assert.match(pack, /tar\.exe -C \$project -czf \$pending @entries/u);
-  assert.match(pack, /\.openai/u);
+  assert.match(pack, /'\.openai\/hosting\.json'/u);
+  assert.match(pack, /\.openai\/\(\?!hosting\\\.json\$\)/u);
   assert.match(pack, /\.vps-access/u);
   assert.match(pack, /\.qa-/u);
   assert.match(pack, /\.codex-dev/u);

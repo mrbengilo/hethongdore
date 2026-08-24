@@ -231,7 +231,7 @@ export async function getSessionUser(request: Request): Promise<SessionUser | nu
       currentShiftName = runningShift.shiftName;
       scheduledStart = runningShift.scheduledStart;
       scheduledEnd = runningShift.scheduledEnd;
-      employeeTiktokAllowance = runningShift.appliedTikTokAllowance ?? employeeTiktokAllowance;
+      employeeTiktokAllowance = runningShift.appliedTikTokAllowance;
     } else {
       const now = new Date();
       const today = localDate(now);

@@ -20,13 +20,13 @@ test("manager order summary cards use four distinct, responsive visual treatment
   assert.equal(new Set(accents).size, 4, "each order metric must remain visually distinguishable");
   assert.match(css, /@media \(max-width: 640px\)[\s\S]*\.metric \{ padding:/u);
   assert.match(css, /@media \(max-width: 1450px\)[\s\S]*\.metrics \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/u);
-  assert.match(css, /@media \(max-width: 640px\)[\s\S]*\.metrics \{ grid-template-columns: 1fr;/u);
+  assert.match(css, /@media \(max-width: 640px\)[\s\S]*\.metrics \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/u);
 });
 
 test("employee order history exposes detail only and never sends edit or delete mutations", async () => {
   const portal = await readFile(new URL("app/components/Portal.tsx", root), "utf8");
   const start = portal.indexOf("function EmployeeOrders");
-  const end = portal.indexOf("function EmployeePayroll", start);
+  const end = portal.indexOf("// End of the employee order module.", start);
   assert.ok(start >= 0 && end > start, "EmployeeOrders source section must be discoverable");
 
   const employeeOrders = portal.slice(start, end);

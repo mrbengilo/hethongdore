@@ -33,7 +33,7 @@ after(async () => {
 });
 
 async function seedOrder({ completed = true, amount = 100_000, paymentMethod = "CASH" } = {}) {
-  for (const table of ["sessions", "notifications", "orders", "audit_logs", "employee_payroll_closings", "business_records", "shift_sessions", "employees"]) {
+  for (const table of ["sessions", "notifications", "orders", "audit_logs", "employee_payroll_closings", "business_records", "shift_sessions", "employees", "financial_periods"]) {
     await db.prepare(`DELETE FROM ${table}`).run();
   }
   await db.prepare("DELETE FROM users WHERE id IN ('manager-orders', 'employee-orders-user')").run();
@@ -102,8 +102,14 @@ test("manager order UI is wired to store/period filters, grouping, focus, edit, 
   assert.match(component, /method: "DELETE"/u);
   assert.match(component, /scrollIntoView/u);
   assert.match(component, /periodOrders = orders\.filter/u);
+  assert.match(component, /formatDateVn\(order\.workDate \|\| order\.shiftStartedAt \|\| order\.created_at\)/u);
+  assert.match(component, /<small>Tổng tiền<\/small>/u);
   assert.match(portal, /<StoreOrdersManagement store=\{store\} period=\{period\} focusedOrderId=\{focusedOrderId\} focusRequestKey=\{focusedOrderRequest\} onChanged=\{onReload\}/u);
   assert.match(css, /@media \(max-width: 640px\)[\s\S]*\.table thead \{ display: none;/u);
+  assert.match(css, /\.panelHeader > b \{[\s\S]*font-weight: 900;/u);
+  assert.match(css, /\.group \{[\s\S]*border: 3px solid #96cdaa;/u);
+  assert.match(css, /\.groupTitle h3 \{[\s\S]*font-size: 19px;[\s\S]*font-weight: 900;/u);
+  assert.match(css, /@media \(max-width: 640px\)[\s\S]*\.groupTitle span \{ max-width: 44%;/u);
 });
 
 function patchBody(amount, paymentMethod = "CASH") {
@@ -116,6 +122,92 @@ function patchBody(amount, paymentMethod = "CASH") {
     amount,
     paymentMethod,
   };
+}
+
+const canonicalPeriodStates = ["DRAFT", "CALCULATED", "RECONCILING", "CONFIRMED", "PAID", "LOCKED"];
+
+function canonicalSnapshot(status, settlement = {}) {
+  return JSON.stringify({
+    schemaVersion: 1,
+    status,
+    paidAt: null,
+    paidBy: null,
+    lockedAt: null,
+    lockedBy: null,
+    ...settlement,
+  });
+}
+
+async function createCanonicalPeriod(targetStatus = "DRAFT") {
+  const targetIndex = canonicalPeriodStates.indexOf(targetStatus);
+  assert.notEqual(targetIndex, -1, `unsupported canonical period status ${targetStatus}`);
+  const createdAt = "2026-08-01T00:00:00.000Z";
+  await db.prepare(`INSERT OR IGNORE INTO financial_policy_versions
+      (id, version, effective_from_period, policy_json, created_by, created_at)
+    VALUES ('orders-policy-v1', 900001, '2026-01', '{}', 'manager-orders', ?)`)
+    .bind(createdAt).run();
+  await db.prepare(`INSERT INTO financial_periods
+      (id, store_id, period, status, revision, created_at, updated_at)
+    VALUES ('orders-period-2026-08', 'st-can-tho', '2026-08', 'DRAFT', 0, ?, ?)`)
+    .bind(createdAt, createdAt).run();
+  if (targetIndex >= 1) await transitionCanonicalPeriod("CALCULATED");
+  if (targetIndex >= 2) await transitionCanonicalPeriod("RECONCILING");
+  if (targetIndex >= 3) await transitionCanonicalPeriod("CONFIRMED");
+  if (targetIndex >= 4) await transitionCanonicalPeriod("PAID");
+  if (targetIndex >= 5) await transitionCanonicalPeriod("LOCKED");
+}
+
+async function transitionCanonicalPeriod(status) {
+  const now = {
+    CALCULATED: "2026-09-01T00:00:00.000Z",
+    RECONCILING: "2026-09-01T01:00:00.000Z",
+    CONFIRMED: "2026-09-01T02:00:00.000Z",
+    PAID: "2026-09-02T00:00:00.000Z",
+    LOCKED: "2026-09-03T00:00:00.000Z",
+  }[status];
+  if (status === "CALCULATED") {
+    await db.prepare(`UPDATE financial_periods SET
+        status = 'CALCULATED', revision = revision + 1,
+        policy_version_id = 'orders-policy-v1', config_version = 900001,
+        calculated_at = ?, calculated_by = 'manager-orders', updated_at = ?
+      WHERE id = 'orders-period-2026-08'`).bind(now, now).run();
+    return;
+  }
+  if (status === "RECONCILING") {
+    await db.prepare(`UPDATE financial_periods SET
+        status = 'RECONCILING', revision = revision + 1, updated_at = ?
+      WHERE id = 'orders-period-2026-08'`).bind(now).run();
+    return;
+  }
+  if (status === "CONFIRMED") {
+    await db.prepare(`UPDATE financial_periods SET
+        status = 'CONFIRMED', revision = revision + 1,
+        confirmed_at = ?, confirmed_by = 'manager-orders', snapshot_json = ?, updated_at = ?
+      WHERE id = 'orders-period-2026-08'`)
+      .bind(now, canonicalSnapshot("CONFIRMED"), now).run();
+    return;
+  }
+  if (status === "PAID") {
+    await db.prepare(`UPDATE financial_periods SET
+        status = 'PAID', revision = revision + 1,
+        paid_at = ?, paid_by = 'manager-orders', snapshot_json = ?, updated_at = ?
+      WHERE id = 'orders-period-2026-08'`)
+      .bind(now, canonicalSnapshot("PAID", { paidAt: now, paidBy: "manager-orders" }), now).run();
+    return;
+  }
+  if (status === "LOCKED") {
+    const paidAt = "2026-09-02T00:00:00.000Z";
+    await db.prepare(`UPDATE financial_periods SET
+        status = 'LOCKED', revision = revision + 1,
+        locked_at = ?, locked_by = 'manager-orders', snapshot_json = ?, updated_at = ?
+      WHERE id = 'orders-period-2026-08'`)
+      .bind(now, canonicalSnapshot("LOCKED", {
+        paidAt,
+        paidBy: "manager-orders",
+        lockedAt: now,
+        lockedBy: "manager-orders",
+      }), now).run();
+  }
 }
 
 test("manager order list filters a store/period and returns complete creator, shift, time and lock metadata", async () => {
@@ -236,36 +328,21 @@ test("manager VOID fails closed when a legacy store counter would become negativ
   assert.equal(await db.prepare("SELECT COUNT(*) AS count FROM audit_logs WHERE entity_id = 'order-manager'").first("count"), 0);
 });
 
-test("period locks reject manager order edits without changing historical values", async () => {
-  await seedOrder();
-  await db.prepare(`INSERT INTO business_records
-      (id, category, store_id, owner_id, title, data_json, status, created_at, updated_at)
-      VALUES ('locked-kpi', 'KPI_SUMMARY', 'st-can-tho', NULL, 'Kỳ đã khóa', '{"period":"2026-08"}', 'LOCKED', ?, ?)`)
-    .bind(new Date().toISOString(), new Date().toISOString()).run();
-  const response = await responseOf(await orderRoute.PATCH(request("/api/orders", "PATCH", patchBody(140_000))));
-  assert.equal(response.status, 409);
-  assert.match(response.body.message, /khóa sổ|đã chốt/u);
-  assert.equal(await db.prepare("SELECT amount FROM orders WHERE id = 'order-manager'").first("amount"), 100_000);
-  assert.equal(await db.prepare("SELECT revenue FROM stores WHERE id = 'st-can-tho'").first("revenue"), 100_000);
-  assert.equal(await db.prepare("SELECT COUNT(*) AS count FROM audit_logs WHERE entity_id = 'order-manager'").first("count"), 0);
-});
-
-test("store-wide KPI/payroll lifecycles block every manager and employee order mutation atomically", async () => {
+test("legacy summaries and intermediate closings stay editable; only a fully locked payroll fallback blocks", async () => {
   await seedOrder({ completed: false });
   const now = new Date().toISOString();
   await db.prepare(`INSERT INTO business_records
       (id, category, store_id, owner_id, title, data_json, status, created_at, updated_at)
-    VALUES ('manager-finalized-payroll', 'PAYROLL_CLOSING', 'st-can-tho', NULL, 'Payroll', '{"period":"2026-08"}', 'MANAGER_FINALIZED', ?, ?)`)
+    VALUES ('legacy-kpi', 'KPI_SUMMARY', 'st-can-tho', NULL, 'KPI cũ', '{"period":"2026-08"}', 'LOCKED', ?, ?)`)
     .bind(now, now).run();
+  assert.equal((await responseOf(await orderRoute.PATCH(request("/api/orders", "PATCH", patchBody(110_000))))).status, 200);
 
-  const managerPatch = await responseOf(await orderRoute.PATCH(request("/api/orders", "PATCH", patchBody(140_000))));
-  const managerDelete = await responseOf(await orderRoute.DELETE(request("/api/orders?id=order-manager&storeId=st-can-tho", "DELETE")));
-  assert.equal(managerPatch.status, 409);
-  assert.equal(managerDelete.status, 409);
-  assert.deepEqual(
-    { ...await db.prepare("SELECT amount, status FROM orders WHERE id = 'order-manager'").first() },
-    { amount: 100_000, status: "COMPLETED" },
-  );
+  await db.prepare("DELETE FROM business_records WHERE id = 'legacy-kpi'").run();
+  await db.prepare(`INSERT INTO business_records
+      (id, category, store_id, owner_id, title, data_json, status, created_at, updated_at)
+    VALUES ('manager-finalized-payroll', 'PAYROLL_CLOSING', 'st-can-tho', NULL, 'Payroll cũ', '{"period":"2026-08"}', 'MANAGER_FINALIZED', ?, ?)`)
+    .bind(now, now).run();
+  assert.equal((await responseOf(await orderRoute.PATCH(request("/api/orders", "PATCH", patchBody(120_000))))).status, 200);
 
   await db.prepare("DELETE FROM business_records WHERE id = 'manager-finalized-payroll'").run();
   await db.prepare(`INSERT INTO employee_payroll_closings
@@ -273,27 +350,50 @@ test("store-wide KPI/payroll lifecycles block every manager and employee order m
     VALUES ('other-employee-closing', 'st-can-tho', 'different-employee', '2026-08', '{}', 'ACTIVE', 'CLOSING', ?, 'manager-orders')`)
     .bind(now).run();
 
-  const employeePatch = await responseOf(await orderRoute.PATCH(request("/api/orders", "PATCH", {
-    id: "order-manager",
-    customerName: "Không được sửa",
-    amount: 110_000,
-    paymentMethod: "CASH",
-  }, employeeCookie)));
-  const employeeDelete = await responseOf(await orderRoute.DELETE(request("/api/orders?id=order-manager", "DELETE", undefined, employeeCookie)));
   const employeeCreate = await responseOf(await orderRoute.POST(request("/api/orders", "POST", {
-    customerName: "Không được tạo",
+    customerName: "Được tạo khi chỉ có closing cá nhân",
+    amount: 50_000,
+    paymentMethod: "CASH",
+    clientRequestId: "editable-order-create-0001",
+  }, employeeCookie)));
+  assert.equal(employeeCreate.status, 201);
+
+  await db.prepare(`INSERT INTO business_records
+      (id, category, store_id, owner_id, title, data_json, status, created_at, updated_at)
+    VALUES ('legacy-locked-payroll', 'PAYROLL_CLOSING', 'st-can-tho', NULL, 'Payroll đã khóa', '{"period":"2026-08"}', 'LOCKED', ?, ?)`)
+    .bind(now, now).run();
+  const lockedManagerPatch = await responseOf(await orderRoute.PATCH(request("/api/orders", "PATCH", patchBody(130_000))));
+  const lockedEmployeeCreate = await responseOf(await orderRoute.POST(request("/api/orders", "POST", {
+    customerName: "Không được tạo trong kỳ khóa cũ",
     amount: 50_000,
     paymentMethod: "CASH",
     clientRequestId: "locked-order-create-0001",
   }, employeeCookie)));
-  assert.equal(employeePatch.status, 403);
-  assert.equal(employeeDelete.status, 403);
-  assert.equal(employeeCreate.status, 409);
+  assert.equal(lockedManagerPatch.status, 409);
+  assert.equal(lockedEmployeeCreate.status, 409);
   assert.equal(await db.prepare("SELECT COUNT(*) AS count FROM orders WHERE client_request_id = 'locked-order-create-0001'").first("count"), 0);
   assert.deepEqual(
     { ...await db.prepare("SELECT customer_name AS customerName, amount, status FROM orders WHERE id = 'order-manager'").first() },
-    { customerName: "Khách cũ", amount: 100_000, status: "COMPLETED" },
+    { customerName: "Khách mới", amount: 120_000, status: "COMPLETED" },
   );
+});
+
+test("canonical editable states override a legacy locked payroll record", async () => {
+  await seedOrder();
+  const now = new Date().toISOString();
+  await db.prepare(`INSERT INTO business_records
+      (id, category, store_id, owner_id, title, data_json, status, created_at, updated_at)
+    VALUES ('legacy-locked-payroll', 'PAYROLL_CLOSING', 'st-can-tho', NULL, 'Payroll đã khóa', '{"period":"2026-08"}', 'LOCKED', ?, ?)`)
+    .bind(now, now).run();
+  await createCanonicalPeriod("DRAFT");
+
+  assert.equal((await responseOf(await orderRoute.PATCH(request("/api/orders", "PATCH", patchBody(110_000))))).status, 200);
+  await transitionCanonicalPeriod("CALCULATED");
+  assert.equal((await responseOf(await orderRoute.PATCH(request("/api/orders", "PATCH", patchBody(120_000))))).status, 200);
+  await transitionCanonicalPeriod("RECONCILING");
+  assert.equal((await responseOf(await orderRoute.PATCH(request("/api/orders", "PATCH", patchBody(130_000))))).status, 200);
+  assert.equal(await db.prepare("SELECT amount FROM orders WHERE id = 'order-manager'").first("amount"), 130_000);
+  assert.equal(await db.prepare("SELECT revenue FROM stores WHERE id = 'st-can-tho'").first("revenue"), 130_000);
 });
 
 test("same-order optimistic gate makes a stale manager request inert after a rival manager update", async () => {
@@ -364,4 +464,33 @@ test("manager edit on an active shift stays unrecognized until END snapshots the
   assert.equal(closed.status, 200);
   assert.equal(await db.prepare("SELECT cash_revenue FROM shift_sessions WHERE id = 'shift-orders'").first("cash_revenue"), 135_000);
   assert.equal(await db.prepare("SELECT revenue FROM stores WHERE id = 'st-can-tho'").first("revenue"), 135_000);
+});
+
+test("canonical CONFIRMED, PAID and LOCKED states block source mutations without changing history", async () => {
+  await seedOrder({ completed: false });
+  await createCanonicalPeriod("CONFIRMED");
+
+  const confirmedPatch = await responseOf(await orderRoute.PATCH(request("/api/orders", "PATCH", patchBody(140_000))));
+  assert.equal(confirmedPatch.status, 409);
+  assert.match(confirmedPatch.body.message, /khóa sổ|đã chốt/u);
+
+  await transitionCanonicalPeriod("PAID");
+  const paidDelete = await responseOf(await orderRoute.DELETE(request("/api/orders?id=order-manager&storeId=st-can-tho", "DELETE")));
+  assert.equal(paidDelete.status, 409);
+
+  await transitionCanonicalPeriod("LOCKED");
+  const lockedCreate = await responseOf(await orderRoute.POST(request("/api/orders", "POST", {
+    customerName: "Không được tạo sau khóa sổ",
+    amount: 50_000,
+    paymentMethod: "CASH",
+    clientRequestId: "canonical-locked-order-create-0001",
+  }, employeeCookie)));
+  assert.equal(lockedCreate.status, 409);
+
+  assert.deepEqual(
+    { ...await db.prepare("SELECT customer_name AS customerName, amount, status FROM orders WHERE id = 'order-manager'").first() },
+    { customerName: "Khách cũ", amount: 100_000, status: "COMPLETED" },
+  );
+  assert.equal(await db.prepare("SELECT COUNT(*) AS count FROM orders WHERE client_request_id = 'canonical-locked-order-create-0001'").first("count"), 0);
+  assert.equal(await db.prepare("SELECT COUNT(*) AS count FROM audit_logs WHERE entity_id = 'order-manager'").first("count"), 0);
 });

@@ -1,20 +1,29 @@
-import { initDb, writeAudit } from "../../../db/runtime";
+import { initDb } from "../../../db/runtime";
 import {
   type LocalDateRange,
-  allocateStoreProfitSharing,
   evaluateFinancePerformance,
   financeComparisonPopulation,
   localDate,
   localDateRangeKeys,
   localMonthRange,
   localPeriod,
-  multiplyRatioVnd,
   previousComparableDateRange,
   summarizeAccrualTimeline,
   sumVnd,
   validateFinanceDateRange,
 } from "../../lib/finance";
+import {
+  allocateProfitSharingMembers,
+  closeProfitDistribution,
+  listProfitDistributions,
+  previewProfitDistribution,
+  ProfitDistributionError,
+  readProfitDistribution,
+  type ProfitDistributionPreview,
+  type ProfitDistributionRecord,
+} from "../../lib/profit-distributions";
 import { getSessionUser, json } from "../_lib/auth";
+import { parsePersistedFinancialPeriodSnapshot } from "../_lib/financial-period";
 import {
   MANAGER_STORE_SCOPE_MESSAGE,
   managerHasGlobalStoreAccess,
@@ -24,11 +33,6 @@ import {
   storeDateRangeFinance,
   type StoreDateRangeFinance,
 } from "../_lib/store-finance";
-
-const PROFIT_SHARING_MEMBERS = [
-  { id: "pham-thi-diem-thuy", name: "Phạm Thị Diễm Thúy", percentage: 40 },
-  { id: "truong-viet-vi", name: "Trương Việt Vi", percentage: 60 },
-] as const;
 
 type MemberProfitAllocation = {
   memberId: string;
@@ -65,104 +69,15 @@ type ProfitSharingHistory = {
     distributableProfit: number;
     memberAllocations: MemberProfitAllocation[];
   };
-  /** Legacy aliases retained so records created by earlier versions remain readable. */
-  firstShare: number;
-  secondShare: number;
   status: "LOCKED";
   closedAt: string;
   closedBy: string;
+  reason?: string;
   legacy?: boolean;
 };
 
 function validPeriod(value: string) {
   return /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
-}
-
-function safeStoredVnd(value: unknown) {
-  const amount = Number(value ?? 0);
-  return Number.isSafeInteger(amount) && amount >= 0 ? amount : 0;
-}
-
-function memberAllocations(distributableProfit: number) {
-  const thuyAmount = multiplyRatioVnd(distributableProfit, 40, 100);
-  const viAmount = distributableProfit - thuyAmount;
-  return [
-    { memberId: PROFIT_SHARING_MEMBERS[0].id, memberName: PROFIT_SHARING_MEMBERS[0].name, percentage: 40, amount: thuyAmount },
-    { memberId: PROFIT_SHARING_MEMBERS[1].id, memberName: PROFIT_SHARING_MEMBERS[1].name, percentage: 60, amount: viAmount },
-  ];
-}
-
-function normalizeMemberAllocations(raw: unknown, profit: number, firstShare: number, secondShare: number) {
-  const rows = Array.isArray(raw) ? raw.flatMap((item) => item && typeof item === "object" && !Array.isArray(item)
-    ? [item as Record<string, unknown>]
-    : []) : [];
-  const amountFor = (memberId: string, memberName: string, fallback: number) => {
-    const match = rows.find((row) => row.memberId === memberId || row.memberName === memberName);
-    return match ? safeStoredVnd(match.amount) : fallback;
-  };
-  const viAmount = amountFor(PROFIT_SHARING_MEMBERS[1].id, PROFIT_SHARING_MEMBERS[1].name, firstShare);
-  const thuyAmount = amountFor(PROFIT_SHARING_MEMBERS[0].id, PROFIT_SHARING_MEMBERS[0].name, secondShare);
-  if (viAmount + thuyAmount === 0 && profit > 0) return memberAllocations(profit);
-  return [
-    { memberId: PROFIT_SHARING_MEMBERS[0].id, memberName: PROFIT_SHARING_MEMBERS[0].name, percentage: 40, amount: thuyAmount },
-    { memberId: PROFIT_SHARING_MEMBERS[1].id, memberName: PROFIT_SHARING_MEMBERS[1].name, percentage: 60, amount: viAmount },
-  ];
-}
-
-function parseProfitSharing(value: string): ProfitSharingHistory | null {
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-    const raw = parsed as Record<string, unknown>;
-    const period = String(raw.period ?? "");
-    if (!validPeriod(period)) return null;
-    const profit = safeStoredVnd(raw.distributableProfit ?? raw.profit);
-    const firstShare = safeStoredVnd(raw.firstShare);
-    const secondShare = safeStoredVnd(raw.secondShare);
-    const allocations = normalizeMemberAllocations(raw.memberAllocations, profit, firstShare, secondShare);
-    const storeAllocations = Array.isArray(raw.storeAllocations) ? raw.storeAllocations.flatMap((item) => {
-      if (!item || typeof item !== "object" || Array.isArray(item)) return [];
-      const row = item as Record<string, unknown>;
-      const distributableProfit = safeStoredVnd(row.distributableProfit);
-      return [{
-        storeId: String(row.storeId ?? ""),
-        storeName: String(row.storeName ?? row.storeId ?? "Cửa hàng"),
-        revenue: safeStoredVnd(row.revenue),
-        expense: safeStoredVnd(row.expense),
-        finalProfit: Number(row.finalProfit ?? 0),
-        distributableProfit,
-        settlementStatus: row.settlementStatus === "LOCKED" ? "LOCKED" as const : "PROVISIONAL" as const,
-        memberAllocations: normalizeMemberAllocations(row.memberAllocations, distributableProfit, 0, 0),
-      }];
-    }) : [];
-    const revenue = safeStoredVnd(raw.revenue);
-    const expense = safeStoredVnd(raw.expense);
-    const rawTotals = raw.totals && typeof raw.totals === "object" && !Array.isArray(raw.totals)
-      ? raw.totals as Record<string, unknown>
-      : null;
-    const storedAccountingProfit = raw.accountingProfit ?? rawTotals?.finalProfit;
-    const accountingProfit = storedAccountingProfit === undefined ? revenue - expense : Number(storedAccountingProfit);
-    return {
-      version: Number(raw.version ?? 1),
-      period,
-      revenue,
-      expense,
-      profit,
-      accountingProfit: Number.isSafeInteger(accountingProfit) ? accountingProfit : revenue - expense,
-      distributableProfit: profit,
-      memberAllocations: allocations,
-      storeAllocations,
-      totals: { revenue, expense, finalProfit: Number.isSafeInteger(accountingProfit) ? accountingProfit : revenue - expense, distributableProfit: profit, memberAllocations: allocations },
-      firstShare: allocations.find((item) => item.memberId === PROFIT_SHARING_MEMBERS[1].id)?.amount ?? firstShare,
-      secondShare: allocations.find((item) => item.memberId === PROFIT_SHARING_MEMBERS[0].id)?.amount ?? secondShare,
-      status: "LOCKED",
-      closedAt: String(raw.closedAt ?? ""),
-      closedBy: String(raw.closedBy ?? ""),
-      legacy: !Array.isArray(raw.storeAllocations),
-    };
-  } catch {
-    return null;
-  }
 }
 
 function totals(stores: FinanceSnapshot[]) {
@@ -182,28 +97,25 @@ function effectiveness(current: FinanceSnapshot, previous: FinanceSnapshot | nul
   return evaluateFinancePerformance(current, previous, percentChange);
 }
 
-async function reportData(db: Awaited<ReturnType<typeof initDb>>, period: string, onlyStoreId?: string | null) {
-  const range = localMonthRange(period);
-  const previousRange = previousComparableDateRange(range, "month");
-  const optionsResult = await db.prepare(`
-    SELECT id, name, status, created_at AS createdAt
-    FROM stores WHERE status IN ('ACTIVE', 'INACTIVE') ORDER BY created_at
-  `).all<StoreOption>();
-  const storeOptions = onlyStoreId
-    ? optionsResult.results.filter((store) => store.id === onlyStoreId)
-    : optionsResult.results;
-  const report = await reportRangeData(db, range, previousRange, "month", onlyStoreId ?? null, storeOptions);
-  return {
-    ...report,
-    period,
-    previousPeriod: previousRange.to.slice(0, 7),
-    range,
-    previousRange,
-  };
-}
-
 type Granularity = "day" | "month";
+type FixedCostRecognition = "ACCRUAL" | "FULL_ENDING_PERIOD";
 type StoreOption = { id: string; name: string; status: string; createdAt: string };
+
+function fixedCostRecognitionForRange(params: URLSearchParams, range: LocalDateRange): FixedCostRecognition {
+  if (!params.has("from") && !params.has("to")) return "FULL_ENDING_PERIOD";
+
+  // The main report opens on the current month-to-date. That whole-period
+  // selection must agree with each store's monthly financial view: fixed
+  // costs, manager salary and KPI are recognized in full. A genuinely partial
+  // custom range (for example one day or one week) keeps daily accrual
+  // semantics so revenue and expense always describe the same date window.
+  const endingMonth = localMonthRange(range.to.slice(0, 7));
+  const today = localDate();
+  const finalAvailableDay = endingMonth.to > today ? today : endingMonth.to;
+  return range.from <= endingMonth.from && range.to === finalAvailableDay
+    ? "FULL_ENDING_PERIOD"
+    : "ACCRUAL";
+}
 
 function reportRange(params: URLSearchParams, period: string, granularity: Granularity) {
   const from = params.get("from");
@@ -252,12 +164,13 @@ async function reportRangeData(
   granularity: Granularity,
   storeId: string | null,
   storeOptions: StoreOption[],
+  fixedCostRecognition: FixedCostRecognition,
 ) {
   const ids = storeId ? [storeId] : storeOptions.map((store) => store.id);
   const rows = await Promise.all(ids.map(async (id) => {
     const [current, previous] = await Promise.all([
-      storeDateRangeFinance(db, id, range),
-      storeDateRangeFinance(db, id, previousRange),
+      storeDateRangeFinance(db, id, range, { fixedCostRecognition, payrollRecognition: "PREVIEW" }),
+      storeDateRangeFinance(db, id, previousRange, { fixedCostRecognition, payrollRecognition: "PREVIEW" }),
     ]);
     return { current, previous };
   }));
@@ -296,45 +209,116 @@ async function reportRangeData(
   };
 }
 
-function profitSharingSnapshot(period: string, stores: Array<{ current: StoreDateRangeFinance }>) {
-  const storeShares = allocateStoreProfitSharing(stores.map(({ current }) => current.profit));
-  const storeAllocations: StoreProfitAllocation[] = stores.map(({ current }, index) => {
-    const share = storeShares[index];
-    const distributableProfit = share?.distributableProfit ?? 0;
+type CanonicalProfitDistribution = ProfitDistributionPreview | ProfitDistributionRecord;
+
+function uiMemberAllocations(distribution: CanonicalProfitDistribution): MemberProfitAllocation[] {
+  return distribution.members.map((member) => ({
+    memberId: member.memberId,
+    memberName: member.name,
+    percentage: member.rateBasisPoints / 100,
+    amount: member.amount,
+  }));
+}
+
+function uiStoreAllocations(distribution: CanonicalProfitDistribution): StoreProfitAllocation[] {
+  const memberPolicies = distribution.members.map((member) => ({
+    memberId: member.memberId,
+    name: member.name,
+    rateBasisPoints: member.rateBasisPoints,
+    memberSnapshot: member.memberSnapshot,
+    ordinal: member.ordinal,
+  }));
+  return distribution.stores.map((store) => {
+    const snapshot = parsePersistedFinancialPeriodSnapshot(store.financialSnapshot);
+    const allocations = allocateProfitSharingMembers(store.distributableProfit, memberPolicies);
     return {
-      storeId: current.id,
-      storeName: current.name,
-      revenue: current.revenue,
-      expense: current.expense,
-      finalProfit: current.profit,
-      distributableProfit,
-      settlementStatus: current.settlementStatus,
-      memberAllocations: [
-        { memberId: PROFIT_SHARING_MEMBERS[0].id, memberName: PROFIT_SHARING_MEMBERS[0].name, percentage: 40, amount: share?.firstShareAmount ?? 0 },
-        { memberId: PROFIT_SHARING_MEMBERS[1].id, memberName: PROFIT_SHARING_MEMBERS[1].name, percentage: 60, amount: share?.secondShareAmount ?? 0 },
-      ],
+      storeId: store.storeId,
+      storeName: store.storeName,
+      revenue: snapshot.finance.grossRevenue,
+      expense: snapshot.finance.totalExpense,
+      finalProfit: snapshot.finance.finalProfit,
+      distributableProfit: snapshot.finance.distributableProfit,
+      settlementStatus: "LOCKED",
+      memberAllocations: allocations.map((member) => ({
+        memberId: member.memberId,
+        memberName: member.name,
+        percentage: member.rateBasisPoints / 100,
+        amount: member.amount,
+      })),
     };
   });
+}
+
+function uiProfitSharingSummary(distribution: CanonicalProfitDistribution) {
+  const memberAllocations = uiMemberAllocations(distribution);
+  const storeAllocations = uiStoreAllocations(distribution);
   const revenue = sumVnd(storeAllocations.map((store) => store.revenue));
   const expense = sumVnd(storeAllocations.map((store) => store.expense));
-  const finalProfit = revenue - expense;
-  const distributableProfit = sumVnd(storeAllocations.map((store) => store.distributableProfit));
-  const thuyAmount = sumVnd(storeAllocations.map((store) => store.memberAllocations[0]?.amount ?? 0));
-  const viAmount = sumVnd(storeAllocations.map((store) => store.memberAllocations[1]?.amount ?? 0));
-  const allocations: MemberProfitAllocation[] = [
-    { memberId: PROFIT_SHARING_MEMBERS[0].id, memberName: PROFIT_SHARING_MEMBERS[0].name, percentage: 40, amount: thuyAmount },
-    { memberId: PROFIT_SHARING_MEMBERS[1].id, memberName: PROFIT_SHARING_MEMBERS[1].name, percentage: 60, amount: viAmount },
-  ];
   return {
-    period,
+    period: distribution.period,
     revenue,
     expense,
-    finalProfit,
-    distributableProfit,
-    memberAllocations: allocations,
+    finalProfit: distribution.totalFinalProfit,
+    distributableProfit: distribution.totalDistributableProfit,
+    memberAllocations,
     storeAllocations,
-    totals: { revenue, expense, finalProfit, distributableProfit, memberAllocations: allocations },
+    totals: {
+      revenue,
+      expense,
+      finalProfit: distribution.totalFinalProfit,
+      distributableProfit: distribution.totalDistributableProfit,
+      memberAllocations,
+    },
   };
+}
+
+function uiProfitSharingHistory(record: ProfitDistributionRecord): ProfitSharingHistory {
+  const summary = uiProfitSharingSummary(record);
+  return {
+    version: 3,
+    period: record.period,
+    revenue: summary.revenue,
+    expense: summary.expense,
+    profit: record.totalDistributableProfit,
+    accountingProfit: record.totalFinalProfit,
+    distributableProfit: record.totalDistributableProfit,
+    memberAllocations: summary.memberAllocations,
+    storeAllocations: summary.storeAllocations,
+    totals: summary.totals,
+    status: "LOCKED",
+    closedAt: record.closedAt,
+    closedBy: record.closedBy,
+    reason: record.reason,
+  };
+}
+
+function profitSharingMembers(distribution: CanonicalProfitDistribution | null) {
+  return distribution?.members.map((member) => ({
+    id: member.memberId,
+    name: member.name,
+    percentage: member.rateBasisPoints / 100,
+  })) ?? [];
+}
+
+function distributionErrorMessage(error: ProfitDistributionError) {
+  const messages: Record<ProfitDistributionError["code"], string> = {
+    INVALID_INPUT: "Dữ liệu chia lợi nhuận không hợp lệ.",
+    MISSING_PERIOD: "Chưa đủ kỳ tài chính của tất cả cửa hàng để chia lợi nhuận.",
+    PERIOD_NOT_LOCKED: "Còn cửa hàng chưa khóa kỳ tài chính.",
+    CORRUPT_SNAPSHOT: "Snapshot tài chính đã khóa không hợp lệ; cần đối soát trước khi chia.",
+    POLICY_MISMATCH: "Các cửa hàng không dùng cùng phiên bản chính sách đã khóa.",
+    POLICY_NOT_CONFIGURED: "Chính sách chia lợi nhuận chưa được cấu hình hợp lệ.",
+    ALREADY_CLOSED: "Kỳ chia lợi nhuận này đã được chốt và khóa.",
+    INTEGRITY_ERROR: "Dữ liệu chia lợi nhuận đã khóa không toàn vẹn.",
+    ATOMIC_WRITE_FAILED: "Không thể ghi nhận chia lợi nhuận an toàn; không có dữ liệu dở dang được lưu.",
+  };
+  return messages[error.code];
+}
+
+function distributionErrorStatus(error: ProfitDistributionError) {
+  if (error.code === "INVALID_INPUT") return 400;
+  if (error.code === "INTEGRITY_ERROR" || error.code === "ATOMIC_WRITE_FAILED") return 500;
+  return 409;
 }
 
 export async function GET(request: Request) {
@@ -374,18 +358,82 @@ export async function GET(request: Request) {
   if (storeId && !storeOptions.some((store) => store.id === storeId)) {
     return json({ message: "Cửa hàng không tồn tại." }, 404);
   }
-  const data = await reportRangeData(db, range, previousRange, granularity, storeId, storeOptions);
-  const historyRows = globalStoreAccess
-    ? await db.prepare("SELECT data_json AS dataJson FROM business_records WHERE category = 'DIVIDEND' AND status = 'LOCKED' ORDER BY created_at DESC LIMIT 36")
-      .all<{ dataJson: string }>()
-    : { results: [] as Array<{ dataJson: string }> };
-  const profitSharingHistory = historyRows.results.flatMap((row) => {
-    const item = parseProfitSharing(row.dataJson);
-    return item ? [item] : [];
-  });
-  const profitSharingPreview = globalStoreAccess
-    ? profitSharingSnapshot(range.to.slice(0, 7), data.stores)
-    : null;
+  const fixedCostRecognition = fixedCostRecognitionForRange(params, range);
+  const usesFullEndingPeriodFixedCosts = fixedCostRecognition === "FULL_ENDING_PERIOD";
+  const data = await reportRangeData(
+    db,
+    range,
+    previousRange,
+    granularity,
+    storeId,
+    storeOptions,
+    fixedCostRecognition,
+  );
+  const distributionPeriod = range.to.slice(0, 7);
+  let currentDistribution: ProfitDistributionRecord | null = null;
+  let previewDistribution: ProfitDistributionPreview | null = null;
+  let profitSharingHistory: ProfitSharingHistory[] = [];
+  let profitSharingReadiness: null | {
+    ready: boolean;
+    status: "READY" | "LOCKED" | "UNAVAILABLE";
+    code: string;
+    message: string;
+  } = null;
+  if (globalStoreAccess) {
+    try {
+      const [current, summaries] = await Promise.all([
+        readProfitDistribution(db, distributionPeriod),
+        listProfitDistributions(db, { limit: 36 }),
+      ]);
+      currentDistribution = current;
+      const historyRecords = await Promise.all(summaries.map(async (summary) => {
+        const record = summary.period === distributionPeriod && current
+          ? current
+          : await readProfitDistribution(db, summary.period);
+        if (!record) {
+          throw new ProfitDistributionError("INTEGRITY_ERROR", `Missing immutable distribution ${summary.period}`);
+        }
+        return record;
+      }));
+      if (current && !historyRecords.some((record) => record.period === current.period)) {
+        historyRecords.unshift(current);
+      }
+      profitSharingHistory = historyRecords.map(uiProfitSharingHistory);
+      if (currentDistribution) {
+        profitSharingReadiness = {
+          ready: false,
+          status: "LOCKED",
+          code: "ALREADY_CLOSED",
+          message: "Kỳ chia lợi nhuận đã được khóa và chỉ đọc từ snapshot bất biến.",
+        };
+      } else {
+        try {
+          previewDistribution = await previewProfitDistribution(db, distributionPeriod);
+          profitSharingReadiness = {
+            ready: true,
+            status: "READY",
+            code: "READY",
+            message: "Tất cả cửa hàng đã khóa kỳ; có thể xác nhận chia lợi nhuận.",
+          };
+        } catch (error) {
+          if (!(error instanceof ProfitDistributionError)) throw error;
+          profitSharingReadiness = {
+            ready: false,
+            status: "UNAVAILABLE",
+            code: error.code,
+            message: distributionErrorMessage(error),
+          };
+        }
+      }
+    } catch (error) {
+      if (error instanceof ProfitDistributionError) {
+        return json({ message: distributionErrorMessage(error), code: error.code }, distributionErrorStatus(error));
+      }
+      throw error;
+    }
+  }
+  const memberSource = currentDistribution ?? previewDistribution;
+  const profitSharingPreview = previewDistribution ? uiProfitSharingSummary(previewDistribution) : null;
   return json({
     ...data,
     period: range.to.slice(0, 7),
@@ -401,13 +449,17 @@ export async function GET(request: Request) {
       timeZone: "Asia/Ho_Chi_Minh",
       endDateInclusive: true,
       directActivity: "Ca làm và chi phí có ngày được ghi nhận đúng ngày nghiệp vụ.",
-      monthlyAccrual: "Chi phí cố định được phân bổ theo ngày cửa hàng hoạt động; lương quản lý chỉ ghi nhận một lần vào ngày cuối kỳ sau khi xác nhận đã chi.",
-      performanceRewards: "KPI nhân viên và quản lý chỉ được ghi nhận từ ảnh chụp kỳ đã khóa; kỳ chưa khóa có trạng thái PROVISIONAL.",
+      monthlyAccrual: usesFullEndingPeriodFixedCosts
+        ? "Chi phí cố định, lương quản lý và KPI của tháng kết thúc phạm vi được ghi nhận đủ một lần; kỳ mở dùng chính sách hiện hành, kỳ đã khóa giữ nguyên bản chốt."
+        : "Chi phí cố định, lương quản lý và KPI được phân bổ theo ngày trong phạm vi tùy chọn; kỳ mở dùng chính sách hiện hành, kỳ đã khóa giữ nguyên bản chốt.",
+      performanceRewards: "Thưởng KPI kỳ mở là số xem trước theo chính sách hiện hành; kỳ đã khóa chỉ dùng ảnh chụp bất biến.",
     },
-    profitSharingMembers: globalStoreAccess ? PROFIT_SHARING_MEMBERS : [],
+    profitSharingMembers: globalStoreAccess ? profitSharingMembers(memberSource) : [],
     profitSharingPreview,
     profitSharingHistory,
     dividendHistory: profitSharingHistory,
+    profitSharingReadiness,
+    profitSharingMessage: profitSharingReadiness?.message ?? null,
   });
 }
 
@@ -415,57 +467,29 @@ export async function POST(request: Request) {
   const user = await getSessionUser(request);
   if (!user || user.role !== "MANAGER") return json({ message: "Không có quyền chốt chia lợi nhuận." }, 403);
   if (!managerHasGlobalStoreAccess(user)) return json({ message: MANAGER_STORE_SCOPE_MESSAGE }, 403);
-  const body = await request.json().catch(() => ({})) as { action?: string; period?: string };
+  const body = await request.json().catch(() => ({})) as { action?: string; period?: string; reason?: string };
   const period = body.period ?? "";
   const validAction = body.action === "CLOSE_PROFIT_SHARING" || body.action === "CLOSE_DIVIDEND";
   if (!validAction || !validPeriod(period)) return json({ message: "Thao tác hoặc kỳ chia lợi nhuận không hợp lệ." }, 400);
   if (period >= localPeriod()) return json({ message: "Chỉ được chốt chia lợi nhuận sau khi kỳ tháng đã kết thúc." }, 409);
   const db = await initDb();
-  const report = await reportData(db, period);
-  if (report.stores.length === 0) return json({ message: "Không có cửa hàng hoạt động trong kỳ để chốt chia lợi nhuận." }, 409);
-  const unlocked: string[] = [];
-  for (const store of report.stores) {
-    const closing = await db.prepare("SELECT id FROM business_records WHERE category = 'PAYROLL_CLOSING' AND store_id = ? AND status = 'LOCKED' AND json_extract(data_json, '$.period') = ? LIMIT 1")
-      .bind(store.current.id, period).first<{ id: string }>();
-    if (!closing) unlocked.push(store.current.id);
-  }
-  if (unlocked.length) return json({ message: `Còn ${unlocked.length} cửa hàng chưa khóa kỳ lương. Hãy hoàn tất trước khi chia lợi nhuận.` }, 409);
-
-  const id = `dividend:${period}`;
-  const existing = await db.prepare("SELECT id FROM business_records WHERE id = ? AND category = 'DIVIDEND' AND status = 'LOCKED' LIMIT 1")
-    .bind(id).first<{ id: string }>();
-  if (existing) return json({ message: "Kỳ chia lợi nhuận này đã được chốt và khóa." }, 409);
-
-  const snapshot = profitSharingSnapshot(period, report.stores);
-  const firstShare = snapshot.memberAllocations.find((item) => item.memberId === PROFIT_SHARING_MEMBERS[1].id)?.amount ?? 0;
-  const secondShare = snapshot.memberAllocations.find((item) => item.memberId === PROFIT_SHARING_MEMBERS[0].id)?.amount ?? 0;
-  const closedAt = new Date().toISOString();
-  const record: ProfitSharingHistory = {
-    version: 2,
-    period,
-    revenue: snapshot.revenue,
-    expense: snapshot.expense,
-    profit: snapshot.distributableProfit,
-    accountingProfit: snapshot.finalProfit,
-    distributableProfit: snapshot.distributableProfit,
-    memberAllocations: snapshot.memberAllocations,
-    storeAllocations: snapshot.storeAllocations,
-    totals: snapshot.totals,
-    firstShare,
-    secondShare,
-    status: "LOCKED",
-    closedAt,
-    closedBy: user.id,
-  };
+  const reason = body.reason?.trim() || "Xác nhận chia lợi nhuận cuối kỳ trên báo cáo tài chính.";
   try {
-    await db.prepare("INSERT INTO business_records (id, category, store_id, owner_id, title, data_json, status, created_at, updated_at) VALUES (?, 'DIVIDEND', NULL, ?, ?, ?, 'LOCKED', ?, ?)")
-      .bind(id, user.id, `Chia lợi nhuận ${period}`, JSON.stringify(record), closedAt, closedAt).run();
+    const canonicalRecord = await closeProfitDistribution(db, {
+      period,
+      actorId: user.id,
+      reason,
+    });
+    const record = uiProfitSharingHistory(canonicalRecord);
+    return json({
+      record,
+      profitSharingMembers: profitSharingMembers(canonicalRecord),
+      message: "Đã xác nhận chia lợi nhuận từ snapshot tài chính đã khóa và khóa sổ phân chia.",
+    }, 201);
   } catch (error) {
-    const current = await db.prepare("SELECT id FROM business_records WHERE id = ? AND category = 'DIVIDEND' AND status = 'LOCKED' LIMIT 1")
-      .bind(id).first<{ id: string }>();
-    if (current) return json({ message: "Kỳ chia lợi nhuận này đã được chốt và khóa." }, 409);
+    if (error instanceof ProfitDistributionError) {
+      return json({ message: distributionErrorMessage(error), code: error.code }, distributionErrorStatus(error));
+    }
     throw error;
   }
-  await writeAudit(user.id, "PROFIT_SHARING_PERIOD_CLOSE", "DIVIDEND", id, JSON.stringify(record));
-  return json({ record, message: "Đã xác nhận chia lợi nhuận, ghi lịch sử theo từng cửa hàng và khóa kỳ." }, 201);
 }

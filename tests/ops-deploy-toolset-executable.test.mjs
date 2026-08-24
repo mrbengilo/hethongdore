@@ -164,7 +164,10 @@ async function runPreDeployGate({ backupFails }) {
     `#!/usr/bin/env bash\nprintf '%s\\n' backup >> ${JSON.stringify(slash(log))}\n${backupOutcome}`,
     "utf8",
   );
-  await chmod(backupTool, 0o755);
+  // Windows-created release archives commonly restore shell scripts as 0640.
+  // The deployment gate must invoke this readable, non-executable file through
+  // bash instead of attempting to execute it directly.
+  await chmod(backupTool, 0o640);
 
   const deploy = await readFile(deployUrl, "utf8");
   const start = deploy.indexOf("trap cleanup_deploy_artifacts EXIT");
@@ -355,7 +358,7 @@ ${normalizedMode}
   }
 });
 
-test("pre-deploy backup gate runs before switching and aborts promotion on backup failure", async (t) => {
+test("pre-deploy backup gate accepts a non-executable backup script and aborts promotion on backup failure", async (t) => {
   if (process.platform === "win32" && spawnSync(bash, ["--version"]).error) {
     t.skip("Git Bash is not installed");
     return;

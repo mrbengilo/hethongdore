@@ -85,7 +85,7 @@ test("termination in July and reactivation in August keep historical payroll and
   const julyBefore = await preview("2026-07");
   const julyEmployeeBefore = julyBefore.items.find((item) => item.employeeId === "employee-period");
   assert.equal(julyEmployeeBefore.employmentStatus, "INACTIVE");
-  assert.equal(julyEmployeeBefore.kpiEligible, false);
+  assert.equal(julyEmployeeBefore.kpiEligible, true);
   assert.equal(julyEmployeeBefore.kpiBonus, 0);
   assert.equal(julyBefore.costBreakdown.employeeKpiBonus, 0);
 

@@ -202,30 +202,20 @@ export type StoreProfitShareAllocation = {
 };
 
 /**
- * Distribute the positive system-wide final profit back to profitable stores.
- * Store losses therefore reduce the amount that can actually be shared, while
- * cumulative rounding keeps every VND and the 40/60 member totals exact.
+ * Keep each store's distributable result independent. A loss at one store is
+ * never allowed to consume a different store's positive final profit.
+ *
+ * The 40/60 fields remain as a legacy read-model compatibility shape. New
+ * distribution writes resolve their member policy from the locked financial
+ * period and use the normalized profit-distribution ledger instead.
  */
 export function allocateStoreProfitSharing(finalProfits: number[]): StoreProfitShareAllocation[] {
   const normalized = finalProfits.map((value) => requireVnd(value, "Lợi nhuận sau cùng", true));
-  const signedTotal = normalized.reduce((total, value) => total + BigInt(value), 0n);
-  const systemFinalProfit = Number(signedTotal);
-  if (!Number.isSafeInteger(systemFinalProfit)) throw new Error("Tổng lợi nhuận vượt giới hạn an toàn.");
-  const totalDistributable = Math.max(0, systemFinalProfit);
-  const positiveProfits = normalized.map((value) => Math.max(0, value));
-  const totalPositiveProfit = sumVnd(positiveProfits);
-  let cumulativePositiveProfit = 0;
-  let allocatedProfit = 0;
   let cumulativeDistributable = 0;
   let allocatedFirstShare = 0;
 
-  return normalized.map((finalProfit, index) => {
-    cumulativePositiveProfit += positiveProfits[index];
-    const targetProfit = totalPositiveProfit > 0
-      ? multiplyRatioVnd(totalDistributable, cumulativePositiveProfit, totalPositiveProfit)
-      : 0;
-    const distributableProfit = targetProfit - allocatedProfit;
-    allocatedProfit = targetProfit;
+  return normalized.map((finalProfit) => {
+    const distributableProfit = Math.max(0, finalProfit);
     cumulativeDistributable += distributableProfit;
     const targetFirstShare = multiplyRatioVnd(cumulativeDistributable, 40, 100);
     const firstShareAmount = targetFirstShare - allocatedFirstShare;
@@ -338,8 +328,6 @@ export function tenderDifferences(expected: TenderTotals, entered: TenderTotals)
     bankTransfer: requireVnd(entered.bankTransfer, "Chuyển khoản") - requireVnd(expected.bankTransfer, "Chuyển khoản theo đơn"),
   };
 }
-
-export const MANAGER_MONTHLY_SALARY_VND = 3_000_000;
 
 /**
  * Freeze the final performance-reward layer without feeding either reward back

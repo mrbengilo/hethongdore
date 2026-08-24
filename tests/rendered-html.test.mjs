@@ -38,14 +38,12 @@ test("contains core role and finance rules", async () => {
     readFile(new URL("../app/api/payroll/route.ts", import.meta.url), "utf8"),
   ]);
   assert.doesNotMatch(portal, /2% lợi nhuận|KPI 2%/u);
-  assert.match(payrollRules, /MANAGER_FIXED_WORK_HOURS_PER_STORE = 140/u);
-  assert.match(payrollApi, /managerHoursPerStore: MANAGER_FIXED_WORK_HOURS_PER_STORE/u);
-  assert.match(portal, />= 7000/u);
-  assert.match(portal, />= 15000/u);
-  assert.match(portal, />= 30000/u);
-  assert.match(portal, /0\.03/u);
-  assert.match(portal, /0\.05/u);
-  assert.match(portal, /0\.07/u);
+  assert.doesNotMatch(payrollRules, /MANAGER_FIXED_WORK_HOURS_PER_STORE|managerFixedHours/u);
+  assert.doesNotMatch(payrollApi, /MANAGER_FIXED_WORK_HOURS_PER_STORE|managerFixedHours/u);
+  assert.match(payrollApi, /managerHoursPerStore: 0/u);
+  assert.doesNotMatch(portal, /salaryPerStore: 3_000_000|managerHoursPerStore: 140|\?\? 140/u);
+  assert.match(portal, /Finance Engine/u);
+  assert.match(portal, /snapshot/u);
   assert.doesNotMatch(runtime, /DORE SÓC TRĂNG|nv001/u);
   assert.match(login, /attempts >= 10/u);
   assert.match(login, /15 \* 60 \* 1000/u);
@@ -120,25 +118,27 @@ test("persists and exposes stable shift identity and Vietnamese work dates", asy
 });
 
 test("implements non-stacking monthly KPI snapshots", async () => {
-  const [payrollRules, payrollApi, payrollTests] = await Promise.all([
-    readFile(new URL("../app/lib/payroll.ts", import.meta.url), "utf8"),
+  const [kpiEngine, payrollPolicy, payrollApi, payrollTests] = await Promise.all([
+    readFile(new URL("../app/lib/kpi-engine.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/lib/payroll-policy.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/payroll/route.ts", import.meta.url), "utf8"),
     readFile(new URL("./payroll-formula.test.mjs", import.meta.url), "utf8"),
   ]);
-  assert.match(payrollRules, /employeeKpiRate/u);
-  assert.match(payrollRules, /0\.03/u);
-  assert.match(payrollRules, /0\.05/u);
-  assert.match(payrollRules, /0\.07/u);
-  assert.match(payrollRules, /employeeSeconds, totalSeconds/u);
+  assert.match(kpiEngine, /export function calculateKpi/u);
+  assert.match(payrollPolicy, /minimumProfitPerHour: 30_000, rateBasisPoints: 700/u);
+  assert.match(payrollPolicy, /minimumProfitPerHour: 15_000, rateBasisPoints: 500/u);
+  assert.match(payrollPolicy, /minimumProfitPerHour: 7_000, rateBasisPoints: 300/u);
+  assert.match(kpiEngine, /employeeRateBps/u);
+  assert.match(kpiEngine, /totalSeconds/u);
   assert.match(payrollApi, /KPI_SUMMARY/u);
   assert.match(payrollApi, /LOCKED/u);
-  assert.match(payrollApi, /distributeStoreKpiByPolicy/u);
-  assert.match(payrollRules, /INACTIVE_EMPLOYEE_KPI_MIN_COMPLETED_SHIFTS = 15/u);
+  assert.match(payrollApi, /calculateKpi/u);
+  assert.match(payrollApi, /loadFinancialPolicyForPeriod/u);
+  assert.match(payrollApi, /actualSeconds: item\.durationSeconds/u);
   assert.match(payrollApi, /user\.employeeId/u);
-  assert.match(payrollTests, /6_999/u);
-  assert.match(payrollTests, /7_000/u);
-  assert.match(payrollTests, /15_000/u);
-  assert.match(payrollTests, /30_000/u);
+  assert.match(payrollTests, /canonical KPI uses actual employee seconds/u);
+  assert.match(payrollTests, /archived-after-period/u);
+  assert.match(payrollTests, /non-positive operating profit/u);
 });
 
 test("persists transfers and derives temporary store access server-side", async () => {
@@ -184,13 +184,26 @@ test("wires persistent functional modules", async () => {
 test("legacy manager payroll components cannot create records with an obsolete formula", async () => {
   const components = await Promise.all([
     readFile(new URL("../app/components/FunctionalModules.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/components/ReferenceManagerModules.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/Portal.tsx", import.meta.url), "utf8"),
   ]);
   for (const component of components) {
     assert.doesNotMatch(component, /MANAGER_PAYROLL|2% lợi nhuận|\.02/u);
-    assert.match(component, /140 giờ/u);
-    assert.match(component, /3%, 5% hoặc 7%/u);
+    assert.doesNotMatch(component, /3\.000\.000|3_000_000|140 giờ|3%, 5% hoặc 7%/u);
+    assert.match(component, /Finance Engine/u);
+    assert.match(component, /snapshot/u);
   }
+});
+
+test("payroll UIs do not invent legacy manager hours, salary, or KPI tiers", async () => {
+  const [portal, storePayroll] = await Promise.all([
+    readFile(new URL("../app/components/Portal.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/ReferenceStoreModules.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.doesNotMatch(portal, /salaryPerStore: 3_000_000|managerHoursPerStore: 140|\?\? 140|cơ chế lịch sử/u);
+  assert.doesNotMatch(storePayroll, /managerFixedHours|140 giờ|Một ngưỡng duy nhất/u);
+  assert.match(portal, /chính sách có phiên bản/u);
+  assert.match(storePayroll, /Finance Engine/u);
+  assert.match(storePayroll, /snapshot bất biến/u);
 });
 
 test("provides reference-style store shift and schedule modules", async () => {

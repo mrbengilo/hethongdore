@@ -1,4 +1,9 @@
 import { isOvernightShift, shiftDurationMinutes, validClock } from "./scheduling";
+import {
+  incomingStorePeriodUnlockedSql,
+  isStorePeriodLocked,
+  storePeriodUnlockedSql,
+} from "../api/_lib/store-period-lock";
 
 const requestIdPattern = /^[a-zA-Z0-9:_-]{16,200}$/u;
 const datePattern = /^\d{4}-(0[1-9]|1[0-2])-([0-2]\d|3[01])$/u;
@@ -31,13 +36,18 @@ export type DailyShiftValues = {
 };
 
 export class DailyShiftConflictError extends Error {
-  readonly reason: "DUPLICATE" | "STALE" | "REQUEST_MISMATCH" | "INACTIVE" | "FORBIDDEN";
+  readonly reason: "DUPLICATE" | "STALE" | "REQUEST_MISMATCH" | "INACTIVE" | "FORBIDDEN" | "LOCKED";
 
-  constructor(reason: "DUPLICATE" | "STALE" | "REQUEST_MISMATCH" | "INACTIVE" | "FORBIDDEN") {
+  constructor(reason: "DUPLICATE" | "STALE" | "REQUEST_MISMATCH" | "INACTIVE" | "FORBIDDEN" | "LOCKED") {
     super(reason);
     this.name = "DailyShiftConflictError";
     this.reason = reason;
   }
+}
+
+export function normalizeDailyShiftMutationReason(value: unknown) {
+  const reason = String(value ?? "").normalize("NFKC").trim().replace(/\s+/gu, " ");
+  return reason.length >= 5 && reason.length <= 500 ? reason : null;
 }
 
 async function storeIsActive(db: D1Database, storeId: string) {
@@ -139,12 +149,38 @@ export async function createDailyShift(db: D1Database, input: {
   clientRequestId: string;
   values: DailyShiftValues;
   now: string;
+  reason: string;
 }) {
   const id = await dailyShiftId(input.storeId, input.clientRequestId);
   const payloadHash = await dailyShiftPayloadHash(input.storeId, input.values);
-  let inserted = false;
+  const existingBefore = await getDailyShift(db, id);
+  if (existingBefore?.storeId === input.storeId
+    && existingBefore.clientRequestId === input.clientRequestId
+    && existingBefore.payloadHash === payloadHash
+    && existingBefore.status === "ACTIVE") {
+    return { status: "IDEMPOTENT" as const, id, version: existingBefore.version };
+  }
+  const reason = normalizeDailyShiftMutationReason(input.reason) ?? `Tạo ca làm việc ${input.values.name}`;
+  const after = {
+    id,
+    storeId: input.storeId,
+    workDate: input.values.workDate,
+    name: input.values.name,
+    nameKey: input.values.nameKey,
+    start: input.values.start,
+    end: input.values.end,
+    version: 1,
+    status: "ACTIVE",
+    clientRequestId: input.clientRequestId,
+    payloadHash,
+    createdAt: input.now,
+    updatedAt: input.now,
+    deletedAt: null,
+  };
+  let results: D1Result<unknown>[];
   try {
-    const result = await db.prepare(`INSERT INTO daily_shift_definitions
+    results = await db.batch([
+      db.prepare(`INSERT INTO daily_shift_definitions
         (id, store_id, work_date, name, name_key, start_time, end_time, status,
           version, client_request_id, payload_hash, created_by, created_at, updated_at, deleted_at)
       SELECT ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', 1, ?, ?, ?, ?, ?, NULL
@@ -154,17 +190,46 @@ export async function createDailyShift(db: D1Database, input: {
           WHERE actor.id = ? AND actor.role = 'MANAGER'
             AND (actor.is_super_admin = 1 OR actor.store_id IS NULL OR actor.store_id = ?)
         )
+        AND ${incomingStorePeriodUnlockedSql}
       ON CONFLICT(id) DO NOTHING`)
       .bind(
         id, input.storeId, input.values.workDate, input.values.name, input.values.nameKey,
         input.values.start, input.values.end, input.clientRequestId, payloadHash,
         input.actorId, input.now, input.now, input.storeId, input.actorId, input.storeId,
-      ).run();
-    inserted = affectedRows(result) === 1;
-  } catch {
-    throw new DailyShiftConflictError("DUPLICATE");
+        input.storeId, input.values.workDate.slice(0, 7),
+      ),
+      db.prepare(`INSERT INTO audit_logs
+          (id, user_id, store_id, action, entity_type, entity_id, detail,
+            before_json, after_json, reason, created_at)
+        SELECT ?, ?, shift.store_id, 'CREATE_DAILY_SHIFT', 'DAILY_SHIFT', shift.id, ?,
+          NULL, ?, ?, ?
+        FROM daily_shift_definitions shift
+        WHERE shift.id = ? AND shift.store_id = ? AND shift.status = 'ACTIVE'
+          AND shift.version = 1 AND shift.created_at = ?
+          AND shift.client_request_id = ? AND shift.payload_hash = ?`)
+        .bind(
+          `daily-shift-audit:create:${id}`, input.actorId,
+          `Tạo ${input.values.name} ngày ${input.values.workDate}`,
+          JSON.stringify(after), reason, input.now,
+          id, input.storeId, input.now, input.clientRequestId, payloadHash,
+        ),
+    ]);
+  } catch (error) {
+    const raced = await getDailyShift(db, id);
+    if (raced?.storeId === input.storeId
+      && raced.clientRequestId === input.clientRequestId
+      && raced.payloadHash === payloadHash
+      && raced.status === "ACTIVE") {
+      return { status: "IDEMPOTENT" as const, id, version: raced.version };
+    }
+    if (/UNIQUE constraint failed: daily_shift_definitions/iu.test(error instanceof Error ? error.message : String(error))) {
+      throw new DailyShiftConflictError("DUPLICATE");
+    }
+    throw error;
   }
-  if (inserted) return { status: "CREATED" as const, id, version: 1 };
+  if (affectedRows(results[0]) === 1 && affectedRows(results[1]) === 1) {
+    return { status: "CREATED" as const, id, version: 1 };
+  }
 
   const existing = await getDailyShift(db, id);
   if (existing?.storeId === input.storeId
@@ -175,6 +240,7 @@ export async function createDailyShift(db: D1Database, input: {
   }
   if (!await storeIsActive(db, input.storeId)) throw new DailyShiftConflictError("INACTIVE");
   if (!await actorCanManageStore(db, input.actorId, input.storeId)) throw new DailyShiftConflictError("FORBIDDEN");
+  if (await isStorePeriodLocked(db, input.storeId, input.values.workDate.slice(0, 7))) throw new DailyShiftConflictError("LOCKED");
   throw new DailyShiftConflictError("REQUEST_MISMATCH");
 }
 
@@ -185,10 +251,24 @@ export async function updateDailyShift(db: D1Database, input: {
   expectedVersion: number;
   values: DailyShiftValues;
   now: string;
+  reason: string;
 }) {
-  let result: unknown;
+  const before = await getDailyShift(db, input.id);
+  const reason = normalizeDailyShiftMutationReason(input.reason);
+  if (!reason) throw new TypeError("Daily shift update reason is required");
+  const after = before ? {
+    ...before,
+    name: input.values.name,
+    nameKey: input.values.nameKey,
+    start: input.values.start,
+    end: input.values.end,
+    version: input.expectedVersion + 1,
+    updatedAt: input.now,
+  } : null;
+  let results: D1Result<unknown>[];
   try {
-    result = await db.prepare(`UPDATE daily_shift_definitions SET
+    results = await db.batch([
+      db.prepare(`UPDATE daily_shift_definitions SET
         name = ?, name_key = ?, start_time = ?, end_time = ?, version = version + 1,
         updated_at = ?
       WHERE id = ? AND store_id = ? AND work_date = ? AND status = 'ACTIVE' AND version = ?
@@ -197,18 +277,41 @@ export async function updateDailyShift(db: D1Database, input: {
           SELECT 1 FROM users actor
           WHERE actor.id = ? AND actor.role = 'MANAGER'
             AND (actor.is_super_admin = 1 OR actor.store_id IS NULL OR actor.store_id = ?)
-        )`)
+        )
+        AND ${storePeriodUnlockedSql("daily_shift_definitions.store_id", "substr(daily_shift_definitions.work_date, 1, 7)")}`)
       .bind(
         input.values.name, input.values.nameKey, input.values.start, input.values.end, input.now,
         input.id, input.storeId, input.values.workDate, input.expectedVersion, input.storeId,
         input.actorId, input.storeId,
-      ).run();
-  } catch {
-    throw new DailyShiftConflictError("DUPLICATE");
+      ),
+      db.prepare(`INSERT INTO audit_logs
+          (id, user_id, store_id, action, entity_type, entity_id, detail,
+            before_json, after_json, reason, created_at)
+        SELECT ?, ?, shift.store_id, 'UPDATE_DAILY_SHIFT', 'DAILY_SHIFT', shift.id, ?,
+          ?, ?, ?, ?
+        FROM daily_shift_definitions shift
+        WHERE shift.id = ? AND shift.store_id = ? AND shift.status = 'ACTIVE'
+          AND shift.version = ? AND shift.updated_at = ?`)
+        .bind(
+          `daily-shift-audit:update:${input.id}:${input.expectedVersion + 1}`,
+          input.actorId, `Sửa ${input.values.name} ngày ${input.values.workDate}`,
+          JSON.stringify(before), JSON.stringify(after), reason, input.now,
+          input.id, input.storeId, input.expectedVersion + 1, input.now,
+        ),
+    ]);
+  } catch (error) {
+    if (/UNIQUE constraint failed: daily_shift_definitions/iu.test(error instanceof Error ? error.message : String(error))) {
+      throw new DailyShiftConflictError("DUPLICATE");
+    }
+    if (/UNIQUE constraint failed: audit_logs\.id/iu.test(error instanceof Error ? error.message : String(error))) {
+      throw new DailyShiftConflictError("STALE");
+    }
+    throw error;
   }
-  if (affectedRows(result) !== 1) {
+  if (affectedRows(results[0]) !== 1 || affectedRows(results[1]) !== 1) {
     if (!await storeIsActive(db, input.storeId)) throw new DailyShiftConflictError("INACTIVE");
     if (!await actorCanManageStore(db, input.actorId, input.storeId)) throw new DailyShiftConflictError("FORBIDDEN");
+    if (await isStorePeriodLocked(db, input.storeId, input.values.workDate.slice(0, 7))) throw new DailyShiftConflictError("LOCKED");
     throw new DailyShiftConflictError("STALE");
   }
   return { id: input.id, version: input.expectedVersion + 1 };
@@ -220,21 +323,58 @@ export async function deleteDailyShift(db: D1Database, input: {
   actorId: string;
   expectedVersion: number;
   now: string;
+  reason: string;
 }) {
-  const result = await db.prepare(`UPDATE daily_shift_definitions SET
-      status = 'DELETED', version = version + 1, updated_at = ?, deleted_at = ?
-    WHERE id = ? AND store_id = ? AND status = 'ACTIVE' AND version = ?
-      AND EXISTS (SELECT 1 FROM stores WHERE id = ? AND status = 'ACTIVE')
-      AND EXISTS (
-        SELECT 1 FROM users actor
-        WHERE actor.id = ? AND actor.role = 'MANAGER'
-          AND (actor.is_super_admin = 1 OR actor.store_id IS NULL OR actor.store_id = ?)
-      )`)
-    .bind(input.now, input.now, input.id, input.storeId, input.expectedVersion,
-      input.storeId, input.actorId, input.storeId).run();
-  if (affectedRows(result) !== 1) {
+  const before = await getDailyShift(db, input.id);
+  const reason = normalizeDailyShiftMutationReason(input.reason);
+  if (!reason) throw new TypeError("Daily shift delete reason is required");
+  const after = before ? {
+    ...before,
+    status: "DELETED",
+    version: input.expectedVersion + 1,
+    updatedAt: input.now,
+    deletedAt: input.now,
+  } : null;
+  let results: D1Result<unknown>[];
+  try {
+    results = await db.batch([
+      db.prepare(`UPDATE daily_shift_definitions SET
+        status = 'DELETED', version = version + 1, updated_at = ?, deleted_at = ?
+      WHERE id = ? AND store_id = ? AND status = 'ACTIVE' AND version = ?
+        AND EXISTS (SELECT 1 FROM stores WHERE id = ? AND status = 'ACTIVE')
+        AND EXISTS (
+          SELECT 1 FROM users actor
+          WHERE actor.id = ? AND actor.role = 'MANAGER'
+            AND (actor.is_super_admin = 1 OR actor.store_id IS NULL OR actor.store_id = ?)
+        )
+        AND ${storePeriodUnlockedSql("daily_shift_definitions.store_id", "substr(daily_shift_definitions.work_date, 1, 7)")}`)
+      .bind(input.now, input.now, input.id, input.storeId, input.expectedVersion,
+        input.storeId, input.actorId, input.storeId),
+      db.prepare(`INSERT INTO audit_logs
+          (id, user_id, store_id, action, entity_type, entity_id, detail,
+            before_json, after_json, reason, created_at)
+        SELECT ?, ?, shift.store_id, 'DELETE_DAILY_SHIFT', 'DAILY_SHIFT', shift.id, ?,
+          ?, ?, ?, ?
+        FROM daily_shift_definitions shift
+        WHERE shift.id = ? AND shift.store_id = ? AND shift.status = 'DELETED'
+          AND shift.version = ? AND shift.updated_at = ? AND shift.deleted_at = ?`)
+        .bind(
+          `daily-shift-audit:delete:${input.id}:${input.expectedVersion + 1}`,
+          input.actorId, `Xóa ca ngày ${before?.workDate ?? ""}`,
+          JSON.stringify(before), JSON.stringify(after), reason, input.now,
+          input.id, input.storeId, input.expectedVersion + 1, input.now, input.now,
+        ),
+    ]);
+  } catch (error) {
+    if (/UNIQUE constraint failed: audit_logs\.id/iu.test(error instanceof Error ? error.message : String(error))) {
+      throw new DailyShiftConflictError("STALE");
+    }
+    throw error;
+  }
+  if (affectedRows(results[0]) !== 1 || affectedRows(results[1]) !== 1) {
     if (!await storeIsActive(db, input.storeId)) throw new DailyShiftConflictError("INACTIVE");
     if (!await actorCanManageStore(db, input.actorId, input.storeId)) throw new DailyShiftConflictError("FORBIDDEN");
+    if (before?.workDate && await isStorePeriodLocked(db, input.storeId, before.workDate.slice(0, 7))) throw new DailyShiftConflictError("LOCKED");
     throw new DailyShiftConflictError("STALE");
   }
   return { id: input.id, version: input.expectedVersion + 1 };

@@ -47,6 +47,13 @@ test("every in-tree editor and drawer uses the shared modal guard", async () => 
   assert.match(scheduling, /ref=\{scheduleDialogRef\} role="dialog" aria-modal="true" aria-labelledby="schedule-editor-dialog-title" tabIndex=\{-1\}/u);
 });
 
+test("salary advance modal announces a failed mutation only inside the active dialog", async () => {
+  const panel = await source("../app/components/SalaryAdvancePanel.tsx");
+
+  assert.match(panel, /message && mode === null \? <p className=\{success \? styles\.success : styles\.error\} role=\{success \? "status" : "alert"\}/u);
+  assert.match(panel, /message && !success \? <p className=\{styles\.error\} role="alert"/u);
+});
+
 test("mobile navigation and expanded inventory regions remain keyboard-safe", async () => {
   const [portal, inventory, styles] = await Promise.all([
     source("../app/components/Portal.tsx"),
@@ -70,7 +77,24 @@ test("store order grids shrink to the page while wide tables scroll locally", as
   assert.match(styles, /\.tableWrap\s*\{[^}]*min-width:\s*0;[^}]*max-width:\s*100%;[^}]*overflow-x:\s*auto;/su);
   assert.match(styles, /\.metric strong\s*\{[^}]*overflow-wrap:\s*normal;[^}]*word-break:\s*normal;/su);
   assert.match(styles, /@media \(max-width:\s*1450px\)\s*\{\s*\.metrics\s*\{\s*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/su);
-  assert.match(styles, /@media \(max-width:\s*640px\)[\s\S]*?\.metrics\s*\{\s*grid-template-columns:\s*1fr;/u);
+  assert.match(styles, /@media \(max-width:\s*640px\)[\s\S]*?\.metrics\s*\{\s*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/u);
+  assert.match(styles, /@media \(max-width:\s*640px\)[\s\S]*?\.table tr\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/u);
+  assert.match(styles, /@media \(max-width:\s*640px\)[\s\S]*?\.actions button\s*\{\s*width:\s*44px;\s*height:\s*44px;/u);
+});
+
+test("employee order history becomes compact labeled cards without horizontal overflow", async () => {
+  const [portal, styles] = await Promise.all([
+    source("../app/components/Portal.tsx"),
+    source("../app/globals.css"),
+  ]);
+
+  for (const label of ["STT", "Mã đơn", "Khách hàng", "Nhân viên / ca", "Giá trị", "Thanh toán", "Tạo lúc", "Chi tiết"]) {
+    assert.match(portal, new RegExp(`data-label="${label}"`, "u"));
+  }
+  assert.match(styles, /@media\(max-width:720px\)[\s\S]*\.orders-panel>\.data-table-wrap\{overflow:visible\}/u);
+  assert.match(styles, /@media\(max-width:720px\)[\s\S]*\.order-table tr\{[^}]*grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/u);
+  assert.match(styles, /@media\(max-width:720px\)[\s\S]*\.order-row-actions button\{width:44px;height:44px\}/u);
+  assert.match(styles, /@media\(max-width:720px\)[\s\S]*\.orders-actions button\{[^}]*min-height:44px/u);
 });
 
 test("attendance mobile controls and cards expose keyboard and screen-reader semantics", async () => {
@@ -79,11 +103,13 @@ test("attendance mobile controls and cards expose keyboard and screen-reader sem
     source("../app/globals.css"),
   ]);
 
-  assert.match(attendance, /className="ref-tabs compact attendance-mode-tabs" role="group" aria-label="Cách tổng hợp chấm công"/u);
+  assert.match(attendance, /className="ref-tabs compact attendance-mode-tabs" role="group" aria-label="Cách tổng hợp lịch sử chấm công"/u);
   assert.match(attendance, /aria-pressed=\{mode === "shift"\}/u);
-  assert.match(attendance, /role="region" tabIndex=\{0\} aria-label="Bảng chấm công, cuộn ngang để xem đầy đủ"/u);
+  assert.match(attendance, /role="region" tabIndex=\{0\} aria-label="Bảng lịch sử chấm công, cuộn ngang để xem đầy đủ"/u);
   assert.match(attendance, /<ol className="attendance-mobile-list" aria-label="Danh sách chấm công">/u);
   assert.match(styles, /@media\(max-width:720px\)[\s\S]*\.attendance-mode-tabs button\{[^}]*min-height:48px/u);
-  assert.match(styles, /\.attendance-table-head>\.attendance-table-controls\{display:block;width:100%;max-width:none\}/u);
+  assert.match(styles, /\.attendance-history-filters\{display:grid;grid-template-columns:/u);
+  assert.match(styles, /@media\(max-width:720px\)[\s\S]*\.attendance-table-head>\.attendance-history-filters\{display:grid;grid-template-columns:minmax\(0,1fr\);width:100%/u);
+  assert.match(styles, /@media\(max-width:720px\)[\s\S]*\.attendance-history-filters \.attendance-mode-tabs button\{[^}]*font-size:10px;white-space:nowrap/u);
   assert.match(styles, /@media\(max-width:720px\)[\s\S]*\.attendance-location-item>a\{min-height:44px/u);
 });

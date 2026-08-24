@@ -70,6 +70,7 @@ type AttendanceItem = {
   status: string;
   attendanceStatus: string | null;
   attendanceDeltaMinutes: number | null;
+  attendanceGraceMinutes: number;
   scheduledStart: string | null;
   scheduledEnd: string | null;
   scheduledStartAt?: string | null;
@@ -78,6 +79,7 @@ type AttendanceItem = {
   transferId?: string | null;
   appliedHourlyRate?: number | null;
   appliedTiktokAllowance?: number | null;
+  appliedSupportAllowance?: number | null;
   tiktok?: number;
   tiktokAllowance?: number;
   tasksCompleted?: number;
@@ -109,8 +111,10 @@ const orderShiftSnapshotJsonSql = `json_object(
   'scheduledStartAt', s.scheduled_start_at, 'scheduledEndAt', s.scheduled_end_at,
   'workDate', s.work_date, 'previousSessionId', s.previous_session_id, 'transferId', s.transfer_id,
   'appliedHourlyRate', s.applied_hourly_rate, 'appliedTiktokAllowance', s.applied_tiktok_allowance,
+  'appliedSupportAllowance', s.applied_support_allowance,
   'startedAt', s.started_at, 'attendanceStatus', s.attendance_status,
   'attendanceDeltaMinutes', s.attendance_delta_minutes,
+  'attendanceGraceMinutes', s.attendance_grace_minutes,
   'clockInLatitude', s.clock_in_latitude, 'clockInLongitude', s.clock_in_longitude,
   'clockInAccuracyMeters', s.clock_in_accuracy_meters,
   'clockInLocationCapturedAt', s.clock_in_location_captured_at,
@@ -190,6 +194,9 @@ async function requireSuperAdmin(request: Request) {
 
 function periodLockSql(storeAlias: string, periodSql: string) {
   return `${storePeriodUnlockedSql(storeAlias, periodSql)} AND NOT EXISTS (
+      SELECT 1 FROM employee_payroll_closings employee_lock
+      WHERE employee_lock.store_id = ${storeAlias} AND employee_lock.period = ${periodSql}
+    ) AND NOT EXISTS (
       SELECT 1 FROM business_records sharing_lock
       WHERE sharing_lock.category = 'DIVIDEND' AND sharing_lock.status = 'LOCKED'
         AND json_extract(sharing_lock.data_json, '$.period') = ${periodSql}
@@ -267,6 +274,9 @@ function versionState(row: OrderItem | AttendanceItem) {
     attendanceStatus: row.attendanceStatus, attendanceDeltaMinutes: row.attendanceDeltaMinutes,
     scheduledStart: row.scheduledStart, scheduledEnd: row.scheduledEnd,
     scheduledStartAt: row.scheduledStartAt ?? null, scheduledEndAt: row.scheduledEndAt ?? null,
+    appliedHourlyRate: row.appliedHourlyRate ?? null,
+    appliedTiktokAllowance: row.appliedTiktokAllowance ?? null,
+    appliedSupportAllowance: row.appliedSupportAllowance ?? null,
     cashRevenue: row.cashRevenue, transferRevenue: row.transferRevenue, expenseAmount: row.expenseAmount,
     linkedOrderCount: row.linkedOrderCount, storeRevenue: row.storeRevenue, storeExpense: row.storeExpense,
     period: row.period, locked: row.locked,
@@ -332,8 +342,12 @@ async function listAttendance(db: Database, filter: ListFilter) {
       ) AS durationSeconds,
       s.status, s.attendance_status AS attendanceStatus,
       s.attendance_delta_minutes AS attendanceDeltaMinutes,
+      s.attendance_grace_minutes AS attendanceGraceMinutes,
       s.scheduled_start AS scheduledStart, s.scheduled_end AS scheduledEnd,
       s.scheduled_start_at AS scheduledStartAt, s.scheduled_end_at AS scheduledEndAt,
+      s.applied_hourly_rate AS appliedHourlyRate,
+      s.applied_tiktok_allowance AS appliedTiktokAllowance,
+      s.applied_support_allowance AS appliedSupportAllowance,
       s.cash_revenue AS cashRevenue, s.transfer_revenue AS transferRevenue,
       s.expense_amount AS expenseAmount,
       (SELECT COUNT(*) FROM orders o WHERE o.store_id = s.store_id
@@ -409,11 +423,13 @@ async function loadAttendance(db: Database, storeId: string, id: string) {
       ) AS durationSeconds,
       s.status, s.attendance_status AS attendanceStatus,
       s.attendance_delta_minutes AS attendanceDeltaMinutes,
+      s.attendance_grace_minutes AS attendanceGraceMinutes,
       s.scheduled_start AS scheduledStart, s.scheduled_end AS scheduledEnd,
       s.scheduled_start_at AS scheduledStartAt, s.scheduled_end_at AS scheduledEndAt,
       s.previous_session_id AS previousSessionId, s.transfer_id AS transferId,
       s.applied_hourly_rate AS appliedHourlyRate,
       s.applied_tiktok_allowance AS appliedTiktokAllowance,
+      s.applied_support_allowance AS appliedSupportAllowance,
       s.tiktok, s.tiktok_allowance AS tiktokAllowance, s.tasks_completed AS tasksCompleted,
       s.expense_note AS expenseNote, s.close_reason AS closeReason, s.close_status AS closeStatus,
       s.clock_in_latitude AS clockInLatitude, s.clock_in_longitude AS clockInLongitude,
@@ -463,11 +479,23 @@ function auditInsert(
   detail: Record<string, unknown>,
   createdAt: string,
 ) {
+  const before = Object.prototype.hasOwnProperty.call(detail, "before") ? detail.before : undefined;
+  const after = Object.prototype.hasOwnProperty.call(detail, "after") ? detail.after : undefined;
+  const reason = typeof detail.reason === "string" ? detail.reason : null;
+  const beforeJson = before === undefined ? null : JSON.stringify(before);
+  const afterJson = after === undefined ? null : JSON.stringify(after);
+  const storeId = before && typeof before === "object" && "storeId" in before
+    ? String((before as { storeId?: unknown }).storeId ?? "") || null
+    : null;
   return db.prepare(`INSERT INTO audit_logs
-      (id, user_id, action, entity_type, entity_id, detail, created_at)
-    SELECT ?, ?, ?, ?, ?, ?, ?
+      (id, user_id, action, entity_type, entity_id, detail, created_at,
+       before_json, after_json, reason, store_id)
+    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
     WHERE EXISTS (SELECT 1 FROM admin_reset_archives WHERE id = ?)`)
-    .bind(crypto.randomUUID(), userId, action, entityType, entityId, JSON.stringify(detail), createdAt, archiveId);
+    .bind(
+      crypto.randomUUID(), userId, action, entityType, entityId, JSON.stringify(detail), createdAt,
+      beforeJson, afterJson, reason, storeId, archiveId,
+    );
 }
 
 function parseOrderEdit(body: Record<string, unknown>) {
@@ -536,7 +564,21 @@ function parseAttendanceEdit(body: Record<string, unknown>, previous: Attendance
   const endedAt = body.endedAt === "" || body.endedAt == null
     ? null : normalizeIsoTimestamp(body.endedAt, "giờ kết ca");
   const accountingDate = previous.workDate || localDate(new Date(previous.startedAt));
-  if (localDate(new Date(startedAt)) !== accountingDate) {
+  const scheduledStartAt = scheduledStartTimestamp(previous);
+  const scheduledEndAt = previous.scheduledEndAt && Number.isFinite(new Date(previous.scheduledEndAt).getTime())
+    ? previous.scheduledEndAt
+    : previous.workDate && previous.scheduledStart && previous.scheduledEnd
+      ? shiftUtcRange(previous.workDate, previous.scheduledStart, previous.scheduledEnd)?.endAt ?? null
+      : null;
+  if (scheduledStartAt && scheduledEndAt) {
+    const scheduledStartDate = localDate(new Date(scheduledStartAt));
+    const scheduledEndDate = localDate(new Date(scheduledEndAt));
+    const correctedStartDate = localDate(new Date(startedAt));
+    if (correctedStartDate < scheduledStartDate || correctedStartDate > scheduledEndDate
+      || new Date(startedAt).getTime() > new Date(scheduledEndAt).getTime()) {
+      throw new Error(`Giờ vào ca phải thuộc đúng ngày chấm công ${accountingDate} hoặc phần qua đêm của chính ca này.`);
+    }
+  } else if (localDate(new Date(startedAt)) !== accountingDate) {
     throw new Error(`Giờ vào ca phải thuộc đúng ngày chấm công ${accountingDate}; không thể chuyển bản ghi sang ngày hoặc kỳ lương khác.`);
   }
   if (previous.status === "ACTIVE" && endedAt) {
@@ -550,7 +592,6 @@ function parseAttendanceEdit(body: Record<string, unknown>, previous: Attendance
   if (endedTime !== null && endedTime < startedTime) throw new Error("Giờ kết ca không được trước giờ vào ca.");
   const durationSeconds = endedTime === null ? 0 : Math.round((endedTime - startedTime) / 1_000);
   if (durationSeconds > 72 * 3_600) throw new Error("Thời gian làm thực tế không được vượt quá 72 giờ.");
-  const scheduledStartAt = scheduledStartTimestamp(previous);
   const delta = scheduledStartAt ? attendanceDeltaMinutes(startedAt, scheduledStartAt) : null;
   return {
     mode: "TIMES",
@@ -558,7 +599,9 @@ function parseAttendanceEdit(body: Record<string, unknown>, previous: Attendance
     endedAt,
     durationSeconds,
     status: previous.status === "ACTIVE" ? "ACTIVE" : "COMPLETED",
-    attendanceStatus: scheduledStartAt ? attendanceStatusAt(startedAt, scheduledStartAt) : null,
+    attendanceStatus: scheduledStartAt
+      ? attendanceStatusAt(startedAt, scheduledStartAt, previous.attendanceGraceMinutes)
+      : null,
     attendanceDeltaMinutes: delta,
   };
 }
@@ -694,7 +737,9 @@ async function mutateAttendance(
         AND s.scheduled_start_at IS ? AND s.scheduled_end_at IS ? AND s.work_date IS ?
         AND s.previous_session_id IS ? AND s.transfer_id IS ?
         AND s.applied_hourly_rate IS ? AND s.applied_tiktok_allowance IS ?
+        AND s.applied_support_allowance IS ?
         AND s.started_at = ? AND s.attendance_status IS ? AND s.attendance_delta_minutes IS ?
+        AND s.attendance_grace_minutes = ?
         AND s.clock_in_latitude IS ? AND s.clock_in_longitude IS ?
         AND s.clock_in_accuracy_meters IS ? AND s.clock_in_location_captured_at IS ?
         AND s.ended_at IS ? AND s.duration_seconds = ?
@@ -722,7 +767,9 @@ async function mutateAttendance(
     previous.scheduledStartAt ?? null, previous.scheduledEndAt ?? null, previous.workDate,
     previous.previousSessionId ?? null, previous.transferId ?? null,
     previous.appliedHourlyRate ?? null, previous.appliedTiktokAllowance ?? null,
+    previous.appliedSupportAllowance ?? null,
     previous.startedAt, previous.attendanceStatus, previous.attendanceDeltaMinutes,
+    previous.attendanceGraceMinutes,
     previous.clockInLatitude ?? null, previous.clockInLongitude ?? null,
     previous.clockInAccuracyMeters ?? null, previous.clockInLocationCapturedAt ?? null,
     previous.endedAt, previous.recordedDurationSeconds,
@@ -733,14 +780,23 @@ async function mutateAttendance(
     previous.storeRevenue, previous.storeExpense,
   ];
   const before = { ...previous };
-  const after = deleting ? null : {
-    startedAt: edit.startedAt,
-    endedAt: edit.endedAt,
-    durationSeconds: edit.durationSeconds,
-    status: edit.status,
-    attendanceStatus: edit.attendanceStatus,
-    attendanceDeltaMinutes: edit.attendanceDeltaMinutes,
-  };
+  const after = deleting ? null : edit.mode === "DURATION"
+    ? {
+      ...previous,
+      durationSeconds: edit.durationSeconds,
+      adminAdjustedDurationSeconds: edit.durationSeconds,
+    }
+    : {
+      ...previous,
+      startedAt: edit.startedAt,
+      endedAt: edit.endedAt,
+      durationSeconds: edit.durationSeconds,
+      recordedDurationSeconds: edit.durationSeconds,
+      adminAdjustedDurationSeconds: null,
+      status: edit.status,
+      attendanceStatus: edit.attendanceStatus,
+      attendanceDeltaMinutes: edit.attendanceDeltaMinutes,
+    };
   const action = deleting ? "SUPER_ADMIN_ATTENDANCE_DELETE" : "SUPER_ADMIN_ATTENDANCE_UPDATE";
   const archive = archiveInsert(
     db, archiveId, userId, deleting ? "ATTENDANCE_DELETE" : "ATTENDANCE_EDIT", previous.storeId,

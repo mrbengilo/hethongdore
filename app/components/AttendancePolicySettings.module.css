@@ -1,0 +1,27 @@
+.page{display:grid;gap:14px;padding:18px 28px 32px}
+.intro,.card{background:#fff;border:1px solid #dce7df;border-radius:16px;box-shadow:0 8px 28px rgba(21,75,43,.06)}
+.intro{display:flex;align-items:center;gap:12px;padding:16px 18px}
+.intro>span,.card header>span{display:grid;place-items:center;width:44px;height:44px;border-radius:12px;color:#087d36;background:#eaf7ed;flex:none}
+.intro h2,.card h3{margin:0;color:#0b5f31}
+.intro p,.card header p{margin:4px 0 0;color:#667085;font-size:13px;line-height:1.45}
+.intro button{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:1px solid #bcd7c5;border-radius:10px;background:#fff;color:#087d36;font-weight:750;min-height:44px;padding:8px 13px;margin-left:auto}
+.intro button:disabled,.actionRow button:disabled{opacity:.55;cursor:not-allowed}
+.card{padding:20px;max-width:760px}
+.card header{display:flex;gap:12px;padding-bottom:16px;border-bottom:1px solid #edf1ee}
+.card form{padding-top:16px}
+.card label{display:block;font-size:13px;font-weight:800;color:#244e34;margin-bottom:7px}
+.policyGrid{display:grid;grid-template-columns:repeat(3,minmax(150px,1fr));gap:12px}
+.numberField{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;overflow:hidden;border:1px solid #baccc0;border-radius:10px;background:#fff}
+.numberField input{width:100%;min-height:44px;border:0;padding:8px 12px;font:inherit;font-size:16px;font-weight:800;color:#14261c}
+.numberField:focus-within{outline:3px solid rgba(12,142,65,.16);border-color:#0c8e41}
+.numberField>span{padding:0 11px;color:#52665a;font-weight:700}
+.actionRow{display:flex;justify-content:flex-end;margin-top:12px}
+.actionRow button{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:8px 14px;border:1px solid #087d36;border-radius:10px;background:#087d36;color:#fff;font-weight:750}
+.example{margin:10px 0 0;color:#52665a;font-size:12px;line-height:1.5}
+.notice{display:grid;gap:4px;margin-top:16px;padding:12px 14px;border:1px solid #c6e5cf;border-radius:11px;background:#eff9f2;color:#245f39;font-size:12px;line-height:1.5}
+.meta{margin:12px 0 0;color:#667085;font-size:11px}
+.success,.error,.loading{margin:14px 0 0;padding:11px 13px;border-radius:10px;font-size:13px}
+.success{background:#eaf7ed;color:#087d36;border:1px solid #bde5c7}
+.error{background:#fff1f1;color:#b42318;border:1px solid #f3c5c5}
+.loading{color:#667085;background:#f7faf8}
+@media(max-width:720px){.page{padding:14px}.intro{align-items:flex-start;flex-wrap:wrap;padding:15px}.intro button{margin-left:56px}.card{padding:16px}.policyGrid{grid-template-columns:1fr}.actionRow button{width:100%}.card header>span{width:42px;height:42px}.intro h2{font-size:22px}}

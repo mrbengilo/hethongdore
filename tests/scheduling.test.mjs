@@ -42,6 +42,14 @@ async function scheduleDatabase() {
   await db.prepare(`CREATE TABLE employee_payroll_closings (
     id TEXT PRIMARY KEY, store_id TEXT NOT NULL, period TEXT NOT NULL, status TEXT NOT NULL
   )`).run();
+  await db.prepare(`CREATE TABLE financial_periods (
+    id TEXT PRIMARY KEY, store_id TEXT NOT NULL, period TEXT NOT NULL, status TEXT NOT NULL
+  )`).run();
+  await db.prepare(`CREATE TABLE audit_logs (
+    id TEXT PRIMARY KEY, user_id TEXT NOT NULL, store_id TEXT, action TEXT NOT NULL,
+    entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, detail TEXT,
+    before_json TEXT, after_json TEXT, reason TEXT, created_at TEXT NOT NULL
+  )`).run();
   await db.prepare("INSERT INTO stores (id, status) VALUES ('store-1', 'ACTIVE')").run();
   await db.prepare("INSERT INTO users (id, role, store_id, is_super_admin) VALUES ('manager-1', 'MANAGER', 'store-1', 0)").run();
   await db.prepare("INSERT INTO employees (id, store_id, status) VALUES ('employee-1', 'store-1', 'ACTIVE')").run();
@@ -83,6 +91,7 @@ async function scheduleBatchInput({
     date,
     entries,
     now: "2026-08-09T00:00:00.000Z",
+    reason: "Tạo lịch phân ca theo kế hoạch",
   };
 }
 
@@ -178,6 +187,16 @@ test("retrying an identical schedule batch is idempotent", async () => {
     assert.deepEqual(await commitScheduleBatch(db, input), { status: "CREATED", entryIds: input.entries.map((entry) => entry.id) });
     assert.deepEqual(await commitScheduleBatch(db, input), { status: "IDEMPOTENT", entryIds: input.entries.map((entry) => entry.id).sort() });
     assert.equal((await db.prepare("SELECT COUNT(*) AS count FROM business_records").first()).count, 3);
+    assert.equal((await db.prepare("SELECT COUNT(*) AS count FROM audit_logs").first()).count, 1);
+    const audit = await db.prepare(`SELECT user_id AS userId, store_id AS storeId, action,
+      before_json AS beforeJson, after_json AS afterJson, reason, created_at AS createdAt
+      FROM audit_logs`).first();
+    assert.deepEqual({ userId: audit.userId, storeId: audit.storeId, action: audit.action, beforeJson: audit.beforeJson }, {
+      userId: "manager-1", storeId: "store-1", action: "CREATE_SCHEDULE_BATCH", beforeJson: null,
+    });
+    assert.equal(JSON.parse(audit.afterJson).entries.length, 2);
+    assert.equal(audit.reason, input.reason);
+    assert.equal(audit.createdAt, input.now);
   } finally {
     db.close();
   }
@@ -252,7 +271,7 @@ test("store deletion winning between validation and marker commit leaves the sch
   }
 });
 
-test("marker atomically rechecks manager, employee and period invariants", async () => {
+test("marker atomically rechecks manager and employee invariants without treating an employee closing as a store lock", async () => {
   const db = await scheduleDatabase();
   try {
     const input = await scheduleBatchInput({ shiftIds: ["default-1"] });
@@ -266,8 +285,74 @@ test("marker atomically rechecks manager, employee and period invariants", async
     await db.prepare("UPDATE employees SET status = 'ACTIVE' WHERE id = 'employee-1'").run();
 
     await db.prepare("INSERT INTO employee_payroll_closings (id, store_id, period, status) VALUES ('lock-1', 'store-1', '2026-08', 'LOCKED')").run();
-    await assert.rejects(commitScheduleBatch(db, input), ScheduleBatchConflictError);
+    assert.deepEqual(await commitScheduleBatch(db, input), {
+      status: "CREATED",
+      entryIds: input.entries.map((entry) => entry.id),
+    });
+    assert.equal((await db.prepare("SELECT COUNT(*) AS count FROM business_records").first()).count, 2);
+    assert.equal((await db.prepare("SELECT COUNT(*) AS count FROM audit_logs").first()).count, 1);
+  } finally {
+    db.close();
+  }
+});
+
+test("canonical confirmed lifecycle states block the schedule marker, entries and audit atomically", async () => {
+  for (const status of ["CONFIRMED", "PAID", "LOCKED"]) {
+    const db = await scheduleDatabase();
+    try {
+      const input = await scheduleBatchInput({
+        clientRequestId: `d11a849d-d2de-458d-995b-f773b032f${status === "CONFIRMED" ? "e31" : status === "PAID" ? "e32" : "e33"}`,
+        shiftIds: ["default-1"],
+      });
+      await db.prepare("INSERT INTO financial_periods VALUES (?, 'store-1', '2026-08', ?)")
+        .bind(`period-${status}`, status).run();
+      await assert.rejects(commitScheduleBatch(db, input), ScheduleBatchConflictError);
+      assert.equal((await db.prepare("SELECT COUNT(*) AS count FROM business_records").first()).count, 0, status);
+      assert.equal((await db.prepare("SELECT COUNT(*) AS count FROM audit_logs").first()).count, 0, status);
+    } finally {
+      db.close();
+    }
+  }
+});
+
+test("schedule marker uses canonical editable state before legacy fallback and preserves old locked-period compatibility", async () => {
+  const canonicalDb = await scheduleDatabase();
+  try {
+    const input = await scheduleBatchInput({ clientRequestId: "d11a849d-d2de-458d-995b-f773b032fe34", shiftIds: ["default-1"] });
+    await canonicalDb.prepare(`INSERT INTO business_records
+      (id, category, store_id, owner_id, title, data_json, status, created_at, updated_at)
+      VALUES ('legacy-lock', 'PAYROLL_CLOSING', 'store-1', 'manager-1', 'Khóa cũ', '{"period":"2026-08"}', 'LOCKED', ?, ?)`)
+      .bind(input.now, input.now).run();
+    await canonicalDb.prepare("INSERT INTO financial_periods VALUES ('period-draft', 'store-1', '2026-08', 'DRAFT')").run();
+    assert.equal((await commitScheduleBatch(canonicalDb, input)).status, "CREATED");
+  } finally {
+    canonicalDb.close();
+  }
+
+  const legacyDb = await scheduleDatabase();
+  try {
+    const input = await scheduleBatchInput({ clientRequestId: "d11a849d-d2de-458d-995b-f773b032fe35", shiftIds: ["default-1"] });
+    await legacyDb.prepare(`INSERT INTO business_records
+      (id, category, store_id, owner_id, title, data_json, status, created_at, updated_at)
+      VALUES ('legacy-lock', 'PAYROLL_CLOSING', 'store-1', 'manager-1', 'Khóa cũ', '{"period":"2026-08"}', 'LOCKED', ?, ?)`)
+      .bind(input.now, input.now).run();
+    await assert.rejects(commitScheduleBatch(legacyDb, input), ScheduleBatchConflictError);
+    assert.equal((await legacyDb.prepare("SELECT COUNT(*) AS count FROM business_records WHERE category = 'LICH_PHAN_CA_BATCH'").first()).count, 0);
+    assert.equal((await legacyDb.prepare("SELECT COUNT(*) AS count FROM audit_logs").first()).count, 0);
+  } finally {
+    legacyDb.close();
+  }
+});
+
+test("schedule batch rolls marker and every entry back when structured audit insertion fails", async () => {
+  const db = await scheduleDatabase();
+  try {
+    await db.prepare(`CREATE TRIGGER reject_schedule_audit BEFORE INSERT ON audit_logs
+      BEGIN SELECT RAISE(ABORT, 'schedule audit failure'); END`).run();
+    const input = await scheduleBatchInput();
+    await assert.rejects(commitScheduleBatch(db, input), /schedule audit failure/u);
     assert.equal((await db.prepare("SELECT COUNT(*) AS count FROM business_records").first()).count, 0);
+    assert.equal((await db.prepare("SELECT COUNT(*) AS count FROM audit_logs").first()).count, 0);
   } finally {
     db.close();
   }
@@ -381,7 +466,7 @@ test("attendance grace migration normalizes every historical row and is idempote
   }
 });
 
-test("START, lifecycle closures, admin edits and runtime normalization share the attendance helper", async () => {
+test("START snapshots the current policy while closures and admin edits reuse each row snapshot", async () => {
   const [shiftApi, lifecycle, employeesApi, resetItems, runtime] = await Promise.all([
     readFile(new URL("../app/api/shift/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/_lib/employee-lifecycle.ts", import.meta.url), "utf8"),
@@ -390,8 +475,11 @@ test("START, lifecycle closures, admin edits and runtime normalization share the
     readFile(new URL("../db/runtime.ts", import.meta.url), "utf8"),
   ]);
   for (const source of [shiftApi, lifecycle, employeesApi, resetItems]) assert.match(source, /attendanceStatusAt\(/u);
-  assert.match(runtime, /ATTENDANCE_ON_TIME_GRACE_MINUTES \* 60_000/u);
-  assert.doesNotMatch(runtime, /attendance_status IS NULL OR attendance_delta_minutes IS NULL/u);
+  for (const source of [lifecycle, employeesApi, resetItems]) assert.match(source, /attendanceGraceMinutes/u);
+  assert.match(shiftApi, /loadAttendancePolicy/u);
+  assert.match(shiftApi, /attendance_grace_minutes/u);
+  assert.match(runtime, /COALESCE\(attendance_grace_minutes, \$\{DEFAULT_ATTENDANCE_GRACE_MINUTES\}\) \* 60000/u);
+  assert.match(runtime, /attendance_status IS NULL OR attendance_delta_minutes IS NULL/u);
 });
 
 test("attendance candidates expose current and eligible next shifts with signed deltas", async () => {
@@ -465,6 +553,24 @@ test("schedule creation uses one atomic idempotent batch while editing remains s
   assert.match(recordsApi, /DEFAULT_SHIFT_DEFINITIONS\[Number\(defaultMatch\[1\]\) - 1\]/u);
 });
 
+test("schedule edit and delete couple CAS, period locks and structured audit to one mutation", async () => {
+  const [source, editor] = await Promise.all([
+    readFile(new URL("../app/api/records/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/StoreSchedulingModules.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(source, /existingCategory === "LICH_PHAN_CA"[\s\S]*scheduleMutationId = `schedule-update:\$\{crypto\.randomUUID\(\)\}`[\s\S]*const results = await db\.batch\(\[/u);
+  assert.match(source, /category = 'LICH_PHAN_CA' AND status != 'DELETED' AND updated_at = \?[\s\S]*oldPeriodGuard[\s\S]*incomingPeriodLockGuardSql/u);
+  assert.match(source, /'UPDATE_SCHEDULE', 'LICH_PHAN_CA'[\s\S]*before_json, after_json, reason, created_at/u);
+  assert.match(source, /json_extract\(schedule\.data_json, '\$\.scheduleMutationId'\) = \?/u);
+  assert.match(source, /existing\.category === "LICH_PHAN_CA" && existing\.storeId[\s\S]*scheduleMutationId = `schedule-delete:\$\{crypto\.randomUUID\(\)\}`[\s\S]*const results = await db\.batch\(\[/u);
+  assert.match(source, /SET data_json = \?, status = 'DELETED', updated_at = \?[\s\S]*schedulePeriodGuard/u);
+  assert.match(source, /'DELETE_SCHEDULE', 'LICH_PHAN_CA'[\s\S]*requestedDeleteReason/u);
+  assert.match(source, /Vui lòng nhập lý do chỉnh sửa lịch phân ca/u);
+  assert.match(source, /Vui lòng nhập lý do xóa lịch phân ca/u);
+  assert.match(editor, /scheduleReason/u);
+  assert.match(editor, /window\.prompt\("Nhập lý do xóa lịch phân ca/u);
+});
+
 test("schedule screen creates versioned shifts for only the selected day and mobile cards stay compact", async () => {
   const [source, dailyApi, dailyLibrary, shiftApi, portal, css] = await Promise.all([
     readFile(new URL("../app/components/StoreSchedulingModules.tsx", import.meta.url), "utf8"),
@@ -479,16 +585,17 @@ test("schedule screen creates versioned shifts for only the selected day and mob
   assert.match(source, /workDate: date/u);
   assert.match(source, /version: editingShift\?\.version/u);
   assert.match(source, /Lịch đã phân và ca đã phát sinh vẫn được giữ nguyên/u);
-  assert.match(dailyApi, /CREATE_DAILY_SHIFT/u);
-  assert.match(dailyApi, /UPDATE_DAILY_SHIFT/u);
-  assert.match(dailyApi, /DELETE_DAILY_SHIFT/u);
+  assert.match(dailyLibrary, /CREATE_DAILY_SHIFT/u);
+  assert.match(dailyLibrary, /UPDATE_DAILY_SHIFT/u);
+  assert.match(dailyLibrary, /DELETE_DAILY_SHIFT/u);
+  assert.doesNotMatch(dailyApi, /writeAudit/u);
   assert.match(dailyLibrary, /status = 'DELETED', version = version \+ 1/u);
-  assert.match(shiftApi, /SELECT 1 AS initialized FROM daily_shift_definitions WHERE store_id = \? LIMIT 1/u);
+  assert.match(shiftApi, /category = 'LICH_PHAN_CA' AND store_id = \? AND status != 'DELETED'/u);
   const storeMenu = portal.match(/const storeMenu = \[([^\]]+)\]/u)?.[1] ?? "";
   assert.doesNotMatch(storeMenu, /Ca làm việc/u);
   assert.match(storeMenu, /Lịch phân ca/u);
-  assert.match(css, /@media \(max-width: 820px\)[\s\S]*?\.shiftCard\s*\{[\s\S]*?flex:\s*0 0 min\(205px, 68vw\);[\s\S]*?min-height:\s*96px;/u);
-  assert.match(css, /@media \(max-width: 600px\)[\s\S]*?\.shiftCard\s*\{[\s\S]*?flex-basis:\s*min\(188px, 76vw\);[\s\S]*?min-height:\s*88px;/u);
+  assert.match(css, /@media \(max-width: 820px\)[\s\S]*?\.shiftCard\s*\{[\s\S]*?flex:\s*0 0 min\(198px, 66vw\);[\s\S]*?min-height:\s*90px;/u);
+  assert.match(css, /@media \(max-width: 600px\)[\s\S]*?\.shiftCard\s*\{[\s\S]*?flex-basis:\s*min\(180px, 72vw\);[\s\S]*?min-height:\s*84px;/u);
   assert.match(css, /@media \(max-width: 600px\)[\s\S]*?\.shiftCard > i,[\s\S]*?display:\s*none;/u);
 });
 

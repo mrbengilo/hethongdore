@@ -51,13 +51,14 @@ test("attendance switches from an accessible desktop scroller to touch-friendly 
   assert.match(css, /\.attendance-page\{min-width:0;max-width:100%\}/u);
   assert.match(css, /\.attendance-page \.table-card\{[^}]*overflow:hidden/u);
   assert.match(css, /@media\(max-width:720px\)[\s\S]*\.attendance-page\{width:100%;overflow-x:clip\}[\s\S]*\.attendance-desktop-table\{display:none\}[\s\S]*\.attendance-mobile-list\{display:grid/u);
-  assert.match(css, /\.attendance-table-head>\.attendance-table-controls\{display:block;width:100%;max-width:none\}/u);
+  assert.match(css, /\.attendance-history-filters\{display:grid;grid-template-columns:/u);
   assert.match(css, /\.attendance-mode-tabs button\{[^}]*min-height:40px/u);
   assert.match(css, /@media\(max-width:720px\)[\s\S]*\.attendance-mode-tabs button\{[^}]*min-height:48px/u);
+  assert.match(css, /@media\(max-width:720px\)[\s\S]*\.attendance-table-head>\.attendance-history-filters\{display:grid;grid-template-columns:minmax\(0,1fr\);width:100%/u);
   assert.match(css, /\.attendance-location-item>a\{[^}]*min-height:34px/u);
   assert.match(css, /@media\(max-width:720px\)[\s\S]*\.attendance-location-item>a\{min-height:44px/u);
   assert.match(component, /className="data-table-wrap attendance-desktop-table" role="region" tabIndex=\{0\}/u);
-  assert.match(component, /className="ref-tabs compact attendance-mode-tabs" role="group" aria-label="Cách tổng hợp chấm công"/u);
+  assert.match(component, /className="ref-tabs compact attendance-mode-tabs" role="group" aria-label="Cách tổng hợp lịch sử chấm công"/u);
   assert.match(component, /aria-pressed=\{mode === "shift"\}/u);
   assert.match(component, /<ol className="attendance-mobile-list" aria-label="Danh sách chấm công">/u);
   assert.match(component, /<li className="attendance-mobile-card"/u);

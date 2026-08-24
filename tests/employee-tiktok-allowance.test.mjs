@@ -63,21 +63,23 @@ test("employee API validates per-employee VND and preserves omitted PATCH values
 
   assert.match(schema, /tiktokAllowance: integer\("tiktok_allowance"\)\.notNull\(\)\.default\(25000\)/u);
   assert.match(runtime, /ADD COLUMN tiktok_allowance INTEGER NOT NULL DEFAULT 25000/u);
-  assert.match(runtime, /status = 'ACTIVE' AND applied_tiktok_allowance IS NULL/u);
+  assert.match(runtime, /SET applied_tiktok_allowance = \([\s\S]*employee\.tiktok_allowance[\s\S]*status = 'ACTIVE' AND applied_tiktok_allowance IS NULL/u);
   assert.match(employeesApi, /tiktokAllowance\?: number \| string/u);
-  assert.match(employeesApi, /employeeTikTokAllowanceForCreate\(body\.tiktokAllowance\)/u);
+  assert.match(employeesApi, /employeeTikTokAllowanceForCreate\([\s\S]*body\.tiktokAllowance,[\s\S]*financialPolicyTikTokAllowanceVnd/u);
   assert.match(employeesApi, /employeeTikTokAllowanceForPatch\(body\.tiktokAllowance, existing\.tiktokAllowance\)/u);
   assert.doesNotMatch(employeesApi, /body\.tiktokAllowance \|\|/u);
   assert.match(employeesApi, /tiktok_allowance = CASE WHEN \? = 1 THEN \? ELSE tiktok_allowance END/u);
-  assert.match(employeesApi, /tiktokAllowanceWasProvided[\s\S]*UPDATE shift_sessions[\s\S]*status = 'ACTIVE' AND ended_at IS NULL/u);
-  assert.match(employeesApi, /activeShiftSnapshotsUpdated/u);
-  assert.match(allowancePolicy, /input === undefined[\s\S]*DEFAULT_EMPLOYEE_TIKTOK_ALLOWANCE/u);
+  assert.doesNotMatch(employeesApi, /UPDATE shift_sessions\s+SET applied_tiktok_allowance/u);
+  assert.match(employeesApi, /activeShiftSnapshotsPreserved: true/u);
+  assert.match(allowancePolicy, /input === undefined[\s\S]*employeeTikTokAllowanceSnapshot\(configuredDefault\)/u);
+  assert.doesNotMatch(allowancePolicy, /DEFAULT_EMPLOYEE_TIKTOK_ALLOWANCE/u);
   assert.match(allowancePolicy, /if \(input === undefined\) return validAllowance\(current\) \? current : null/u);
 });
 
-test("effective-dated manager updates preserve history and atomically update active shifts", () => {
-  assert.equal(employeeTikTokAllowanceForCreate(undefined), 25_000);
-  assert.equal(employeeTikTokAllowanceForCreate(0), 0);
+test("effective-dated manager updates preserve active and historical shift snapshots", () => {
+  assert.equal(employeeTikTokAllowanceForCreate(undefined, 25_000), 25_000);
+  assert.equal(employeeTikTokAllowanceForCreate(undefined, null), null);
+  assert.equal(employeeTikTokAllowanceForCreate(0, 25_000), 0);
   assert.equal(employeeTikTokAllowanceForPatch(undefined, 49_000), 49_000);
   assert.equal(employeeTikTokAllowanceForPatch(0, 49_000), 0);
 
@@ -119,10 +121,6 @@ test("effective-dated manager updates preserve history and atomically update act
     try {
       db.prepare("UPDATE employees SET tiktok_allowance = CASE WHEN ? = 1 THEN ? ELSE tiktok_allowance END WHERE id = ?")
         .run(provided ? 1 : 0, next, employeeId);
-      if (provided) {
-        db.prepare("UPDATE shift_sessions SET applied_tiktok_allowance = ? WHERE employee_id = ? AND status = 'ACTIVE' AND ended_at IS NULL")
-          .run(next, employeeId);
-      }
       db.exec("COMMIT");
     } catch (error) {
       db.exec("ROLLBACK");
@@ -130,16 +128,16 @@ test("effective-dated manager updates preserve history and atomically update act
     }
   };
 
-  // Explicit 49k takes effect for the employee and every currently open shift.
+  // Explicit 49k updates employee policy, while an already-started shift keeps 25k.
   applyManagerPatch("employee-49", 49_000, 25_000);
   assert.equal(db.prepare("SELECT tiktok_allowance FROM employees WHERE id = 'employee-49'").get().tiktok_allowance, 49_000);
-  assert.equal(db.prepare("SELECT applied_tiktok_allowance FROM shift_sessions WHERE id = 'active-25'").get().applied_tiktok_allowance, 49_000);
+  assert.equal(db.prepare("SELECT applied_tiktok_allowance FROM shift_sessions WHERE id = 'active-25'").get().applied_tiktok_allowance, 25_000);
 
   // A stale legacy client omitted the field after the explicit update committed.
   // Its CASE update must preserve 49k and must not touch active snapshots.
   applyManagerPatch("employee-49", undefined, 25_000);
   assert.equal(db.prepare("SELECT tiktok_allowance FROM employees WHERE id = 'employee-49'").get().tiktok_allowance, 49_000);
-  assert.equal(db.prepare("SELECT applied_tiktok_allowance FROM shift_sessions WHERE id = 'active-25'").get().applied_tiktok_allowance, 49_000);
+  assert.equal(db.prepare("SELECT applied_tiktok_allowance FROM shift_sessions WHERE id = 'active-25'").get().applied_tiktok_allowance, 25_000);
 
   // END derives the earned amount from the row at write time, not a stale SELECT.
   db.prepare(`UPDATE shift_sessions SET
@@ -150,13 +148,13 @@ test("effective-dated manager updates preserve history and atomically update act
         ELSE 0 END,
       ended_at = ?, status = 'COMPLETED'
     WHERE id = ? AND status = 'ACTIVE'`)
-    .run(1, "employee-49", 25_000, "2026-08-09T12:00:00.000Z", "active-25");
-  assert.equal(db.prepare("SELECT tiktok_allowance FROM shift_sessions WHERE id = 'active-25'").get().tiktok_allowance, 49_000);
+    .run(1, "employee-49", 0, "2026-08-09T12:00:00.000Z", "active-25");
+  assert.equal(db.prepare("SELECT tiktok_allowance FROM shift_sessions WHERE id = 'active-25'").get().tiktok_allowance, 25_000);
 
   // A later shift snapshots 49k, but earns zero when TikTok is not selected.
   db.prepare(`INSERT INTO shift_sessions (id, employee_id, applied_tiktok_allowance, status)
-    SELECT ?, ?, COALESCE((SELECT tiktok_allowance FROM employees WHERE id = ?), ?), 'ACTIVE'`)
-    .run("next-49", "employee-49", "employee-49", 25_000);
+    SELECT ?, ?, (SELECT tiktok_allowance FROM employees WHERE id = ?), 'ACTIVE'`)
+    .run("next-49", "employee-49", "employee-49");
   assert.equal(db.prepare("SELECT applied_tiktok_allowance FROM shift_sessions WHERE id = 'next-49'").get().applied_tiktok_allowance, 49_000);
   const nextSnapshot = db.prepare("SELECT applied_tiktok_allowance FROM shift_sessions WHERE id = 'next-49'").get().applied_tiktok_allowance;
   assert.equal(earnedTikTokAllowance(false, nextSnapshot), 0);
@@ -167,17 +165,17 @@ test("effective-dated manager updates preserve history and atomically update act
   assert.equal(db.prepare("SELECT tiktok_allowance FROM shift_sessions WHERE id = 'completed-39'").get().tiktok_allowance, 39_000);
   assert.equal(db.prepare("SELECT snapshot_json FROM employee_payroll_closings WHERE id = 'locked-1'").get().snapshot_json, lockedSnapshot);
 
-  // Explicit zero remains valid and immediately updates a currently open shift.
+  // Explicit zero remains valid but only applies to shifts that start afterwards.
   db.prepare("INSERT INTO shift_sessions (id, employee_id, applied_tiktok_allowance, status) VALUES (?, ?, ?, 'ACTIVE')")
     .run("active-zero", "employee-49", 49_000);
   applyManagerPatch("employee-49", 0, 49_000);
   assert.equal(db.prepare("SELECT tiktok_allowance FROM employees WHERE id = 'employee-49'").get().tiktok_allowance, 0);
-  assert.equal(db.prepare("SELECT applied_tiktok_allowance FROM shift_sessions WHERE id = 'active-zero'").get().applied_tiktok_allowance, 0);
+  assert.equal(db.prepare("SELECT applied_tiktok_allowance FROM shift_sessions WHERE id = 'active-zero'").get().applied_tiktok_allowance, 49_000);
   assert.equal(db.prepare("SELECT tiktok_allowance FROM shift_sessions WHERE id = 'completed-39'").get().tiktok_allowance, 39_000);
   assert.equal(db.prepare("SELECT snapshot_json FROM employee_payroll_closings WHERE id = 'locked-1'").get().snapshot_json, lockedSnapshot);
 
   // Inverse order: END commits first at 25k, then PATCH affects only the
-  // employee configuration and future/ACTIVE sessions, never that history.
+  // employee configuration and future sessions, never that history.
   db.exec(`
     INSERT INTO employees (id, tiktok_allowance) VALUES ('employee-end-first', 25000);
     INSERT INTO shift_sessions (id, employee_id, applied_tiktok_allowance, status)
@@ -196,8 +194,8 @@ test("effective-dated manager updates preserve history and atomically update act
   assert.equal(db.prepare("SELECT tiktok_allowance FROM shift_sessions WHERE id = 'end-first'").get().tiktok_allowance, 25_000);
   assert.equal(db.prepare("SELECT tiktok_allowance FROM employees WHERE id = 'employee-end-first'").get().tiktok_allowance, 49_000);
   db.prepare(`INSERT INTO shift_sessions (id, employee_id, applied_tiktok_allowance, status)
-    SELECT ?, ?, COALESCE((SELECT tiktok_allowance FROM employees WHERE id = ?), ?), 'ACTIVE'`)
-    .run("future-49", "employee-end-first", "employee-end-first", 25_000);
+    SELECT ?, ?, (SELECT tiktok_allowance FROM employees WHERE id = ?), 'ACTIVE'`)
+    .run("future-49", "employee-end-first", "employee-end-first");
   assert.equal(db.prepare("SELECT applied_tiktok_allowance FROM shift_sessions WHERE id = 'future-49'").get().applied_tiktok_allowance, 49_000);
   db.close();
 });
@@ -210,16 +208,17 @@ test("shift writes serialize with allowance PATCH while payroll reads only compl
   ]);
 
   assert.match(auth, /e\.tiktok_allowance AS employeeTiktokAllowance/u);
-  assert.match(auth, /runningShift\.appliedTikTokAllowance \?\? employeeTiktokAllowance/u);
-  assert.match(shift, /applied_tiktok_allowance, started_at/u);
-  assert.match(shift, /COALESCE\(\(SELECT tiktok_allowance FROM employees WHERE id = \?\), \?\)/u);
-  assert.match(shift, /tiktok_allowance = CASE WHEN \? = 1[\s\S]*COALESCE\(applied_tiktok_allowance/u);
-  assert.match(shift, /SELECT tiktok_allowance AS tiktokAllowance FROM shift_sessions WHERE id = \? AND status = 'COMPLETED'/u);
+  assert.match(auth, /employeeTiktokAllowance = runningShift\.appliedTikTokAllowance/u);
+  assert.match(shift, /applied_tiktok_allowance, applied_support_allowance, started_at/u);
+  assert.match(shift, /\(SELECT tiktok_allowance FROM employees WHERE id = \?\)/u);
+  assert.match(shift, /const appliedTikTokAllowance = employeeTikTokAllowanceSnapshot\(activeSession\.appliedTikTokAllowance\)/u);
+  assert.match(shift, /tiktok_allowance = \?/u);
   assert.match(shift, /SELECT applied_tiktok_allowance AS appliedTikTokAllowance FROM shift_sessions WHERE id = \? AND status = 'ACTIVE'/u);
-  assert.match(shift, /employeeTiktokAllowance,\s*expenseAmount/u);
+  assert.match(shift, /employeeTiktokAllowance: appliedTikTokAllowance,\s*expenseAmount/u);
   assert.doesNotMatch(shift, /body\.tiktok \? 25000 : 0/u);
   assert.doesNotMatch(shift, /rolloverTikTok \? 25000 : 0/u);
   assert.match(payroll, /COALESCE\(SUM\(s\.tiktok_allowance\), 0\) AS tiktokAllowance/u);
-  assert.match(payroll, /snapshot \?\? await buildPreview/u);
+  assert.match(payroll, /const canonicalSnapshot = payrollSummaryFromFinancialPeriod\(financialPeriodRow\)/u);
+  assert.match(payroll, /const summary = snapshotIsAuthoritative && \(canonicalSnapshot \|\| legacySnapshot\)[\s\S]*await buildPreview/u);
   assert.doesNotMatch(payroll, /UPDATE shift_sessions SET tiktok_allowance/u);
 });

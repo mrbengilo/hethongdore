@@ -120,6 +120,83 @@
       "when": 1787270400000,
       "tag": "0021_attendance_grace_period",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1787356800000,
+      "tag": "0022_salary_advances",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1787443200000,
+      "tag": "0023_attendance_policy",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1787529600000,
+      "tag": "0024_payroll_policy",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1787616000000,
+      "tag": "0025_employee_cccd_number",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1787702400000,
+      "tag": "0026_inventory_receipt_sequence",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "6",
+      "when": 1787788800000,
+      "tag": "0027_finance_engine_foundation",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "6",
+      "when": 1787875200000,
+      "tag": "0028_cashflow_ledger_hardening",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "6",
+      "when": 1787961600000,
+      "tag": "0029_shift_attendance_integrity",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "6",
+      "when": 1788134400000,
+      "tag": "0030_payroll_snapshot_hardening",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "6",
+      "when": 1788220800000,
+      "tag": "0031_financial_period_lifecycle_guards",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1788307200000,
+      "tag": "0032_profit_distributions",
+      "breakpoints": true
     }
   ]
 }

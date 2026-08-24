@@ -73,6 +73,8 @@ type StartShiftPreview = {
   attendanceStatus?: "EARLY" | "ON_TIME" | "LATE";
   attendanceDeltaMinutes?: number;
   earlyMinutes?: number;
+  attendanceGraceMinutes?: number;
+  policyVersion?: number;
 };
 type StartShiftConfirmation = {
   clockInLocation: ClockInLocation;
@@ -83,7 +85,7 @@ type StartShiftConfirmation = {
 const money = (value: number) => new Intl.NumberFormat("en-US").format(Math.round(value)) + " đồng";
 export function normalizeEmployeeTiktokAllowance(value: unknown) {
   const amount = typeof value === "number" ? value : Number.NaN;
-  return Number.isSafeInteger(amount) && amount >= 0 ? amount : 25_000;
+  return Number.isSafeInteger(amount) && amount >= 0 ? amount : 0;
 }
 export function resolveEmployeeTiktokAllowanceSnapshot(
   source: "sync" | "start" | "end",
@@ -128,7 +130,7 @@ function startShiftSentenceLabel(shiftName: string) {
 
 function startCandidateAttendanceStatus(candidate: StartShiftPreview, actualStartedAt: string) {
   const scheduled = shiftUtcRange(candidate.workDate, candidate.scheduledStart, candidate.scheduledEnd)?.startAt;
-  return scheduled ? attendanceStatusAt(actualStartedAt, scheduled) : null;
+  return scheduled ? attendanceStatusAt(actualStartedAt, scheduled, candidate.attendanceGraceMinutes) : null;
 }
 
 function attendanceStatusLabel(status: AttendanceStatus | undefined) {
@@ -222,9 +224,17 @@ export function ReferenceEmployeeHome({ user, shift, orders, onShift, tiktok, se
   const taskWorkDate = resolveShiftWorkDate(shift.shiftCode, shift.startedAt, todayValue);
   const todaySchedule = schedules.find((item) => item.date === todayValue);
   const shiftName = shift.shiftName?.trim() || todaySchedule?.shiftName?.trim() || legacyShiftName(shift.shiftCode);
-  const scheduledTime = shift.scheduledStart && shift.scheduledEnd
-    ? `${shift.scheduledStart} - ${shift.scheduledEnd}`
-    : todaySchedule?.start && todaySchedule?.end ? `${todaySchedule.start} - ${todaySchedule.end}` : "Theo lịch phân ca";
+  const scheduledStart = shift.scheduledStart || todaySchedule?.start || null;
+  const scheduledEnd = shift.scheduledEnd || todaySchedule?.end || null;
+  const scheduledTime = scheduledStart && scheduledEnd
+    ? `${scheduledStart} - ${scheduledEnd}`
+    : "Theo lịch phân ca";
+  const scheduledRange = scheduledStart && scheduledEnd
+    ? shiftUtcRange(todayValue || "2000-01-01", scheduledStart, scheduledEnd)
+    : null;
+  const scheduledHours = scheduledRange
+    ? (new Date(scheduledRange.endAt).getTime() - new Date(scheduledRange.startAt).getTime()) / 3_600_000
+    : null;
   const currentStartCandidate = startConfirmation?.candidates.find((candidate) => candidate.selectionKind === "CURRENT") ?? null;
   const upcomingStartCandidate = startConfirmation?.candidates.find((candidate) => candidate.selectionKind === "UPCOMING") ?? null;
   const singleStartCandidate = startConfirmation?.candidates[0] ?? null;
@@ -429,6 +439,9 @@ export function ReferenceEmployeeHome({ user, shift, orders, onShift, tiktok, se
             ? preview.attendanceStatus : undefined,
           attendanceDeltaMinutes: Number.isInteger(preview.attendanceDeltaMinutes) ? preview.attendanceDeltaMinutes : undefined,
           earlyMinutes: Number.isInteger(preview.earlyMinutes) && Number(preview.earlyMinutes) > 0 ? Number(preview.earlyMinutes) : 0,
+          attendanceGraceMinutes: Number.isInteger(preview.attendanceGraceMinutes)
+            ? Number(preview.attendanceGraceMinutes) : undefined,
+          policyVersion: Number.isInteger(preview.policyVersion) ? Number(preview.policyVersion) : undefined,
         }];
       });
       if (candidates.length === 0) {
@@ -616,7 +629,7 @@ export function ReferenceEmployeeHome({ user, shift, orders, onShift, tiktok, se
           <h3>Chi phí trong ca <em>(bắt buộc nhập)</em></h3>
           <label>Số tiền<input type="text" inputMode="numeric" pattern="[0-9,]*" required placeholder="Nhập 0 nếu không có chi phí" value={expenseAmount} onChange={(event) => onClosingDraftChange({ ...closingDraft, expenseAmount: formatMoneyInput(event.target.value) })}/></label>
           <label>Nội dung chi<textarea placeholder="Nhập nội dung chi..." value={expenseNote} onChange={(event) => onClosingDraftChange({ ...closingDraft, expenseNote: event.target.value })}/></label>
-          <div className="wage-note">Số giờ làm dự kiến: <b>5 giờ</b><br/>Lương dự kiến: <b>{money(100000)}</b> ({money(20000)}/giờ)</div>
+          <div className="wage-note">Thời lượng theo lịch: <b>{scheduledHours == null ? "Chưa có lịch" : `${scheduledHours.toFixed(2)} giờ`}</b><br/>Lương được tính từ giờ thực tế và mức lương đã lưu cho nhân viên.</div>
         </div>
         <div className="closing-revenue">
           <h3>Doanh thu ca <em>(bắt buộc)</em></h3>

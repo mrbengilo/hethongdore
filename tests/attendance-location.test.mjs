@@ -276,3 +276,40 @@ test("START offers current and next shifts, rejects a changed identity, and pers
     attendanceDeltaMinutes: upcoming.attendanceDeltaMinutes,
   });
 });
+
+test("manager attendance period returns one stable snapshot for an old busy month", async () => {
+  await seedClockInSchedule();
+  await db.prepare("DELETE FROM shift_sessions").run();
+  const insert = db.prepare(`INSERT INTO shift_sessions
+    (id, shift_code, store_id, employee_id, shift_name, work_date, applied_hourly_rate,
+      started_at, ended_at, duration_seconds, attendance_status, attendance_delta_minutes,
+      attendance_grace_minutes, status)
+    VALUES (?, ?, 'location-store', 'location-employee', 'Ca lịch sử', ?, 20000,
+      ?, ?, 3600, 'ON_TIME', 0, 15, 'COMPLETED')`);
+  for (let index = 0; index < 215; index += 1) {
+    const workDate = `2025-01-${String((index % 28) + 1).padStart(2, "0")}`;
+    const startedAt = new Date(`${workDate}T01:00:00.000Z`).toISOString();
+    const endedAt = new Date(`${workDate}T02:00:00.000Z`).toISOString();
+    await insert.bind(`old-${index}`, `OLD-${index}`, workDate, startedAt, endedAt).run();
+  }
+  await insert.bind("new-outside", "NEW-OUTSIDE", "2026-08-12", "2026-08-12T01:00:00.000Z", "2026-08-12T02:00:00.000Z").run();
+
+  const response = await shiftsRoute.GET(authenticatedRequest(
+    "/api/shifts?storeId=location-store&period=2025-01",
+    managerToken,
+  ));
+  const payload = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(payload.period, "2025-01");
+  assert.equal(payload.storeId, "location-store");
+  assert.deepEqual(payload.pagination, { page: 1, pageSize: 215, total: 215, pages: 1 });
+  assert.equal(payload.shifts.length, 215);
+  assert.equal(new Set(payload.shifts.map((shift) => shift.id)).size, 215);
+  assert.ok(payload.shifts.every((shift) => shift.workDate.startsWith("2025-01")));
+
+  const invalid = await shiftsRoute.GET(authenticatedRequest(
+    "/api/shifts?storeId=location-store&period=2025-13",
+    managerToken,
+  ));
+  assert.equal(invalid.status, 400);
+});

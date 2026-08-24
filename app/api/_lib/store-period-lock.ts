@@ -1,42 +1,38 @@
 /**
- * Financial periods are store-wide. Once any employee payroll closing or
- * store KPI/payroll closing exists, later revenue/cost writes must stop for
- * every employee in that store and period.
+ * A canonical financial period is the sole lock authority whenever it exists.
+ * DRAFT, CALCULATED and RECONCILING remain editable; CONFIRMED, PAID and
+ * LOCKED are immutable. For stores that predate canonical periods, only a
+ * fully LOCKED PAYROLL_CLOSING is treated as the compatibility lock.
  *
  * The expressions passed to storePeriodUnlockedSql are internal SQL snippets,
  * never request values. Request values still use bound parameters.
  */
 export function storePeriodUnlockedSql(storeExpression: string, periodExpression: string) {
   return `NOT EXISTS (
-    SELECT 1 FROM business_records AS store_period_lock
-    WHERE store_period_lock.category IN ('KPI_SUMMARY', 'PAYROLL_CLOSING')
-      AND store_period_lock.store_id = ${storeExpression}
-      AND COALESCE(store_period_lock.status, '') != 'DELETED'
-      AND json_extract(store_period_lock.data_json, '$.period') = ${periodExpression}
-  ) AND NOT EXISTS (
-    SELECT 1 FROM employee_payroll_closings AS employee_period_lock
-    WHERE employee_period_lock.store_id = ${storeExpression}
-      AND employee_period_lock.period = ${periodExpression}
-      AND COALESCE(employee_period_lock.status, '') != 'DELETED'
+    SELECT 1 FROM financial_periods AS canonical_period_lock
+    WHERE canonical_period_lock.store_id = ${storeExpression}
+      AND canonical_period_lock.period = ${periodExpression}
+      AND canonical_period_lock.status IN ('CONFIRMED', 'PAID', 'LOCKED')
+  ) AND (
+    EXISTS (
+      SELECT 1 FROM financial_periods AS canonical_period_authority
+      WHERE canonical_period_authority.store_id = ${storeExpression}
+        AND canonical_period_authority.period = ${periodExpression}
+    ) OR NOT EXISTS (
+      SELECT 1 FROM business_records AS legacy_period_lock
+      WHERE legacy_period_lock.category = 'PAYROLL_CLOSING'
+        AND legacy_period_lock.store_id = ${storeExpression}
+        AND legacy_period_lock.status = 'LOCKED'
+        AND json_extract(legacy_period_lock.data_json, '$.period') = ${periodExpression}
+    )
   )`;
 }
 
 // Bind exactly two values: storeId, period. The one-row scope lets both lock
-// tables reuse those values without duplicating positional parameters.
-export const incomingStorePeriodUnlockedSql = `NOT EXISTS (
+// authority checks reuse those values without duplicating positional parameters.
+export const incomingStorePeriodUnlockedSql = `EXISTS (
   SELECT 1 FROM (SELECT ? AS store_id, ? AS period) AS incoming_scope
-  WHERE EXISTS (
-    SELECT 1 FROM business_records AS store_period_lock
-    WHERE store_period_lock.category IN ('KPI_SUMMARY', 'PAYROLL_CLOSING')
-      AND store_period_lock.store_id = incoming_scope.store_id
-      AND COALESCE(store_period_lock.status, '') != 'DELETED'
-      AND json_extract(store_period_lock.data_json, '$.period') = incoming_scope.period
-  ) OR EXISTS (
-    SELECT 1 FROM employee_payroll_closings AS employee_period_lock
-    WHERE employee_period_lock.store_id = incoming_scope.store_id
-      AND employee_period_lock.period = incoming_scope.period
-      AND COALESCE(employee_period_lock.status, '') != 'DELETED'
-  )
+  WHERE ${storePeriodUnlockedSql("incoming_scope.store_id", "incoming_scope.period")}
 )`;
 
 export async function isStorePeriodLocked(

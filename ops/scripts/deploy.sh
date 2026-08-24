@@ -347,7 +347,10 @@ trap cleanup_deploy_artifacts EXIT
 # A release may add compatible tables/columns during its first readiness
 # request. Capture one coherent database/uploads snapshot after every release
 # and proxy preflight, immediately before the active symlink can change.
-if ! PRE_DEPLOY_BACKUP="$(sudo "$RELEASE_DIR/ops/scripts/backup.sh")"; then
+# Source archives created on Windows do not preserve POSIX executable bits.
+# Invoke the release copy through bash so a readable 0640 backup script still
+# protects the deployment before the active symlink can change.
+if ! PRE_DEPLOY_BACKUP="$(sudo bash "$RELEASE_DIR/ops/scripts/backup.sh")"; then
   dore_die "pre-deploy backup failed; the active release was not changed"
 fi
 case "$PRE_DEPLOY_BACKUP" in

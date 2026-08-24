@@ -23,7 +23,8 @@ test("cash-flow API derives totals from persisted operational records", async ()
   assert.match(route, /paymentConfirmedAt/u);
   assert.match(route, /aggregateTimeline/u);
   assert.match(route, /sumVnd\(byStore\.map\(\(store\) => store\.outflow\)\)/u);
-  assert.doesNotMatch(route, /mock|fallback|sample/iu);
+  assert.match(route, /legacyFallback: "Chỉ dùng bản ghi cũ khi chưa tồn tại cashflow_entries/u);
+  assert.doesNotMatch(route, /\b(?:mock|sample)(?:Data)?\b/iu);
 });
 
 test("report growth keeps a loss negative when the previous period was zero", async () => {

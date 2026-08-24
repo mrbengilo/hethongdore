@@ -82,7 +82,11 @@ async function adminList(token = superToken) {
 }
 
 async function unlockFixturePeriod() {
-  await db.prepare("UPDATE employee_payroll_closings SET period = '2026-07' WHERE id = 'payroll-life'").run();
+  await db.batch([
+    db.prepare("UPDATE employee_payroll_closings SET period = '2026-07' WHERE id = 'payroll-life'"),
+    db.prepare(`UPDATE business_records SET data_json = '{"period":"2026-07"}'
+      WHERE id = 'payroll-period-lock-life'`),
+  ]);
 }
 
 function profilePatch(overrides = {}) {
@@ -97,6 +101,7 @@ function profilePatch(overrides = {}) {
     ward: "Ninh Kiều",
     addressLine: "Đường hồ sơ mới",
     age: 26,
+    cccdNumber: "092000000222",
     cccdImageKey: "cccd/22222222-2222-4222-8222-222222222222.jpg",
     cccdImageName: "cccd-new.jpg",
     hourlyRate: 23000,
@@ -154,7 +159,7 @@ beforeEach(async () => {
         applied_tiktok_allowance, started_at, ended_at, duration_seconds, expense_amount,
         cash_revenue, transfer_revenue, close_status, status)
       VALUES ('shift-life', 'SHIFT-LIFE', 'st-can-tho', 'employee-life', 'Ca 1', '2026-08-10',
-        NULL, NULL, '2026-08-10T01:00:00.000Z', NULL, 0, 10000, 120000, 0, 'PENDING', 'ACTIVE')`),
+        23000, 27000, '2026-08-10T01:00:00.000Z', NULL, 0, 10000, 120000, 0, 'PENDING', 'ACTIVE')`),
     db.prepare(`INSERT INTO orders
       (id, code, store_id, employee_id, shift_code, amount, payment_method, status, created_at)
       VALUES ('order-life', 'DH99001', 'st-can-tho', 'employee-life', 'SHIFT-LIFE',
@@ -204,6 +209,11 @@ beforeEach(async () => {
         'Lương Nguyễn Nhân Viên',
         '{"employeeId":"employee-life","employeeName":"Nguyễn Nhân Viên","amount":123000}',
         'ACTIVE', '2026-08-10T03:00:00.000Z', '2026-08-10T03:00:00.000Z')`),
+    db.prepare(`INSERT INTO business_records
+      (id, category, store_id, owner_id, title, data_json, status, created_at, updated_at)
+      VALUES ('payroll-period-lock-life', 'PAYROLL_CLOSING', 'st-can-tho', 'user-manager',
+        'Khóa kỳ tương thích 2026-08', '{"period":"2026-08"}', 'LOCKED',
+        '2026-08-10T03:00:00.000Z', '2026-08-10T03:00:00.000Z')`),
     db.prepare(`INSERT INTO admin_reset_archives
       (id, store_id, actor_user_id, kind, filter_json, summary_json, snapshot_json, created_at)
       VALUES ('archive-life-before', 'st-can-tho', 'user-manager', 'ORDER_EDIT',
@@ -546,7 +556,7 @@ test("super-admin purge refuses to mutate an active shift in a locked accounting
 });
 
 test("super-admin purge atomically closes active attendance and preserves financial history", async () => {
-  await db.prepare("UPDATE employee_payroll_closings SET period = '2026-07' WHERE id = 'payroll-life'").run();
+  await unlockFixturePeriod();
   await db.batch([
     db.prepare(`UPDATE shift_sessions SET
         clock_in_latitude = 10.031234,
@@ -828,7 +838,7 @@ test("super-admin purge atomically closes active attendance and preserves financ
 });
 
 test("super-admin purge closes an active shift without orders without changing store finance", async () => {
-  await db.prepare("UPDATE employee_payroll_closings SET period = '2026-07' WHERE id = 'payroll-life'").run();
+  await unlockFixturePeriod();
   await db.prepare("DELETE FROM orders WHERE id = 'order-life'").run();
   await db.prepare("UPDATE shift_sessions SET cash_revenue = 0, transfer_revenue = 0, expense_amount = 7000 WHERE id = 'shift-life'").run();
   await db.prepare("UPDATE stores SET revenue = 55000, expense = 23000 WHERE id = 'st-can-tho'").run();
@@ -853,7 +863,7 @@ test("super-admin purge closes an active shift without orders without changing s
 });
 
 test("END and employee purge race has one financial close winner and never leaves an orphan active shift", async () => {
-  await db.prepare("UPDATE employee_payroll_closings SET period = '2026-07' WHERE id = 'payroll-life'").run();
+  await unlockFixturePeriod();
   await db.prepare("UPDATE shift_sessions SET cash_revenue = 0, transfer_revenue = 0, expense_amount = 0 WHERE id = 'shift-life'").run();
   await db.prepare("UPDATE stores SET revenue = 0, expense = 0 WHERE id = 'st-can-tho'").run();
   const listed = await adminList();
@@ -870,7 +880,10 @@ test("END and employee purge race has one financial close winner and never leave
     })),
   ]);
   assert.ok(endResponse.status === 200 || purgeResponse.status === 200);
-  assert.ok([endResponse.status, purgeResponse.status].every((status) => [200, 401, 409].includes(status)));
+  assert.ok(
+    [endResponse.status, purgeResponse.status].every((status) => [200, 401, 403, 409].includes(status)),
+    `unexpected race statuses: END=${endResponse.status}, purge=${purgeResponse.status}`,
+  );
   assert.equal(await db.prepare("SELECT COUNT(*) AS count FROM shift_sessions WHERE id = 'shift-life' AND status = 'ACTIVE'").first("count"), 0);
   assert.deepEqual({ ...await db.prepare("SELECT status, cash_revenue AS cashRevenue FROM shift_sessions WHERE id = 'shift-life'").first() }, {
     status: "COMPLETED", cashRevenue: 120000,
@@ -885,7 +898,7 @@ test("END and employee purge race has one financial close winner and never leave
 });
 
 test("purge rejects a negative store revenue reconciliation before mutating anything", async () => {
-  await db.prepare("UPDATE employee_payroll_closings SET period = '2026-07' WHERE id = 'payroll-life'").run();
+  await unlockFixturePeriod();
   await db.prepare("DELETE FROM orders WHERE id = 'order-life'").run();
   await db.prepare("UPDATE stores SET revenue = 100000 WHERE id = 'st-can-tho'").run();
   const listed = await adminList();

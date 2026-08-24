@@ -19,6 +19,7 @@ type BusinessRecord = {
   id: string;
   title: string;
   data: Record<string, unknown>;
+  reason?: string;
   status: string;
   created_at?: string;
   updated_at?: string;
@@ -303,6 +304,7 @@ async function saveRecord(input: {
   storeId: string;
   title: string;
   data: Record<string, unknown>;
+  reason?: string;
 }) {
   const response = await fetch("/api/records", {
     method: input.id ? "PATCH" : "POST",
@@ -321,6 +323,7 @@ async function saveScheduleBatch(input: {
   employeeIds: string[];
   note: string;
   entries: Array<{ shiftId: string; shiftName: string; start: string; end: string }>;
+  reason: string;
 }) {
   const response = await fetch("/api/records", {
     method: "POST",
@@ -329,6 +332,7 @@ async function saveScheduleBatch(input: {
       action: "CREATE_SCHEDULE_BATCH",
       category: "LICH_PHAN_CA",
       storeId: input.storeId,
+      reason: input.reason,
       data: {
         clientRequestId: input.clientRequestId,
         date: input.date,
@@ -343,8 +347,10 @@ async function saveScheduleBatch(input: {
   return result;
 }
 
-async function removeRecord(id: string) {
-  const response = await fetch(`/api/records?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+async function removeRecord(id: string, reason?: string) {
+  const query = new URLSearchParams({ id });
+  if (reason) query.set("reason", reason);
+  const response = await fetch(`/api/records?${query}`, { method: "DELETE" });
   const result = await response.json();
   if (!response.ok) throw new Error(result.message || "Không thể xóa dữ liệu");
 }
@@ -358,6 +364,7 @@ async function saveDailyShift(input: {
   end: string;
   version?: number;
   clientRequestId?: string;
+  reason?: string;
 }) {
   const response = await fetch("/api/daily-shifts", {
     method: input.id ? "PATCH" : "POST",
@@ -369,8 +376,8 @@ async function saveDailyShift(input: {
   return result;
 }
 
-async function removeDailyShift(shift: ShiftDefinition) {
-  const query = new URLSearchParams({ id: shift.id, version: String(shift.version ?? 0) });
+async function removeDailyShift(shift: ShiftDefinition, reason: string) {
+  const query = new URLSearchParams({ id: shift.id, version: String(shift.version ?? 0), reason });
   const response = await fetch(`/api/daily-shifts?${query}`, { method: "DELETE" });
   const result = await response.json();
   if (!response.ok) throw new Error(result.message || "Không thể xóa ca làm việc");
@@ -395,7 +402,7 @@ function exportCsv(filename: string, rows: Array<Array<string | number>>) {
 function EmployeeName({ employee }: { employee: Employee }) {
   return <div className={styles.employeeName}>
     <i>{employee.name.slice(0, 1).toLocaleUpperCase("vi-VN")}</i>
-    <span><b>{employee.name}</b><small>{employee.code} · {employee.position}</small></span>
+    <span><b title={employee.name}>{employee.name}</b><small title={`${employee.code} · ${employee.position}`}>{employee.code} · {employee.position}</small></span>
   </div>;
 }
 
@@ -432,7 +439,9 @@ function DayGrid({ employees, shifts, schedules, date, onEdit }: {
   date: string;
   onEdit?: (entry: ScheduleEntry) => void;
 }) {
-  return <div className={styles.tableWrap}><table className={styles.scheduleTable}>
+  return <>
+    {/* eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Keyboard focus lets users scroll the wide daily schedule. */}
+    <div className={styles.tableWrap} role="region" tabIndex={0} aria-label="Lịch phân ca theo ngày, cuộn ngang để xem đầy đủ"><table className={styles.scheduleTable}>
     <thead><tr><th>Nhân viên</th>{shifts.map((shift) => <th key={shift.id}><b>{shift.name}</b><small>{shift.start} - {shift.end}</small></th>)}</tr></thead>
     <tbody>{employees.length === 0 ? <tr><td colSpan={shifts.length + 1} className={styles.empty}>Chưa có nhân viên tại cửa hàng.</td></tr> : employees.map((employee) => <tr key={employee.id}>
       <td><EmployeeName employee={employee}/></td>
@@ -443,7 +452,8 @@ function DayGrid({ employees, shifts, schedules, date, onEdit }: {
           : <span className={styles.unassigned}>—</span>}</td>;
       })}
     </tr>)}</tbody>
-  </table></div>;
+    </table></div>
+  </>;
 }
 
 function WeekGrid({ employees, schedules, anchor, onEdit }: {
@@ -453,13 +463,16 @@ function WeekGrid({ employees, schedules, anchor, onEdit }: {
   onEdit?: (entry: ScheduleEntry) => void;
 }) {
   const dates = weekDates(anchor);
-  return <div className={styles.tableWrap}><table className={`${styles.scheduleTable} ${styles.weekTable}`}>
+  return <>
+    {/* eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Keyboard focus lets users scroll the wide weekly schedule. */}
+    <div className={styles.tableWrap} role="region" tabIndex={0} aria-label="Lịch phân ca theo tuần, cuộn ngang để xem đầy đủ"><table className={`${styles.scheduleTable} ${styles.weekTable}`}>
     <thead><tr><th>Nhân viên</th>{dates.map((date, index) => <th key={date}><b>{dayNames[index]}</b><small>{shortDate(date).slice(0, 5)}</small></th>)}</tr></thead>
     <tbody>{employees.map((employee) => <tr key={employee.id}><td><EmployeeName employee={employee}/></td>{dates.map((date) => {
       const entries = schedules.filter((entry) => entry.date === date && entry.employeeIds.includes(employee.id));
       return <td key={date}>{entries.length ? entries.map((entry) => <button type="button" disabled={!onEdit} className={styles.weekChip} key={entry.id} onClick={() => onEdit?.(entry)}><b>{entry.shiftName}</b><small>{entry.start} - {entry.end}</small></button>) : <span className={styles.unassigned}>—</span>}</td>;
     })}</tr>)}</tbody>
-  </table></div>;
+    </table></div>
+  </>;
 }
 
 export function StoreShiftManagement({ store }: { store: SchedulingStore }) {
@@ -581,6 +594,7 @@ export function StoreScheduleManagement({ store }: { store: SchedulingStore }) {
   const [selectedEmployees, setSelectedEmployees] = useState<string[]>([]);
   const [search, setSearch] = useState("");
   const [note, setNote] = useState("");
+  const [scheduleReason, setScheduleReason] = useState("");
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
   const [shiftOpen, setShiftOpen] = useState(false);
@@ -589,6 +603,7 @@ export function StoreScheduleManagement({ store }: { store: SchedulingStore }) {
   const [shiftStart, setShiftStart] = useState("07:00");
   const [shiftEnd, setShiftEnd] = useState("12:00");
   const [shiftRequestId, setShiftRequestId] = useState("");
+  const [shiftReason, setShiftReason] = useState("");
   const [shiftSaving, setShiftSaving] = useState(false);
   const shiftBackdropRef = useRef<HTMLDivElement | null>(null);
   const shiftDialogRef = useRef<HTMLFormElement | null>(null);
@@ -647,6 +662,7 @@ export function StoreScheduleManagement({ store }: { store: SchedulingStore }) {
     setShiftStart(shift?.start ?? "07:00");
     setShiftEnd(shift?.end ?? "12:00");
     setShiftRequestId(shift ? "" : crypto.randomUUID());
+    setShiftReason("");
     setMessage("");
     setShiftOpen(true);
   }
@@ -663,6 +679,9 @@ export function StoreScheduleManagement({ store }: { store: SchedulingStore }) {
       && shift.start === shiftStart && shift.end === shiftEnd)) {
       return setMessage("Ca cùng tên và khung giờ đã tồn tại trong ngày này.");
     }
+    if (editingShift && shiftReason.trim().length < 5) {
+      return setMessage("Vui lòng nhập lý do chỉnh sửa ca làm việc (ít nhất 5 ký tự).");
+    }
     setShiftSaving(true);
     try {
       const requestId = shiftRequestId || crypto.randomUUID();
@@ -676,6 +695,7 @@ export function StoreScheduleManagement({ store }: { store: SchedulingStore }) {
         end: shiftEnd,
         version: editingShift?.version,
         clientRequestId: editingShift ? undefined : requestId,
+        reason: editingShift ? shiftReason.trim() : `Tạo ca làm việc ${shiftName.trim()} ngày ${date}`,
       });
       await dailyShiftSource.reload();
       setShiftOpen(false);
@@ -690,8 +710,10 @@ export function StoreScheduleManagement({ store }: { store: SchedulingStore }) {
   async function removeShift(shift: ShiftDefinition) {
     if (inactive) return setMessage("Không thể xóa ca làm việc của cửa hàng đã ngưng hoạt động.");
     if (!window.confirm(`Xóa ${shift.name} ngày ${shortDate(date)}? Lịch đã phân và ca đã phát sinh vẫn được giữ nguyên.`)) return;
+    const reason = window.prompt("Nhập lý do xóa ca làm việc (ít nhất 5 ký tự):", "");
+    if (!reason || reason.trim().length < 5) return setMessage("Chưa xóa ca: lý do phải có ít nhất 5 ký tự.");
     try {
-      await removeDailyShift(shift);
+      await removeDailyShift(shift, reason.trim());
       await dailyShiftSource.reload();
       setMessage("Đã xóa ca làm việc; lịch đã phân và lịch sử chấm công vẫn giữ nguyên.");
     } catch (reason) {
@@ -709,6 +731,7 @@ export function StoreScheduleManagement({ store }: { store: SchedulingStore }) {
     setBatchRequestId(entry ? safeString(entry.record.data.clientRequestId) : crypto.randomUUID());
     setSelectedEmployees(entry?.employeeIds ?? []);
     setNote(entry?.note ?? "");
+    setScheduleReason("");
     setSearch("");
     setMessage("");
     setOpen(true);
@@ -745,6 +768,7 @@ export function StoreScheduleManagement({ store }: { store: SchedulingStore }) {
     event.preventDefault();
     if (inactive) return setMessage("Không thể lưu lịch phân ca cho cửa hàng đã ngưng hoạt động.");
     if (selectedShifts.length === 0 || selectedEmployees.length === 0) return setMessage("Vui lòng chọn ít nhất một ca và một nhân viên.");
+    if (editing && scheduleReason.trim().length < 5) return setMessage("Vui lòng nhập lý do chỉnh sửa lịch phân ca (ít nhất 5 ký tự).");
     for (let first = 0; first < selectedShifts.length; first += 1) {
       for (let second = first + 1; second < selectedShifts.length; second += 1) {
         const left = selectedShifts[first];
@@ -781,6 +805,7 @@ export function StoreScheduleManagement({ store }: { store: SchedulingStore }) {
             employeeIds: selectedEmployees,
             note: note.trim(),
           },
+          reason: scheduleReason.trim(),
         });
       } else {
         const requestGroup = batchRequestId || crypto.randomUUID();
@@ -797,6 +822,7 @@ export function StoreScheduleManagement({ store }: { store: SchedulingStore }) {
             start: shift.start,
             end: shift.end,
           })),
+          reason: `Tạo lịch phân ca ngày ${date}`,
         });
       }
       await scheduleSource.reload();
@@ -811,7 +837,9 @@ export function StoreScheduleManagement({ store }: { store: SchedulingStore }) {
   async function remove(entry: ScheduleEntry) {
     if (inactive) return setMessage("Không thể xóa lịch phân ca của cửa hàng đã ngưng hoạt động.");
     if (!window.confirm(`Xóa lịch ${entry.shiftName} ngày ${shortDate(entry.date)}?`)) return;
-    try { await removeRecord(entry.id); await scheduleSource.reload(); } catch (reason) { setMessage(reason instanceof Error ? reason.message : "Không thể xóa lịch"); }
+    const reason = window.prompt("Nhập lý do xóa lịch phân ca (ít nhất 5 ký tự):", "");
+    if (!reason || reason.trim().length < 5) return setMessage("Chưa xóa lịch: lý do phải có ít nhất 5 ký tự.");
+    try { await removeRecord(entry.id, reason.trim()); await scheduleSource.reload(); } catch (error) { setMessage(error instanceof Error ? error.message : "Không thể xóa lịch"); }
   }
 
   const week = weekDates(date);
@@ -850,6 +878,7 @@ export function StoreScheduleManagement({ store }: { store: SchedulingStore }) {
       <div className={styles.twoColumns}><label>Thời gian bắt đầu *<input required type="time" value={shiftStart} onChange={(event) => setShiftStart(event.target.value)}/></label><label>Thời gian kết thúc *<input required type="time" value={shiftEnd} onChange={(event) => setShiftEnd(event.target.value)}/></label></div>
       <div className={styles.durationPreview}><Clock3 size={20}/><span>Thời lượng ca<strong>{formatShiftDuration(shiftDurationMinutes(shiftStart, shiftEnd))}</strong></span>{isOvernightShift(shiftStart, shiftEnd) && <em>Qua đêm</em>}</div>
       {editingShift && <p className={styles.snapshotNotice}>Sửa ca không thay đổi tên hoặc thời gian trong các lịch đã phân, ca đang chạy và lịch sử trước đó.</p>}
+      {editingShift && <label>Lý do chỉnh sửa *<textarea required minLength={5} maxLength={500} value={shiftReason} onChange={(event) => setShiftReason(event.target.value)} placeholder="Ví dụ: Điều chỉnh giờ làm theo lịch vận hành thực tế"/></label>}
       {message && <p className={styles.error}>{message}</p>}
       <div className={styles.modalActions}><button type="button" className={styles.secondaryButton} disabled={shiftSaving} onClick={() => setShiftOpen(false)}>Hủy</button><button className={styles.primaryButton} disabled={shiftSaving || inactive}>{shiftSaving ? "Đang lưu..." : editingShift ? "Cập nhật ca" : "Lưu ca làm việc"}</button></div>
     </form></div>}
@@ -867,6 +896,7 @@ export function StoreScheduleManagement({ store }: { store: SchedulingStore }) {
             ? visibleEmployees.map((employee) => <label key={employee.id}><input type="checkbox" checked={selectedEmployees.includes(employee.id)} onChange={() => toggleEmployee(employee.id)}/><EmployeeName employee={employee}/><Check size={17}/></label>)
             : <p className={styles.employeePickerMessage}>Không tìm thấy nhân viên phù hợp.</p>}</fieldset>
         <label>Ghi chú <textarea value={note} onChange={(event) => changeDraftNote(event.target.value)} placeholder="Nhập ghi chú cho lịch phân ca..." maxLength={300}/></label>
+        {editing && <label>Lý do chỉnh sửa *<textarea required minLength={5} maxLength={500} value={scheduleReason} onChange={(event) => setScheduleReason(event.target.value)} placeholder="Ví dụ: Thay đổi nhân sự theo phân công thực tế"/></label>}
         {message && <p className={styles.error}>{message}</p>}
         <div className={styles.modalActions}><button type="button" className={styles.secondaryButton} disabled={saving} onClick={() => setOpen(false)}>Hủy</button><button className={styles.primaryButton} aria-label={editing ? "Cập nhật lịch phân ca" : "Lưu lịch phân ca"} disabled={saving || inactive || !selectedEmployees.length || !selectedShifts.length}>{saving ? "Đang lưu..." : editing ? "CẬP NHẬT" : "LƯU"}</button></div>
       </div>

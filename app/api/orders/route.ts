@@ -7,6 +7,10 @@ import {
   resolveManagerStoreScope,
 } from "../_lib/manager-scope";
 import { storePeriodUnlockedSql } from "../_lib/store-period-lock";
+import {
+  buildCashflowEntry,
+  prepareCashflowEntryInsertWhere,
+} from "../_lib/cashflow-ledger";
 
 type OrderRow = {
   id: string;
@@ -30,6 +34,7 @@ type ManagerOrderSnapshot = {
   shiftSessionId: string;
   shiftStatus: string;
   period: string;
+  hasCashflowLedger: number;
 };
 
 type CreateOrderBody = {
@@ -294,7 +299,12 @@ async function managerOrderSnapshot(
   return db.prepare(`SELECT
       o.id, o.code, o.store_id AS storeId, o.employee_id AS employeeId, o.shift_code AS shiftCode,
       o.customer_name AS customerName, o.phone, o.age, o.amount, o.payment_method AS paymentMethod, o.status,
-      s.id AS shiftSessionId, s.status AS shiftStatus, ${orderPeriodSql} AS period
+      s.id AS shiftSessionId, s.status AS shiftStatus, ${orderPeriodSql} AS period,
+      EXISTS (
+        SELECT 1 FROM cashflow_entries entry
+        WHERE entry.store_id = o.store_id AND entry.source_id = s.id
+          AND entry.source_type IN ('SHIFT_REVENUE_CASH', 'SHIFT_REVENUE_BANK')
+      ) AS hasCashflowLedger
     FROM orders o
     JOIN shift_sessions s ON s.shift_code = o.shift_code AND s.employee_id = o.employee_id AND s.store_id = o.store_id
     WHERE o.id = ? AND o.store_id = ? LIMIT 1`)
@@ -345,13 +355,50 @@ async function managerMutateOrder(
     },
     after: next,
   });
+  const previousCash = previous.paymentMethod === "CASH" ? previous.amount : 0;
+  const previousBank = previous.paymentMethod === "BANK_TRANSFER" ? previous.amount : 0;
+  const nextCash = next.status === "COMPLETED" && next.paymentMethod === "CASH" ? next.amount : 0;
+  const nextBank = next.status === "COMPLETED" && next.paymentMethod === "BANK_TRANSFER" ? next.amount : 0;
+  const cashDelta = nextCash - previousCash;
+  const bankDelta = nextBank - previousBank;
+  const adjustmentEntries = previous.shiftStatus === "COMPLETED" && previous.hasCashflowLedger === 1
+    ? (await Promise.all([
+      cashDelta !== 0 ? buildCashflowEntry({
+        storeId: previous.storeId,
+        direction: cashDelta > 0 ? "IN" : "OUT",
+        amount: Math.abs(cashDelta),
+        category: "SHIFT_REVENUE",
+        sourceType: "ORDER_ADJUSTMENT_CASH",
+        sourceId: mutationId,
+        occurredAt: changedAt,
+        createdBy: manager.id,
+        clientRequestId: `${mutationId}:cash`,
+        note: `${action === "MANAGER_ORDER_VOID" ? "Hủy" : "Sửa"} đơn ${previous.code} · Điều chỉnh tiền mặt`,
+        createdAt: changedAt,
+      }) : null,
+      bankDelta !== 0 ? buildCashflowEntry({
+        storeId: previous.storeId,
+        direction: bankDelta > 0 ? "IN" : "OUT",
+        amount: Math.abs(bankDelta),
+        category: "SHIFT_REVENUE",
+        sourceType: "ORDER_ADJUSTMENT_BANK",
+        sourceId: mutationId,
+        occurredAt: changedAt,
+        createdBy: manager.id,
+        clientRequestId: `${mutationId}:bank`,
+        note: `${action === "MANAGER_ORDER_VOID" ? "Hủy" : "Sửa"} đơn ${previous.code} · Điều chỉnh chuyển khoản`,
+        createdAt: changedAt,
+      }) : null,
+    ])).filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+    : [];
   const results = await db.batch([
     // The audit row is also the transaction gate. Exact old values provide an
     // optimistic version without rewriting legacy order rows or adding a
     // mutable version column. If another order/shift mutation wins first, no
     // gate is inserted and every following statement is inert.
-    db.prepare(`INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, detail, created_at)
-      SELECT ?, ?, ?, 'ORDER', o.id, ?, ?
+    db.prepare(`INSERT INTO audit_logs
+        (id, user_id, store_id, action, entity_type, entity_id, detail, before_json, after_json, reason, created_at)
+      SELECT ?, ?, o.store_id, ?, 'ORDER', o.id, ?, ?, ?, ?, ?
       FROM orders o
       JOIN shift_sessions s ON s.id = ? AND s.shift_code = o.shift_code
         AND s.employee_id = o.employee_id AND s.store_id = o.store_id
@@ -383,7 +430,21 @@ async function managerMutateOrder(
           BETWEEN 0 AND 9007199254740991
         )`)
       .bind(
-        mutationId, manager.id, action, detail, changedAt,
+        mutationId,
+        manager.id,
+        action,
+        detail,
+        JSON.stringify({
+          customerName: previous.customerName,
+          phone: previous.phone,
+          age: previous.age,
+          amount: previous.amount,
+          paymentMethod: previous.paymentMethod,
+          status: previous.status,
+        }),
+        JSON.stringify(next),
+        action === "MANAGER_ORDER_VOID" ? "Quản lý hủy đơn hàng" : "Quản lý chỉnh sửa đơn hàng",
+        changedAt,
         previous.shiftSessionId, previous.id, previous.storeId, previous.employeeId, previous.shiftCode,
         previous.customerName, previous.phone, previous.age, previous.amount, previous.paymentMethod,
         next.status, next.amount,
@@ -427,6 +488,16 @@ async function managerMutateOrder(
       WHERE id = ? AND status = 'COMPLETED'
         AND EXISTS (SELECT 1 FROM audit_logs gate WHERE gate.id = ? AND gate.entity_id = ?)`)
       .bind(previous.shiftSessionId, mutationId, previous.id),
+    ...adjustmentEntries.map((entry) => prepareCashflowEntryInsertWhere(
+      db,
+      entry,
+      `EXISTS (
+        SELECT 1 FROM audit_logs gate
+        JOIN shift_sessions closed ON closed.id = ? AND closed.status = 'COMPLETED'
+        WHERE gate.id = ? AND gate.entity_type = 'ORDER' AND gate.entity_id = ?
+      )`,
+      [previous.shiftSessionId, mutationId, previous.id],
+    )),
   ]);
   return Number(results[0]?.meta.changes ?? 0) === 1;
 }

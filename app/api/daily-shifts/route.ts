@@ -1,4 +1,4 @@
-import { initDb, writeAudit } from "../../../db/runtime";
+import { initDb } from "../../../db/runtime";
 import {
   createDailyShift,
   dailyShiftValues,
@@ -6,6 +6,7 @@ import {
   deleteDailyShift,
   getDailyShift,
   listDailyShifts,
+  normalizeDailyShiftMutationReason,
   normalizeDailyShiftRequestId,
   updateDailyShift,
   validDailyShiftDate,
@@ -22,14 +23,16 @@ type DailyShiftBody = {
   end?: string;
   version?: number;
   clientRequestId?: string;
+  reason?: string;
 };
 
 function conflictResponse(error: unknown) {
   if (!(error instanceof DailyShiftConflictError)) {
-    return json({ message: "Không thể lưu ca làm việc. Vui lòng thử lại." }, 409);
+    return json({ message: "Không thể lưu ca làm việc. Vui lòng thử lại." }, 500);
   }
   if (error.reason === "INACTIVE") return json({ message: INACTIVE_STORE_MESSAGE }, 409);
   if (error.reason === "FORBIDDEN") return json({ message: MANAGER_STORE_SCOPE_MESSAGE }, 403);
+  if (error.reason === "LOCKED") return json({ message: "Kỳ tài chính đã khóa, không thể thay đổi ca làm việc của ngày này." }, 423);
   if (error.reason === "DUPLICATE") {
     return json({ message: "Ca cùng tên và khung giờ đã tồn tại trong ngày này." }, 409);
   }
@@ -72,10 +75,8 @@ export async function POST(request: Request) {
       clientRequestId,
       values,
       now: new Date().toISOString(),
+      reason: normalizeDailyShiftMutationReason(body.reason) ?? `Tạo ca làm việc ${values.name} ngày ${values.workDate}`,
     });
-    if (result.status === "CREATED") {
-      await writeAudit(user.id, "CREATE_DAILY_SHIFT", "DAILY_SHIFT", result.id, JSON.stringify(values));
-    }
     return json({
       id: result.id,
       version: result.version,
@@ -102,6 +103,8 @@ export async function PATCH(request: Request) {
   if (!await isStoreActive(existing.storeId)) return json({ message: INACTIVE_STORE_MESSAGE }, 409);
   const values = dailyShiftValues(body as Record<string, unknown>);
   if (!values || values.workDate !== existing.workDate) return json({ message: "Tên ca, ngày và khung giờ làm việc không hợp lệ." }, 400);
+  const reason = normalizeDailyShiftMutationReason(body.reason);
+  if (!reason) return json({ message: "Vui lòng nhập lý do chỉnh sửa ca làm việc (từ 5 đến 500 ký tự)." }, 400);
 
   try {
     const result = await updateDailyShift(db, {
@@ -111,8 +114,8 @@ export async function PATCH(request: Request) {
       expectedVersion: version,
       values,
       now: new Date().toISOString(),
+      reason,
     });
-    await writeAudit(user.id, "UPDATE_DAILY_SHIFT", "DAILY_SHIFT", id, JSON.stringify({ ...values, previousVersion: version }));
     return json({ ...result, message: "Đã cập nhật ca làm việc. Lịch đã phân trước đó vẫn giữ nguyên." });
   } catch (error) {
     return conflictResponse(error);
@@ -125,7 +128,9 @@ export async function DELETE(request: Request) {
   const params = new URL(request.url).searchParams;
   const id = params.get("id") ?? "";
   const version = Number(params.get("version"));
+  const reason = normalizeDailyShiftMutationReason(params.get("reason"));
   if (!id || !Number.isInteger(version) || version < 1) return json({ message: "Phiên bản ca làm việc không hợp lệ." }, 400);
+  if (!reason) return json({ message: "Vui lòng nhập lý do xóa ca làm việc (từ 5 đến 500 ký tự)." }, 400);
   const db = await initDb();
   const existing = await getDailyShift(db, id);
   if (!existing || existing.status !== "ACTIVE") return json({ message: "Không tìm thấy ca làm việc." }, 404);
@@ -139,8 +144,8 @@ export async function DELETE(request: Request) {
       actorId: user.id,
       expectedVersion: version,
       now: new Date().toISOString(),
+      reason,
     });
-    await writeAudit(user.id, "DELETE_DAILY_SHIFT", "DAILY_SHIFT", id, JSON.stringify({ workDate: existing.workDate, name: existing.name }));
     return json({ ...result, message: "Đã xóa ca làm việc. Lịch và ca đã phát sinh vẫn được giữ nguyên." });
   } catch (error) {
     return conflictResponse(error);

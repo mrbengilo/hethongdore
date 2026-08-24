@@ -21,7 +21,7 @@ export type AttendanceStatus = "EARLY" | "ON_TIME" | "LATE";
 /** Employees may clock in up to two hours before the scheduled start. */
 export const ATTENDANCE_EARLY_WINDOW_MINUTES = 120;
 
-/** Clock-ins through exactly 15 minutes after the scheduled start are on time. */
+/** Legacy/default grace. New clock-ins receive a database policy snapshot. */
 export const ATTENDANCE_ON_TIME_GRACE_MINUTES = 15;
 
 export const DEFAULT_SHIFT_DEFINITIONS: ShiftClockDefinition[] = [
@@ -224,6 +224,7 @@ export function attendanceCandidatesAt(
   now: Date | string,
   definitions: ShiftClockDefinition[],
   earlyWindowMinutes = ATTENDANCE_EARLY_WINDOW_MINUTES,
+  graceMinutes = ATTENDANCE_ON_TIME_GRACE_MINUTES,
 ): AttendanceCandidate[] {
   const instant = typeof now === "string" ? new Date(now) : now;
   const instantTime = instant.getTime();
@@ -233,7 +234,7 @@ export function attendanceCandidatesAt(
   const current = shiftOccurrenceAt(instant, definitions);
   if (current) {
     const delta = attendanceDeltaMinutes(instant, current.startAt);
-    const status = attendanceStatusAt(instant, current.startAt);
+    const status = attendanceStatusAt(instant, current.startAt, graceMinutes);
     if (delta !== null && status !== null) {
       candidates.push({
         ...current,

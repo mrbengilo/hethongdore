@@ -1,0 +1,113 @@
+.panel {
+  overflow: hidden;
+  border: 1px solid #d8e7de;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 12px 30px rgb(20 68 42 / 7%);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 22px;
+  border-bottom: 1px solid #e5eee8;
+}
+
+.header h2 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0;
+  color: #075f31;
+  font-size: 21px;
+}
+
+.header p { margin: 6px 0 0; color: #65756b; font-size: 13px; }
+.header button,
+.pagination button {
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid #cfe0d5;
+  border-radius: 10px;
+  background: #fff;
+  color: #076534;
+  font-weight: 800;
+}
+
+.header button { padding: 0 14px; }
+.header button:disabled, .pagination button:disabled { cursor: not-allowed; opacity: .48; }
+
+.filters {
+  display: grid;
+  grid-template-columns: minmax(220px, .55fr) minmax(280px, 1fr);
+  gap: 14px;
+  padding: 16px 22px;
+  background: #f8fbf9;
+}
+
+.filters label { display: grid; gap: 7px; color: #28553c; font-size: 12px; font-weight: 800; }
+.filters select,
+.filters input {
+  width: 100%;
+  min-height: 43px;
+  box-sizing: border-box;
+  border: 1px solid #cedbd3;
+  border-radius: 10px;
+  background: #fff;
+  color: #17231c;
+  font: inherit;
+  font-size: 14px;
+}
+
+.filters select { padding: 0 12px; }
+.search > span:last-child { position: relative; display: block; }
+.search svg { position: absolute; z-index: 1; top: 13px; left: 13px; color: #668071; }
+.search input { padding: 0 13px 0 39px; }
+.error { margin: 16px 22px 0; padding: 12px 14px; border-radius: 10px; background: #fff0ef; color: #a72d27; font-weight: 700; }
+.tableWrap { overflow-x: auto; }
+.table { width: 100%; border-collapse: collapse; min-width: 980px; }
+.table th { padding: 13px 16px; background: #eff7f2; color: #24603e; text-align: left; font-size: 12px; text-transform: uppercase; }
+.table td { padding: 15px 16px; border-top: 1px solid #e8eee9; vertical-align: top; color: #203128; font-size: 13px; }
+.table td > b, .table td > small { display: block; }
+.table td > small { margin-top: 4px; color: #728078; }
+.updateAction, .voidAction { display: inline-flex; margin: 6px 0 2px; padding: 4px 8px; border-radius: 999px; font-size: 11px; font-weight: 900; }
+.updateAction { background: #e8f2ff; color: #1765b7; }
+.voidAction { background: #fff0ef; color: #c3362f; }
+.changes { display: grid; gap: 7px; min-width: 410px; margin: 0; padding: 0; list-style: none; }
+.changes li { display: grid; grid-template-columns: 105px minmax(95px, 1fr) 18px minmax(95px, 1fr); align-items: center; gap: 7px; }
+.changes span { color: #596b60; font-size: 12px; font-weight: 800; }
+.changes del, .changes ins { padding: 5px 7px; border-radius: 7px; text-decoration: none; overflow-wrap: anywhere; }
+.changes del { background: #fff1ef; color: #9b3b34; }
+.changes ins { background: #eaf8ef; color: #08743b; font-weight: 800; }
+.changes i { color: #7a897f; text-align: center; font-style: normal; }
+.empty { padding: 42px 20px; color: #75827a; text-align: center; }
+.pagination { display: flex; align-items: center; justify-content: space-between; padding: 14px 22px; border-top: 1px solid #e5eee8; color: #627168; font-size: 13px; }
+.pagination div { display: flex; gap: 8px; }
+.pagination button { width: 42px; padding: 0; }
+
+@media (max-width: 700px) {
+  .panel { border-radius: 14px; }
+  .header { align-items: flex-start; padding: 16px; }
+  .header h2 { font-size: 17px; }
+  .header p { font-size: 12px; }
+  .header button { min-height: 38px; padding: 0 10px; font-size: 12px; }
+  .filters { grid-template-columns: 1fr; padding: 13px 16px; }
+  .table { min-width: 0; }
+  .table thead { display: none; }
+  .table, .table tbody, .table tr, .table td { display: block; width: 100%; box-sizing: border-box; }
+  .table tr { padding: 11px 15px; border-top: 1px solid #e3ebe6; }
+  .table td { display: grid; grid-template-columns: 104px minmax(0, 1fr); padding: 7px 0; border: 0; }
+  .table td::before { content: attr(data-label); color: #43624f; font-size: 11px; font-weight: 900; text-transform: uppercase; }
+  .table td > * { grid-column: 2; }
+  .table td::before { grid-column: 1; grid-row: 1 / span 8; }
+  .changes { min-width: 0; }
+  .changes li { grid-template-columns: 1fr 16px 1fr; }
+  .changes span { grid-column: 1 / -1; }
+  .pagination { padding: 12px 16px; }
+  .pagination button { min-height: 38px; width: 38px; }
+}

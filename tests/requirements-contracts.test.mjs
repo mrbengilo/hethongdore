@@ -16,15 +16,15 @@ test("employee profiles persist the required address, age and CCCD fields", asyn
     "../.openai/hosting.json",
   ]);
 
-  for (const column of ["province", "ward", "address_line", "age", "cccd_image_key", "cccd_image_name"]) {
+  for (const column of ["province", "ward", "address_line", "age", "cccd_number", "cccd_image_key", "cccd_image_name"]) {
     assert.match(`${schema}\n${runtime}`, new RegExp(column, "u"));
   }
-  for (const field of ["province", "ward", "addressLine", "age", "cccdImageKey", "cccdImageName"]) {
+  for (const field of ["province", "ward", "addressLine", "age", "cccdNumber", "cccdImageKey", "cccdImageName"]) {
     assert.match(api, new RegExp(field, "u"));
     assert.match(ui, new RegExp(field, "u"));
   }
-  assert.match(api, /INSERT INTO employees[\s\S]*province, ward, address_line, age,[\s\S]*cccd_image_key, cccd_image_name/u);
-  assert.match(api, /UPDATE employees SET[\s\S]*province = \?, ward = \?,[\s\S]*address_line = \?, age = \?, cccd_image_key = \?, cccd_image_name = \?/u);
+  assert.match(api, /INSERT INTO employees[\s\S]*province, ward, address_line, age,[\s\S]*cccd_number, cccd_image_key, cccd_image_name/u);
+  assert.match(api, /UPDATE employees SET[\s\S]*province = \?, ward = \?,[\s\S]*address_line = \?, age = \?, cccd_number = \?, cccd_image_key = \?, cccd_image_name = \?/u);
   assert.match(uploadApi, /image\/jpeg.*image\/png.*image\/webp/su);
   assert.match(uploadApi, /5 \* 1024 \* 1024/u);
   assert.match(uploadApi, /UPLOADS/u);
@@ -32,8 +32,9 @@ test("employee profiles persist the required address, age and CCCD fields", asyn
 });
 
 test("inventory receipts use a persistent mobile-safe list and server-calculated totals", async () => {
-  const [recordsApi, inventoryUi, styles] = await sources([
+  const [recordsApi, receiptCode, inventoryUi, styles] = await sources([
     "../app/api/records/route.ts",
+    "../app/lib/inventory-receipt-code.ts",
     "../app/components/InventoryManagement.tsx",
     "../app/globals.css",
   ]);
@@ -42,8 +43,10 @@ test("inventory receipts use a persistent mobile-safe list and server-calculated
   assert.match(recordsApi, /rawItems\.length === 0 \|\| rawItems\.length > 100/u);
   assert.match(recordsApi, /const goodsAmount = Math\.round\(weight \* unitPrice\)/u);
   assert.match(recordsApi, /goodsTotal, shippingTotal, total: sumVnd\(\[goodsTotal, shippingTotal\]\)/u);
-  assert.match(recordsApi, /receiptNo: `PN-/u);
-  assert.match(recordsApi, /savedAt: now, savedBy: user\.id/u);
+  assert.match(recordsApi, /inventoryReceiptDateToken\(receiptDate\)/u);
+  assert.match(recordsApi, /printf\('PN-%s-%05d'/u);
+  assert.match(receiptCode, /return `PN-\$\{inventoryReceiptDateToken\(receiptDate\)\}-\$\{String\(sequence\)\.padStart\(5, "0"\)\}`/u);
+  assert.match(recordsApi, /json_set\(\?, '\$\.receiptNo', request\.receipt_no, '\$\.savedAt', \?, '\$\.savedBy', \?\)/u);
   assert.match(recordsApi, /import \{ summarizeInventoryHistory \} from "\.\.\/\.\.\/lib\/inventory"/u);
   assert.match(recordsApi, /historySummary: summarizeInventoryHistory\(summaryRows\.map\(\(row\) => parseRow\(row\)\.data\)\)/u);
   assert.match(recordsApi, /const includeAllHistory = params\.get\("all"\) === "1"/u);
@@ -136,7 +139,7 @@ test("fixed-cost saves are immutable independent batches and monthly totals incl
   assert.match(styles, /\.fixed-cost-void-row/u);
 });
 
-test("reports compare periods and profit sharing requires every store ledger to be locked", async () => {
+test("reports compare periods and profit sharing reads and closes canonical locked snapshots", async () => {
   const [reportsApi, financeAggregation, reportUi, portal] = await sources([
     "../app/api/reports/route.ts",
     "../app/api/_lib/store-finance.ts",
@@ -144,24 +147,19 @@ test("reports compare periods and profit sharing requires every store ledger to 
     "../app/components/Portal.tsx",
   ]);
 
-  assert.match(reportsApi, /const range = localMonthRange\(period\)/u);
-  assert.match(reportsApi, /reportRangeData\(db, range, previousRange, "month"/u);
-  assert.match(reportsApi, /for \(const store of report\.stores\)/u);
+  assert.match(reportsApi, /const data = await reportRangeData\(/u);
   assert.match(reportsApi, /comparison:/u);
-  assert.match(reportsApi, /category = 'PAYROLL_CLOSING'.*status = 'LOCKED'/su);
-  assert.match(reportsApi, /category = 'DIVIDEND'.*status = 'LOCKED'/su);
-  assert.match(reportsApi, /Phạm Thị Diễm Thúy.*percentage: 40/su);
-  assert.match(reportsApi, /Trương Việt Vi.*percentage: 60/su);
-  assert.match(reportsApi, /profitSharingSnapshot\(period, report\.stores\)/u);
-  assert.match(reportsApi, /allocateStoreProfitSharing\(stores\.map/u);
-  assert.match(reportsApi, /multiplyRatioVnd\(distributableProfit, 40, 100\)/u);
-  assert.match(reportsApi, /const viAmount = distributableProfit - thuyAmount/u);
-  assert.match(reportsApi, /thuyAmount = sumVnd\(storeAllocations/u);
-  assert.match(reportsApi, /viAmount = sumVnd\(storeAllocations/u);
-  assert.match(reportsApi, /storeAllocations/u);
-  assert.match(reportsApi, /PROFIT_SHARING_PERIOD_CLOSE/u);
+  assert.match(reportsApi, /readProfitDistribution\(db, distributionPeriod\)/u);
+  assert.match(reportsApi, /listProfitDistributions\(db, \{ limit: 36 \}\)/u);
+  assert.match(reportsApi, /previewProfitDistribution\(db, distributionPeriod\)/u);
+  assert.match(reportsApi, /parsePersistedFinancialPeriodSnapshot\(store\.financialSnapshot\)/u);
+  assert.match(reportsApi, /allocateProfitSharingMembers\(store\.distributableProfit, memberPolicies\)/u);
+  assert.match(reportsApi, /closeProfitDistribution\(db, \{/u);
   assert.match(reportsApi, /body\.action === "CLOSE_PROFIT_SHARING" \|\| body\.action === "CLOSE_DIVIDEND"/u);
   assert.match(reportsApi, /dividendHistory: profitSharingHistory/u);
+  assert.match(reportsApi, /profitSharingReadiness/u);
+  assert.match(reportsApi, /profitSharingMessage/u);
+  assert.doesNotMatch(reportsApi, /PROFIT_SHARING_MEMBERS|profitSharingSnapshot|PAYROLL_CLOSING|category = 'DIVIDEND'|business_records/u);
   assert.match(financeAggregation, /category = 'CHI_PHI_CO_DINH'/u);
   assert.match(financeAggregation, /category = 'NHAP_HANG'/u);
   assert.match(financeAggregation, /profitBeforePerformanceRewards/u);
@@ -169,8 +167,9 @@ test("reports compare periods and profit sharing requires every store ledger to 
   assert.match(reportUi, /THỐNG KÊ PHÂN CHIA THEO TỪNG CỬA HÀNG/u);
   assert.match(reportUi, /allStoresLocked/u);
   assert.match(reportUi, /CHỜ CỬA HÀNG KHÓA KỲ/u);
-  assert.match(reportUi, /Phạm Thị Diễm Thúy \(40%\)/u);
-  assert.match(reportUi, /Trương Việt Vi \(60%\)/u);
+  assert.match(reportUi, /currentMembers\.map/u);
+  assert.match(reportUi, /memberColumnLabel/u);
+  assert.doesNotMatch(reportUi, /Phạm Thị Diễm Thúy \(40%\)|Trương Việt Vi \(60%\)/u);
   assert.match(reportUi, /profitChange/u);
   assert.match(portal, /const managerMenu = \[[^\]]*"Chia lợi nhuận"/u);
   assert.match(portal, /view === "Chia lợi nhuận"[\s\S]*?<ManagerProfitSharingClosing\/>/u);
@@ -187,7 +186,11 @@ test("operating expenses are validated, persisted and included in store finance"
   assert.match(recordsApi, /if \(category === "DONG_TIEN"\)/u);
   assert.match(recordsApi, /!validDate\(date\) \|\| !isVnd\(amount\) \|\| amount <= 0 \|\| !note/u);
   assert.match(recordsApi, /isStorePeriodLocked\(db, storeId, date\.slice\(0, 7\)\)/u);
-  assert.match(recordsApi, /date, period: date\.slice\(0, 7\), amount, note/u);
+  assert.match(recordsApi, /!excludeId && \(!expenseRequestIdPattern\.test\(clientRequestId\) \|\| !paidAt\)/u);
+  assert.match(
+    recordsApi,
+    /return \{ data: \{[\s\S]*date,[\s\S]*period: date\.slice\(0, 7\),[\s\S]*amount,[\s\S]*note,[\s\S]*clientRequestId[\s\S]*paidAt/u,
+  );
 
   assert.match(financeAggregation, /category = 'DONG_TIEN'.*store_id = \?.*status != 'DELETED'/u);
   assert.match(financeAggregation, /incidentalCosts = sumVnd\(\[\s*incidentalCosts,\s*\.\.\.incidentalResult\.results\.map/su);
@@ -246,7 +249,7 @@ test("attendance and employee payroll distinguish hourly rate from earned salary
     "../app/components/StorePayrollClosing.tsx",
   ]);
 
-  for (const label of ["Theo ca", "Theo ngày", "Theo tháng · từng nhân viên", "Lương cứng", "Lương thực nhận"]) {
+  for (const label of ["Theo ca", "Theo ngày", "Theo nhân viên", "Lương cứng", "Lương thực nhận"]) {
     assert.match(attendanceUi, new RegExp(label, "u"));
   }
   assert.match(attendanceUi, /hourlyMoney\(row\.rates\[0\]\)/u);
@@ -296,7 +299,10 @@ test("store payroll binds requests and mutations to one verified period", async 
   assert.match(closingUi, /setData\(\{\}\);[\s\S]*setLoadedScope\(null\)/u);
   assert.match(closingUi, /const actionScope = loadedScope/u);
   assert.match(closingUi, /actionScope\.period !== period \|\| actionScope\.storeId !== store\.id/u);
-  assert.match(closingUi, /body: JSON\.stringify\(\{ storeId: actionScope\.storeId, period: actionScope\.period/u);
+  assert.match(
+    closingUi,
+    /body: JSON\.stringify\(\{[\s\S]*storeId: actionScope\.storeId,[\s\S]*period: actionScope\.period,[\s\S]*expectedRevision: data\.financialPeriod\?\.revision \?\? 0,[\s\S]*reason: payrollActionReason\(action, employee\)/u,
+  );
   assert.match(closingUi, /disabled=\{!dataIsCurrent\}/u);
 });
 
@@ -386,37 +392,46 @@ test("manager payroll uses only locked store ledgers and final profit includes e
 
   assert.match(payrollApi, /category = 'PAYROLL_CLOSING' AND status = 'LOCKED'/u);
   assert.match(payrollApi, /params\.get\("scope"\) === "manager"/u);
-  assert.match(payrollApi, /managerHoursPerStore: MANAGER_FIXED_WORK_HOURS_PER_STORE/u);
-  assert.match(payrollApi, /minimumProfitPerHour: 30_000, rate: 0\.07/u);
-  assert.match(payrollApi, /settleStoreProfit\(profit, totalKpiBonus, managerBonus\)/u);
+  assert.match(payrollApi, /managerHoursPerStore: 0/u);
+  assert.doesNotMatch(payrollApi, /MANAGER_FIXED_WORK_HOURS_PER_STORE|managerFixedHours/u);
+  assert.match(payrollApi, /const policyVersion = await loadFinancialPolicyForPeriod\(db, period\)/u);
+  assert.match(payrollApi, /managerMonthlySalaryVnd: version\.policy\.managerMonthlySalaryVnd/u);
+  assert.match(payrollApi, /storePeriodFinance\(db, storeId, period, financePolicy\)/u);
+  assert.match(payrollApi, /const kpiDistribution = calculateKpi\(\{[\s\S]*actualSeconds: item\.durationSeconds/u);
+  assert.match(payrollApi, /const finance = calculateFinance\(\{[\s\S]*monthEndExpense: costBreakdown\.monthEndExpenses/u);
+  assert.doesNotMatch(payrollApi, /loadPayrollPolicy|distributeStoreKpiByPolicy|settleStoreProfit/u);
   assert.match(portal, /view === "Lương thưởng quản lý"[\s\S]*return <ManagerPayroll\/>/u);
   assert.match(portal, /Chỉ ghi nhận số liệu thật từ các cửa hàng đã xác nhận chi và khóa kỳ/u);
   assert.match(finance, /profitBeforePerformanceRewards - performanceRewards/u);
-  assert.match(aggregation, /managerSalary: MANAGER_MONTHLY_SALARY_VND/u);
-  assert.match(aggregation, /lockedSnapshot[\s\S]*provisionalKpi\?\.managerBonus/u);
-  assert.match(aggregation, /distributeStoreKpiByPolicy\([\s\S]*profitBeforePerformanceRewards[\s\S]*completedShiftCount[\s\S]*durationSeconds/u);
-  assert.match(aggregation, /if \(!row\.transferId\) \{[\s\S]*secondsByEmployee\.set/u);
-  assert.match(aggregation, /employeeFinancialStatusForPeriod\([\s\S]*row\.employeeStatusAtPeriodEnd,[\s\S]*row\.hasLifecycleHistory,[\s\S]*row\.inactivePeriod,[\s\S]*period[\s\S]*\)/u);
-  assert.match(aggregation, /employee_status_at_lock AS lockedEmploymentStatus[\s\S]*employee_payroll_closings employee_lock[\s\S]*employee_lock\.status IN \('BASE_LOCKED', 'LOCKED'\)/u);
-  assert.match(aggregation, /const baseExpense = sumVnd\(\[[\s\S]*MANAGER_MONTHLY_SALARY_VND[\s\S]*\]\);[\s\S]*const profitBeforePerformanceRewards = revenue - baseExpense/u);
-  assert.match(aggregation, /const expense = sumVnd\(\[baseExpense, employeeKpiBonus, managerBonus\]\)/u);
-  assert.match(aggregation, /profit: revenue - expense/u);
+  assert.match(aggregation, /const managerSalary = lockedSnapshot[\s\S]*payrollPolicy\.managerMonthlySalaryVnd/u);
+  assert.match(aggregation, /lockedSnapshot[\s\S]*provisionalKpi\?\.managerKpi/u);
+  assert.match(aggregation, /const provisionalKpi = lockedSnapshot \? null : calculateKpi\(\{[\s\S]*operatingProfit: operatingStage\.operatingProfit/u);
+  assert.match(aggregation, /secondsByEmployee\.set\(row\.employeeId, \(secondsByEmployee\.get\(row\.employeeId\) \?\? 0\) \+ seconds\)/u);
+  assert.doesNotMatch(aggregation, /if \(!row\.transferId\)[\s\S]{0,160}secondsByEmployee\.set/u);
+  assert.match(aggregation, /const finance = calculateFinance\(\{[\s\S]*employeeKpiTotal: employeeKpiBonus,[\s\S]*managerKpi: managerBonus,[\s\S]*monthEndExpense: operatingStage\.monthEndExpense/u);
+  assert.match(aggregation, /profit: finance\.finalProfit/u);
+  assert.match(aggregation, /options\.payrollRecognition === "PREVIEW"[\s\S]*allocateMonthlyExpense\(finance\.expenseBreakdown\.managerSalary, "managerSalary"/u);
   assert.match(aggregation, /finance\.settlementStatus === "PAYMENT_CONFIRMED" \|\| finance\.settlementStatus === "LOCKED"[\s\S]*addMonthlyExpenseAtClose\(finance\.expenseBreakdown\.managerSalary, "managerSalary", monthRange\.to, eligibleDates, days\)/u);
-  assert.doesNotMatch(aggregation, /allocateMonthlyExpense\(finance\.expenseBreakdown\.managerSalary/u);
 });
 
-test("overview and reports share accrual ranges while cashflow labels actual payments distinctly", async () => {
-  const [storesApi, reportsApi, cashflowApi] = await sources([
+test("overview and reports reconcile fixed costs while cashflow labels actual payments distinctly", async () => {
+  const [storesApi, reportsApi, cashflowApi, storeFinance] = await sources([
     "../app/api/stores/route.ts",
     "../app/api/reports/route.ts",
     "../app/api/cashflow/route.ts",
+    "../app/api/_lib/store-finance.ts",
   ]);
 
-  assert.match(storesApi, /storeDateRangeFinance\(db, id, currentRange\)/u);
+  assert.match(storesApi, /storeDateRangeFinance\(db, id, currentRange, \{ payrollRecognition: "PREVIEW" \}\)/u);
   assert.match(storesApi, /to: fullCurrentRange\.to > today \? today : fullCurrentRange\.to/u);
   assert.match(storesApi, /previousComparableDateRange\(currentRange, "month"\)/u);
-  assert.match(reportsApi, /storeDateRangeFinance\(db, id, range\)/u);
-  assert.match(reportsApi, /monthlyAccrual:[\s\S]*lương quản lý chỉ ghi nhận một lần[\s\S]*xác nhận đã chi/u);
+  assert.match(reportsApi, /fixedCostRecognitionForRange\(params, range\)[\s\S]*const usesFullEndingPeriodFixedCosts = fixedCostRecognition === "FULL_ENDING_PERIOD"/u);
+  assert.match(reportsApi, /range\.from <= endingMonth\.from && range\.to === finalAvailableDay/u);
+  assert.match(reportsApi, /storeDateRangeFinance\(db, id, range, \{ fixedCostRecognition, payrollRecognition: "PREVIEW" \}\)/u);
+  assert.match(reportsApi, /storeDateRangeFinance\(db, id, previousRange, \{ fixedCostRecognition, payrollRecognition: "PREVIEW" \}\)/u);
+  assert.match(storeFinance, /const payrollPolicy: FinancePolicyInput = requestedFinancePolicy[\s\S]*loadFinancialPolicyForPeriod\(db, period\)\)\.policy/u);
+  assert.match(reportsApi, /monthlyAccrual:[\s\S]*Chi phí cố định, lương quản lý và KPI của tháng kết thúc phạm vi được ghi nhận đủ một lần[\s\S]*kỳ mở dùng chính sách hiện hành[\s\S]*kỳ đã khóa giữ nguyên bản chốt/u);
+  assert.match(reportsApi, /performanceRewards:[\s\S]*kỳ mở là số xem trước theo chính sách hiện hành[\s\S]*kỳ đã khóa chỉ dùng ảnh chụp bất biến/u);
   assert.match(cashflowApi, /financeStatus: "ACTUAL_CASH"/u);
   assert.match(cashflowApi, /outflow: "Tiền đã chi thực tế"/u);
   assert.match(cashflowApi, /accountingReconciliation/u);
@@ -461,6 +476,12 @@ test("website and store cards use logo.jpg as the canonical favicon and brand as
   assert.match(login, /src="\/logo\.jpg"/u);
   assert.match(portal, /src="\/logo\.jpg"/u);
   assert.doesNotMatch(`${layout}\n${login}\n${portal}`, /\/dore-logo\.jpg/u);
+});
+
+test("manager financial report opens on the current month-to-date accounting period", async () => {
+  const source = await readFile(new URL("../app/components/ManagerFinanceViews.tsx", import.meta.url), "utf8");
+  assert.match(source, /function initialDayRange\(\)[\s\S]*?const to = localIsoDate\(\);[\s\S]*?from: `\$\{to\.slice\(0, 7\)\}-01`, to/u);
+  assert.doesNotMatch(source, /function initialDayRange\(\)[\s\S]{0,180}shiftDate\(to, -6\)/u);
 });
 
 test("migration upgrades existing employee and shift tables without recreating them", async () => {

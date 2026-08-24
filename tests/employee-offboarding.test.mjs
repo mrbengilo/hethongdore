@@ -56,10 +56,12 @@ test("individual payroll locks are immutable, idempotent and preserve offboardin
   assert.match(migration, /CREATE UNIQUE INDEX `idx_employee_payroll_closing_period`/u);
   assert.match(payroll, /"FINALIZE_SINGLE_EMPLOYEE"/u);
   assert.match(payroll, /INSERT OR IGNORE INTO employee_payroll_closings/u);
-  assert.match(payroll, /!canClosePayrollPeriod\(period\) && employee\.status !== "TERMINATED" && employee\.status !== "INACTIVE"/u);
+  assert.match(payroll, /const employmentStatus = employeeFinancialStatusForPeriod\([\s\S]*employee\.statusAtPeriodEnd,[\s\S]*employee\.hasLifecycleHistory,[\s\S]*employee\.inactivePeriod,[\s\S]*period/u);
+  assert.match(payroll, /!canClosePayrollPeriod\(period\) && employmentStatus !== "INACTIVE"/u);
+  assert.doesNotMatch(payroll, /FROM employees e WHERE e\.id = \? AND e\.status (?:=|!=|IN)/u);
   assert.match(payroll, /const kpiDeferred = true/u);
   assert.doesNotMatch(payroll, /kpiDeferred = period === localPeriod\(\)/u);
-  assert.match(payroll, /employeePayWithKpi\(item, allocation\.bonus\)/u);
+  assert.match(payroll, /employeePayWithKpi\(item, allocation\.employeeKpi\)/u);
   assert.match(payroll, /employeePayWithKpi\(sourceItem, 0\)/u);
   assert.match(payroll, /\(e\.statusAtPeriodEnd IN \('ACTIVE', 'SUSPENDED'\) AND e\.store_id = \?\)/u);
   assert.match(payroll, /lifecycle_exit\.effective_at >= \? AND lifecycle_exit\.effective_at < \?[\s\S]*lifecycle_exit\.to_status IN \('TERMINATED', 'INACTIVE', 'ARCHIVED'\)/u);
@@ -69,11 +71,13 @@ test("individual payroll locks are immutable, idempotent and preserve offboardin
   assert.match(records, /isStorePeriodLocked/u);
   assert.match(payroll, /UPDATE employee_payroll_closings[\s\S]*status = 'BASE_LOCKED'[\s\S]*status = 'CLOSING' AND locked_by = \?/u);
   assert.match(payroll, /DELETE FROM employee_payroll_closings[\s\S]*status = 'CLOSING' AND locked_by = \?/u);
-  assert.match(periodLock, /employee_period_lock\.period =/u);
-  assert.match(periodLock, /COALESCE\(employee_period_lock\.status, ''\) != 'DELETED'/u);
+  assert.match(periodLock, /canonical_period_lock\.period =/u);
+  assert.match(periodLock, /canonical_period_lock\.status IN \('CONFIRMED', 'PAID', 'LOCKED'\)/u);
+  assert.match(periodLock, /legacy_period_lock\.category = 'PAYROLL_CLOSING'/u);
+  assert.match(periodLock, /legacy_period_lock\.status = 'LOCKED'/u);
   assert.match(ui, /runAction\("FINALIZE_SINGLE_EMPLOYEE", item\)/u);
   assert.match(ui, /dateTime24\(employeeClosing\.lockedAt\)/u);
-  assert.match(ui, /KPI chờ chốt kỳ/u);
+  assert.match(ui, /KPI chờ xác nhận kỳ/u);
   assert.match(ui, /Chốt bắt buộc/u);
 });
 
@@ -85,7 +89,7 @@ test("payroll closing gates serialize operational writes, active shifts and conc
   ]);
 
   const singleStart = payroll.indexOf('if (action === "FINALIZE_SINGLE_EMPLOYEE")');
-  const storeStart = payroll.indexOf('if (await lockedSummary(db, storeId, period))', singleStart);
+  const storeStart = payroll.indexOf("const gateData = JSON.stringify", singleStart);
   const singleBranch = payroll.slice(singleStart, storeStart);
   const storeBranch = payroll.slice(storeStart);
   assert.ok(singleStart >= 0 && storeStart > singleStart);
@@ -104,15 +108,17 @@ test("payroll closing gates serialize operational writes, active shifts and conc
   assert.match(storeBranch, /SELECT \?, 'KPI_SUMMARY',[\s\S]*'CLOSING'[\s\S]*NOT EXISTS \([\s\S]*shift_sessions[\s\S]*status = 'ACTIVE'/u);
   assert.match(storeBranch, /NOT EXISTS \([\s\S]*employee_payroll_closings[\s\S]*status = 'CLOSING'/u);
   assert.match(storeBranch, /gateData = JSON\.stringify\(\{ gateToken, period, storeId, status: "CLOSING"/u);
-  assert.match(storeBranch, /UPDATE business_records[\s\S]*status = 'LOCKED'[\s\S]*status = 'CLOSING'[\s\S]*'\$\.gateToken'/u);
+  assert.match(storeBranch, /prepareFinancialPeriodTransitionPlan\(db, \{[\s\S]*toStatus: "CALCULATED"/u);
+  assert.match(storeBranch, /UPDATE business_records[\s\S]*status = 'CALCULATED'[\s\S]*status = 'CLOSING'[\s\S]*'\$\.gateToken'/u);
+  assert.match(storeBranch, /assertFinancialPeriodPlanApplied\(finalizeResults, transition, 2\)/u);
   assert.match(storeBranch, /DELETE FROM business_records[\s\S]*status = 'CLOSING'[\s\S]*'\$\.gateToken'/u);
 
   assert.match(payroll, /PAYROLL_GATE_STALE_MS = 10 \* 60 \* 1_000/u);
   assert.match(payroll, /status = 'CLOSING' AND locked_at < \?/u);
   assert.match(payroll, /status = 'CLOSING' AND updated_at < \?/u);
-  assert.match(periodLock, /category IN \('KPI_SUMMARY', 'PAYROLL_CLOSING'\)/u);
-  assert.match(periodLock, /COALESCE\(store_period_lock\.status, ''\) != 'DELETED'/u);
-  assert.match(periodLock, /COALESCE\(employee_period_lock\.status, ''\) != 'DELETED'/u);
+  assert.match(periodLock, /canonical_period_lock\.status IN \('CONFIRMED', 'PAID', 'LOCKED'\)/u);
+  assert.match(periodLock, /legacy_period_lock\.category = 'PAYROLL_CLOSING'/u);
+  assert.match(periodLock, /legacy_period_lock\.status = 'LOCKED'/u);
   assert.match(records, /affectedRows\(result\) === 0/u);
 });
 
@@ -121,7 +127,7 @@ test("previous-period individual closing defers KPI until the locked store summa
   assert.match(payroll, /const kpiDeferred = true/u);
   assert.match(payroll, /kpiBonus: 0/u);
   assert.match(payroll, /employeePayWithKpi\(sourceItem, 0\)/u);
-  assert.match(payroll, /employeePayWithKpi\(item, allocation\.bonus\)/u);
+  assert.match(payroll, /employeePayWithKpi\(item, allocation\.employeeKpi\)/u);
   assert.match(payroll, /single immutable KPI_SUMMARY created by FINALIZE_EMPLOYEE/u);
 });
 
@@ -145,23 +151,27 @@ test("legacy inactive rows remain byte-compatible and attributable to their offb
   assert.match(payroll, /e\.hasLifecycleHistory = 0 AND e\.status IN \('TERMINATED', 'INACTIVE'\)[\s\S]*e\.inactivePeriod = \?/u);
 });
 
-test("offboarding KPI uses completed shift eligibility and keeps individual KPI deferred", async () => {
-  const [payroll, payrollPolicy] = await Promise.all([
+test("offboarding KPI keeps historical actual work and individual KPI deferred", async () => {
+  const [payroll, kpiEngine] = await Promise.all([
     source("../app/api/payroll/route.ts"),
-    source("../app/lib/payroll.ts"),
+    source("../app/lib/kpi-engine.ts"),
   ]);
 
   assert.match(payroll, /AS completedShiftCount/u);
-  assert.match(payroll, /distributeStoreKpiByPolicy\(profit/u);
+  assert.match(payroll, /const kpiDistribution = calculateKpi\(\{/u);
+  assert.match(payroll, /actualSeconds: item\.durationSeconds/u);
   assert.match(payroll, /kpiCompletedShiftCount/u);
   assert.match(payroll, /kpiEligibleDurationSeconds/u);
   assert.match(payroll, /const kpiDeferred = true/u);
-  assert.match(payrollPolicy, /INACTIVE_EMPLOYEE_KPI_MIN_COMPLETED_SHIFTS = 15/u);
-  assert.match(payrollPolicy, /employmentStatus === "ACTIVE"/u);
+  assert.match(kpiEngine, /operatingProfit <= 0 \|\| totalEmployeeSeconds <= 0/u);
+  assert.doesNotMatch(payroll, /CASE WHEN s\.transfer_id IS NULL[\s\S]{0,320}AS kpiDurationSeconds/u);
+  assert.match(payroll, /LEFT JOIN employees e ON e\.id = s\.employee_id/u);
+  assert.match(payroll, /row\.appliedHourlyRate === null \|\| row\.appliedHourlyRate === undefined[\s\S]*Thiếu snapshot mức lương/u);
   assert.match(payroll, /employeeFinancialStatusForPeriod/u);
   assert.match(payroll, /employeeStatusAtInstantSql/u);
   assert.doesNotMatch(payroll, /employeeStatusMap/u);
-  assert.match(payroll, /const summary = snapshot \?\? await buildPreview/u);
+  assert.match(payroll, /const canonicalSnapshot = payrollSummaryFromFinancialPeriod\(financialPeriodRow\)/u);
+  assert.match(payroll, /const summary = snapshotIsAuthoritative && \(canonicalSnapshot \|\| legacySnapshot\)[\s\S]*canonicalSnapshot \?\? legacySnapshot[\s\S]*await buildPreview/u);
 });
 
 test("transfer creation requires active employees while lifecycle changes never mutate transfer history", async () => {
@@ -188,11 +198,13 @@ test("employee form and payroll controls remain visible", async () => {
   assert.match(employeeUi, /type="submit" className="primary-button"/u);
   assert.match(css, /employee-drawer \.drawer-actions \.primary-button\{display:inline-flex!important/u);
   assert.match(css, /@media\(min-width:1001px\).*employee-drawer\{position:fixed.*bottom:16px/su);
-  assert.match(payrollUi, /Khóa sổ riêng/u);
+  assert.match(payrollUi, /Chốt cá nhân/u);
+  assert.match(payrollUi, /onClick=\{\(\) => void runAction\("FINALIZE_SINGLE_EMPLOYEE", item\)\}/u);
+  assert.match(payrollUi, /aria-label=\{`\$\{actionLabel\} cho \$\{item\.employeeName\}`\}/u);
   assert.match(payrollUi, /employeeClosingById/u);
-  assert.match(payrollUi, /completedShiftCount/u);
-  assert.match(payrollUi, /Đủ điều kiện KPI/u);
-  assert.match(payrollUi, /Không đủ điều kiện KPI/u);
-  assert.match(payrollUi, /ca chính thực tế/u);
+  assert.match(payrollUi, /giờ thực tế trong kỳ/u);
+  assert.match(payrollUi, /Có phân bổ KPI/u);
+  assert.match(payrollUi, /Không có giờ KPI/u);
+  assert.doesNotMatch(payrollUi, /ca chính thực tế|Đủ điều kiện KPI|Không đủ điều kiện KPI/u);
   assert.match(css, /employee-kpi-status/u);
 });

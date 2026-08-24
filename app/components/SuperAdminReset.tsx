@@ -6,6 +6,7 @@ import { formatDateTime24, formatDateVn } from "../lib/format";
 import { DatePickerControl } from "./DatePickerControl";
 import { SuperAdminDataRecords } from "./SuperAdminDataRecords";
 import { SuperAdminEmployees } from "./SuperAdminEmployees";
+import { SuperAdminOrderHistory } from "./SuperAdminOrderHistory";
 import styles from "./SuperAdminReset.module.css";
 
 type Store = { id: string; name: string };
@@ -173,6 +174,7 @@ export function SuperAdminReset({ store, onReset }: { store: Store; onReset?: ()
   return <div className={styles.page}>
     <div className={styles.warning} role="note"><ShieldAlert size={24}/><div><b>Chỉ dành cho quản trị cấp cao</b><br/>Reset sẽ loại dữ liệu khỏi vận hành của riêng {store.name}. Hệ thống luôn xem trước, chặn kỳ đã khóa và lưu bản chụp/audit trước khi thực hiện.</div></div>
     <SuperAdminDataRecords store={store} onChanged={onReset}/>
+    <SuperAdminOrderHistory store={store}/>
     <SuperAdminEmployees store={store} onChanged={onReset}/>
     <section className={styles.panel}>
       <header className={styles.panelHeader}><h2>Reset Dữ Liệu · {store.name}</h2><p>Chọn loại dữ liệu, thời gian, nhân viên hoặc mã ca. Không chọn nhân viên/ca nghĩa là áp dụng cho toàn bộ phạm vi thời gian.</p></header>

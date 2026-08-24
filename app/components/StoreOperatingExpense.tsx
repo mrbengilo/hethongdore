@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Download, Plus, ReceiptText, RefreshCw, WalletCards, X } from "lucide-react";
 import { formatVndInput, parseVndInput } from "../lib/format";
 
@@ -105,6 +105,8 @@ export function StoreOperatingExpense({ store, onSaved }: {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const clientRequestIdRef = useRef("");
+  const paidAtRef = useRef("");
   const inactive = store.status === "INACTIVE";
 
   const reload = useCallback(async () => {
@@ -137,6 +139,8 @@ export function StoreOperatingExpense({ store, onSaved }: {
     setNote("");
     setError("");
     setMessage("");
+    clientRequestIdRef.current = crypto.randomUUID();
+    paidAtRef.current = "";
     setOpen(true);
   }
 
@@ -153,19 +157,32 @@ export function StoreOperatingExpense({ store, onSaved }: {
 
     setSaving(true);
     try {
+      const clientRequestId = clientRequestIdRef.current || crypto.randomUUID();
+      const paidAt = paidAtRef.current || new Date().toISOString();
+      clientRequestIdRef.current = clientRequestId;
+      paidAtRef.current = paidAt;
       const response = await fetch("/api/records", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Idempotency-Key": clientRequestId },
         body: JSON.stringify({
           category: "DONG_TIEN",
           storeId: store.id,
           title: title.trim(),
-          data: { date, period: date.slice(0, 7), amount: parsedAmount, note: note.trim() },
+          data: {
+            date,
+            period: date.slice(0, 7),
+            amount: parsedAmount,
+            note: note.trim(),
+            clientRequestId,
+            paidAt,
+          },
         }),
       });
       const result = await response.json().catch(() => ({})) as { message?: string };
       if (!response.ok) throw new Error(result.message ?? "Không thể lưu chi phí phát sinh.");
       setOpen(false);
+      clientRequestIdRef.current = "";
+      paidAtRef.current = "";
       setMessage("Đã lưu chi phí phát sinh và ghi nhận vào lịch sử.");
       await reload();
       await onSaved?.();

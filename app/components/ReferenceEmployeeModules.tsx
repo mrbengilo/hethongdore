@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BadgeDollarSign, Banknote, CheckCircle2, Clock3, Download, Gift, Search, TrendingUp, WalletCards } from "lucide-react";
+import EmployeeAttendanceSummary from "./EmployeeAttendanceSummary";
 
 type ShiftRow = {
   id: string;
@@ -98,6 +99,13 @@ const money = (value: number) => `${new Intl.NumberFormat("en-US").format(Math.r
 const localDay = (value: Date | string) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh" }).format(typeof value === "string" ? new Date(value) : value);
 const today = () => localDay(new Date());
 const monthNow = () => today().slice(0, 7);
+const monthLastDay = (period: string) => {
+  const [year, month] = period.split("-").map(Number);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) return today();
+  const day = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return `${period}-${String(day).padStart(2, "0")}`;
+};
+const defaultThroughForPeriod = (period: string) => period === monthNow() ? today() : monthLastDay(period);
 const time = (value: string) => new Intl.DateTimeFormat("vi-VN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Ho_Chi_Minh", hourCycle: "h23" }).format(new Date(value));
 const workDay = (shift: ShiftRow) => shift.workDate || localDay(shift.started_at);
 const displayDay = (value: string) => value.split("-").reverse().join("/");
@@ -193,28 +201,71 @@ export function ReferenceEmployeePayroll() {
   const [payrollShifts, setPayrollShifts] = useState<EmployeePayrollShiftDetail[]>([]);
   const [payrollLocked, setPayrollLocked] = useState(false);
   const [payrollPaid, setPayrollPaid] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const payrollRequest = useRef(0);
+  const payrollController = useRef<AbortController | null>(null);
   const loadPayroll = useCallback(async () => {
-    const response = await fetch(`/api/payroll?period=${encodeURIComponent(month)}`);
-    const data = await response.json();
-    setPayrollItem(response.ok ? data.item ?? null : null);
-    setSources(response.ok ? data.sources ?? [] : []);
-    setPayrollShifts(response.ok ? data.shiftDetails ?? [] : []);
-    setPayrollLocked(Boolean(response.ok && data.locked));
-    setPayrollPaid(Boolean(response.ok && data.paid));
+    const requestedPeriod = month;
+    const requestId = ++payrollRequest.current;
+    payrollController.current?.abort();
+    const controller = new AbortController();
+    payrollController.current = controller;
+    setPayrollItem(null);
+    setSources([]);
+    setPayrollShifts([]);
+    setPayrollLocked(false);
+    setPayrollPaid(false);
+    try {
+      const response = await fetch(`/api/payroll?period=${encodeURIComponent(requestedPeriod)}`, {
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      const data = await response.json() as {
+        period?: string;
+        item?: EmployeePayrollItem | null;
+        sources?: EmployeePayrollSource[];
+        shiftDetails?: EmployeePayrollShiftDetail[];
+        locked?: boolean;
+        paid?: boolean;
+      };
+      if (!response.ok || data.period !== requestedPeriod) {
+        throw new Error("Dữ liệu bảng lương phản hồi không đúng kỳ đã chọn.");
+      }
+      if (requestId !== payrollRequest.current || controller.signal.aborted) return;
+      setPayrollItem(data.item ?? null);
+      setSources(Array.isArray(data.sources) ? data.sources : []);
+      setPayrollShifts(Array.isArray(data.shiftDetails) ? data.shiftDetails : []);
+      setPayrollLocked(Boolean(data.locked));
+      setPayrollPaid(Boolean(data.paid));
+    } catch {
+      if (requestId !== payrollRequest.current || controller.signal.aborted) return;
+      setPayrollItem(null);
+      setSources([]);
+      setPayrollShifts([]);
+      setPayrollLocked(false);
+      setPayrollPaid(false);
+    } finally {
+      if (payrollController.current === controller) payrollController.current = null;
+    }
   }, [month]);
-  useEffect(() => { loadPayroll(); }, [loadPayroll]);
+  useEffect(() => {
+    void loadPayroll();
+    return () => payrollController.current?.abort();
+  }, [loadPayroll]);
   const rows = useMemo(() => shifts.filter((shift) => workDay(shift).slice(0, 7) === month && workDay(shift) <= through).map(shiftInfo), [month, shifts, through]);
   const detailRows = useMemo(() => payrollShifts.filter((shift) => (shift.workDate || localDay(shift.startedAt)) <= through), [payrollShifts, through]);
   const mainShiftRows = useMemo(() => detailRows.filter((row) => !row.isSupport), [detailRows]);
   const supportShiftRows = useMemo(() => detailRows.filter((row) => row.isSupport), [detailRows]);
+  const isFullPeriodView = through === monthLastDay(month);
   const shiftWage = detailRows.length ? detailRows.reduce((sum, row) => sum + row.baseSalary, 0) : rows.reduce((sum, row) => sum + row.wage, 0);
   const shiftTikTokAllowance = detailRows.length ? detailRows.reduce((sum, row) => sum + row.tiktokAllowance, 0) : rows.reduce((sum, row) => sum + row.tiktok_allowance, 0);
   const shiftSupportAllowance = detailRows.reduce((sum, row) => sum + row.supportAllowance, 0);
-  const wage = payrollItem?.baseSalary ?? shiftWage;
-  const tiktokAllowance = payrollItem?.tiktokAllowance ?? shiftTikTokAllowance;
-  const supportAllowance = payrollItem?.supportAllowance ?? shiftSupportAllowance;
-  const manualAllowance = payrollItem?.manualAllowance ?? 0;
-  const allowance = tiktokAllowance + supportAllowance + manualAllowance;
+  // The API payroll item is a whole-period snapshot. Only use its aggregate
+  // amounts at the maximum selectable date; an earlier "Đến ngày" must be
+  // calculated from the visible shift rows and dated adjustments.
+  const wage = isFullPeriodView ? payrollItem?.baseSalary ?? shiftWage : shiftWage;
+  const tiktokAllowance = isFullPeriodView ? payrollItem?.tiktokAllowance ?? shiftTikTokAllowance : shiftTikTokAllowance;
+  const supportAllowance = isFullPeriodView ? payrollItem?.supportAllowance ?? shiftSupportAllowance : shiftSupportAllowance;
   const supportAllowanceByStore = useMemo(() => {
     const totals = new Map<string, number>();
     for (const row of detailRows) {
@@ -226,24 +277,41 @@ export function ReferenceEmployeePayroll() {
   const allocatedSupportAllowance = supportAllowanceByStore.reduce((sum, row) => sum + row.amount, 0);
   const unallocatedSupportAllowance = Math.max(0, supportAllowance - allocatedSupportAllowance);
   const manualAllowanceDetails = useMemo(
-    () => (payrollItem?.adjustments ?? []).filter((adjustment) => adjustment.kind === "ALLOWANCE"),
-    [payrollItem?.adjustments],
+    () => (payrollItem?.adjustments ?? []).filter((adjustment) => adjustment.kind === "ALLOWANCE" && adjustment.date <= through),
+    [payrollItem?.adjustments, through],
   );
   const itemizedManualAllowance = manualAllowanceDetails.reduce((sum, adjustment) => sum + adjustment.amount, 0);
-  const unitemizedManualAllowance = Math.max(0, manualAllowance - itemizedManualAllowance);
-  const manualBonus = payrollItem?.manualBonus ?? 0;
-  const finalizedKpiBonus = sources.reduce((sum, source) => sum + (source.locked ? source.kpiBonus : 0), 0);
+  const manualAllowance = isFullPeriodView
+    ? payrollItem?.manualAllowance ?? itemizedManualAllowance
+    : itemizedManualAllowance;
+  const allowance = tiktokAllowance + supportAllowance + manualAllowance;
+  const unitemizedManualAllowance = isFullPeriodView ? Math.max(0, manualAllowance - itemizedManualAllowance) : 0;
+  const manualBonusDetails = useMemo(
+    () => (payrollItem?.adjustments ?? []).filter((adjustment) => adjustment.kind === "BONUS" && adjustment.date <= through),
+    [payrollItem?.adjustments, through],
+  );
+  const itemizedManualBonus = manualBonusDetails.reduce((sum, adjustment) => sum + adjustment.amount, 0);
+  const manualBonus = isFullPeriodView ? payrollItem?.manualBonus ?? itemizedManualBonus : itemizedManualBonus;
+  const finalizedKpiBonus = isFullPeriodView
+    ? sources.reduce((sum, source) => sum + (source.locked ? source.kpiBonus : 0), 0)
+    : 0;
   const reward = manualBonus + finalizedKpiBonus;
   const income = wage + allowance + reward;
-  const partiallyLocked = !payrollLocked && sources.some((source) => source.locked);
+  const displayPayrollLocked = isFullPeriodView && payrollLocked;
+  const displayPayrollPaid = isFullPeriodView && payrollPaid;
+  const partiallyLocked = isFullPeriodView && !payrollLocked && sources.some((source) => source.locked);
   const rowCount = detailRows.length || rows.length;
   const totalHours = detailRows.length ? detailRows.reduce((sum, row) => sum + row.hours, 0) : rows.reduce((sum, row) => sum + row.hours, 0);
-  async function reloadAll() { await Promise.all([reload(), loadPayroll()]); }
-  return <div className="employee-reference payroll-reference"><div className="employee-filter"><label>Tháng<input type="month" value={month} onChange={(event) => setMonth(event.target.value)}/></label><label>Đến ngày<input type="date" value={through} onChange={(event) => setThrough(event.target.value)}/></label><button className="primary-button" onClick={reloadAll}><TrendingUp size={17}/> Xem thống kê</button></div>
-    <div className="employee-metrics four"><EmployeeMetric icon={WalletCards} label="TỔNG THU NHẬP" value={money(income)} note={payrollPaid ? "Đã chi và ghi nhận lịch sử" : payrollLocked ? "Đã chốt tất cả nguồn, chờ xác nhận chi" : partiallyLocked ? "Một phần nguồn lương đã chốt" : `Tạm tính đến ${through}`}/><EmployeeMetric icon={BadgeDollarSign} label="TỔNG LƯƠNG" value={money(wage)} note={`Từ ${rowCount} ca làm`} tone="blue"/><EmployeeMetric icon={Gift} label="THƯỞNG & PHỤ CẤP" value={money(reward + allowance)} note={payrollLocked ? "KPI + thưởng + phụ cấp" : partiallyLocked ? "KPI chỉ tính từ nguồn đã chốt" : "Chờ quản lý tổng kết KPI"} tone="orange"/><EmployeeMetric icon={CheckCircle2} label="TRẠNG THÁI CHI" value={payrollPaid ? "ĐÃ CHI" : payrollLocked ? "CHỜ CHI" : partiallyLocked ? "CHỐT MỘT PHẦN" : "TẠM TÍNH"} note={`${rowCount} ca đã ghi nhận`}/></div>
+  async function reloadAll() {
+    setRefreshKey((current) => current + 1);
+    await Promise.all([reload(), loadPayroll()]);
+  }
+  return <div className="employee-reference payroll-reference"><div className="employee-filter"><label>Tháng<input type="month" value={month} onChange={(event) => { const next = event.target.value; setMonth(next); setThrough(defaultThroughForPeriod(next)); }}/></label><label>Đến ngày<input type="date" min={`${month}-01`} max={defaultThroughForPeriod(month)} value={through} onChange={(event) => setThrough(event.target.value)}/></label><button className="primary-button" onClick={reloadAll}><TrendingUp size={17}/> Xem thống kê</button></div>
+    <div className="employee-metrics four"><EmployeeMetric icon={WalletCards} label="TỔNG THU NHẬP" value={money(income)} note={displayPayrollPaid ? "Đã chi và ghi nhận lịch sử" : displayPayrollLocked ? "Đã chốt tất cả nguồn, chờ xác nhận chi" : partiallyLocked ? "Một phần nguồn lương đã chốt" : `Tạm tính đến ${through}`}/><EmployeeMetric icon={BadgeDollarSign} label="TỔNG LƯƠNG" value={money(wage)} note={`Từ ${rowCount} ca làm`} tone="blue"/><EmployeeMetric icon={Gift} label="THƯỞNG & PHỤ CẤP" value={money(reward + allowance)} note={displayPayrollLocked ? "KPI + thưởng + phụ cấp" : partiallyLocked ? "KPI chỉ tính từ nguồn đã chốt" : isFullPeriodView ? "Chờ quản lý tổng kết KPI" : "Theo phát sinh đến ngày đã chọn"} tone="orange"/><EmployeeMetric icon={CheckCircle2} label="TRẠNG THÁI CHI" value={displayPayrollPaid ? "ĐÃ CHI" : displayPayrollLocked ? "CHỜ CHI" : partiallyLocked ? "CHỐT MỘT PHẦN" : "TẠM TÍNH"} note={`${rowCount} ca đã ghi nhận`}/></div>
     <section className="employee-detail-strip"><h2>CHI TIẾT THỐNG KÊ</h2><div><span>Số ca làm<b>{rowCount} ca</b></span><span>Tổng số giờ làm<b>{totalHours.toFixed(2)} giờ</b></span><span>Ca hỗ trợ<b>{detailRows.filter((row) => row.isSupport).length} ca</b></span><span>Cửa hàng tính lương<b>{Math.max(1, sources.length)} nơi</b></span><span>Lương trung bình/ca<b>{money(rowCount ? wage / rowCount : 0)}</b></span></div></section>
-    {sources.length > 0 && <section className="employee-panel table-panel"><div className="panel-title"><h2>NGUỒN CHI TRẢ THEO CỬA HÀNG</h2><span>{sources.length} cửa hàng</span></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>Cửa hàng</th><th>Vai trò</th><th>Giờ làm thực tế</th><th>Lương từ giờ làm</th><th>Phụ cấp hỗ trợ</th><th>Phụ cấp khác / Thưởng / KPI</th><th>Lương thực nhận</th><th>Trạng thái</th></tr></thead><tbody>{sources.map((source) => <tr key={source.storeId}><td><b>{source.storeName}</b></td><td>{source.isSupport ? <span className="status-pill">Nhân viên hỗ trợ</span> : "Nhân viên chính"}</td><td>{source.hours.toFixed(2)} giờ</td><td>{money(source.baseSalary)}</td><td>{source.isSupport ? money(source.supportAllowance) : "—"}</td><td>{money(source.manualAllowance + source.manualBonus + (source.locked ? source.kpiBonus : 0))}</td><td className="money-green"><b>{money(visibleSourcePay(source))}</b></td><td><span className={`status-pill ${source.locked ? "" : "inactive"}`}>{sourcePaymentLabel(source)}</span></td></tr>)}</tbody></table></div></section>}
-    <div className="employee-payroll-grid"><section className="employee-panel table-panel"><div className="panel-title"><div><h2>CHI TIẾT LƯƠNG THEO CA</h2><p>Tách rõ ca tại cửa hàng chính và ca hỗ trợ để không nhầm mức lương theo giờ.</p></div><button onClick={() => csv("bang-luong.csv", [["Ngày", "Ca", "Cửa hàng", "Vai trò", "Giờ vào", "Giờ kết", "Giờ làm thực tế", "Lương cứng/giờ", "Lương hỗ trợ/giờ", "Phụ cấp hỗ trợ", "Phụ cấp TikTok", "Lương thực nhận"], ...detailRows.map((row) => [displayDay(row.workDate || localDay(row.startedAt)), row.shiftName ?? row.shiftCode, row.storeName, row.isSupport ? "Nhân viên hỗ trợ" : "Nhân viên chính", time(row.startedAt), time(row.endedAt), row.hours.toFixed(2), row.isSupport ? "" : row.hourlyRate, row.isSupport ? row.hourlyRate : "", row.isSupport ? row.supportAllowance : "", row.tiktokAllowance, row.netPay])])}><Download size={16}/> Xuất Excel</button></div>{detailRows.length === 0 ? <div className="empty-cell">Chưa có ca làm trong thời gian đã chọn.</div> : <div className="employee-shift-payroll-groups">{mainShiftRows.length > 0 ? <EmployeeShiftPayrollTable rows={mainShiftRows} support={false}/> : null}{supportShiftRows.length > 0 ? <EmployeeShiftPayrollTable rows={supportShiftRows} support/> : null}</div>}</section><aside className="employee-panel income-summary"><h2>TỔNG KẾT THU NHẬP</h2><p><span>Tổng lương ({rowCount} ca)</span><b>{money(wage)}</b></p><p><span>Tổng phụ cấp</span><b>{money(allowance)}</b></p><ul className="allowance-breakdown" aria-label="Chi tiết các khoản phụ cấp"><li><span>Phụ cấp clip TikTok</span><b>{money(tiktokAllowance)}</b></li>{supportAllowanceByStore.map((row) => <li key={row.storeName}><span>Phụ cấp hỗ trợ · {row.storeName}</span><b>{money(row.amount)}</b></li>)}{unallocatedSupportAllowance > 0 ? <li><span>Phụ cấp hỗ trợ</span><b>{money(unallocatedSupportAllowance)}</b></li> : null}{manualAllowanceDetails.map((adjustment) => <li key={`${adjustment.storeId}-${adjustment.id}`}><span>{adjustment.label}{sources.length > 1 ? ` · ${adjustment.storeName}` : ""}</span><b>{money(adjustment.amount)}</b></li>)}{unitemizedManualAllowance > 0 ? <li><span>Phụ cấp khác · dữ liệu kỳ cũ</span><b>{money(unitemizedManualAllowance)}</b></li> : null}</ul><p><span>Thưởng khác</span><b>{money(manualBonus)}</b></p><p><span>Thưởng KPI đã chốt</span><b>{money(finalizedKpiBonus)}</b></p><p className="total"><span>TỔNG THỰC NHẬN</span><b>{money(income)}</b></p><div><BadgeDollarSign size={30}/><span>{payrollPaid ? "Đã chi lương, thưởng và phụ cấp" : payrollLocked ? "Đã chốt tất cả nguồn, đang chờ chi" : partiallyLocked ? "Một phần nguồn lương đã chốt" : "KPI chỉ hiển thị sau tổng kết"}<br/><b>{month}</b></span></div></aside></div>
+    <EmployeeAttendanceSummary period={month} through={through} refreshKey={refreshKey}/>
+    {sources.length > 0 && isFullPeriodView ? <section className="employee-panel table-panel"><div className="panel-title"><h2>NGUỒN CHI TRẢ THEO CỬA HÀNG</h2><span>{sources.length} cửa hàng</span></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>Cửa hàng</th><th>Vai trò</th><th>Giờ làm thực tế</th><th>Lương từ giờ làm</th><th>Phụ cấp hỗ trợ</th><th>Phụ cấp khác / Thưởng / KPI</th><th>Lương thực nhận</th><th>Trạng thái</th></tr></thead><tbody>{sources.map((source) => <tr key={source.storeId}><td><b>{source.storeName}</b></td><td>{source.isSupport ? <span className="status-pill">Nhân viên hỗ trợ</span> : "Nhân viên chính"}</td><td>{source.hours.toFixed(2)} giờ</td><td>{money(source.baseSalary)}</td><td>{source.isSupport ? money(source.supportAllowance) : "—"}</td><td>{money(source.manualAllowance + source.manualBonus + (source.locked ? source.kpiBonus : 0))}</td><td className="money-green"><b>{money(visibleSourcePay(source))}</b></td><td><span className={`status-pill ${source.locked ? "" : "inactive"}`}>{sourcePaymentLabel(source)}</span></td></tr>)}</tbody></table></div></section> : sources.length > 0 ? <p className="form-message" role="status">Nguồn chi trả và KPI là số liệu chốt theo cả kỳ nên chỉ hiển thị khi chọn đến ngày cuối của phạm vi.</p> : null}
+    <div className="employee-payroll-grid"><section className="employee-panel table-panel"><div className="panel-title"><div><h2>CHI TIẾT LƯƠNG THEO CA</h2><p>Tách rõ ca tại cửa hàng chính và ca hỗ trợ để không nhầm mức lương theo giờ.</p></div><button onClick={() => csv("bang-luong.csv", [["Ngày", "Ca", "Cửa hàng", "Vai trò", "Giờ vào", "Giờ kết", "Giờ làm thực tế", "Lương cứng/giờ", "Lương hỗ trợ/giờ", "Phụ cấp hỗ trợ", "Phụ cấp TikTok", "Lương thực nhận"], ...detailRows.map((row) => [displayDay(row.workDate || localDay(row.startedAt)), row.shiftName ?? row.shiftCode, row.storeName, row.isSupport ? "Nhân viên hỗ trợ" : "Nhân viên chính", time(row.startedAt), time(row.endedAt), row.hours.toFixed(2), row.isSupport ? "" : row.hourlyRate, row.isSupport ? row.hourlyRate : "", row.isSupport ? row.supportAllowance : "", row.tiktokAllowance, row.netPay])])}><Download size={16}/> Xuất Excel</button></div>{detailRows.length === 0 ? <div className="empty-cell">Chưa có ca làm trong thời gian đã chọn.</div> : <div className="employee-shift-payroll-groups">{mainShiftRows.length > 0 ? <EmployeeShiftPayrollTable rows={mainShiftRows} support={false}/> : null}{supportShiftRows.length > 0 ? <EmployeeShiftPayrollTable rows={supportShiftRows} support/> : null}</div>}</section><aside className="employee-panel income-summary"><h2>TỔNG KẾT THU NHẬP</h2><p><span>Tổng lương ({rowCount} ca)</span><b>{money(wage)}</b></p><p><span>Tổng phụ cấp</span><b>{money(allowance)}</b></p><ul className="allowance-breakdown" aria-label="Chi tiết các khoản phụ cấp"><li><span>Phụ cấp clip TikTok</span><b>{money(tiktokAllowance)}</b></li>{supportAllowanceByStore.map((row) => <li key={row.storeName}><span>Phụ cấp hỗ trợ · {row.storeName}</span><b>{money(row.amount)}</b></li>)}{unallocatedSupportAllowance > 0 ? <li><span>Phụ cấp hỗ trợ</span><b>{money(unallocatedSupportAllowance)}</b></li> : null}{manualAllowanceDetails.map((adjustment) => <li key={`${adjustment.storeId}-${adjustment.id}`}><span>{adjustment.label}{sources.length > 1 ? ` · ${adjustment.storeName}` : ""}</span><b>{money(adjustment.amount)}</b></li>)}{unitemizedManualAllowance > 0 ? <li><span>Phụ cấp khác · dữ liệu kỳ cũ</span><b>{money(unitemizedManualAllowance)}</b></li> : null}</ul><p><span>Thưởng khác</span><b>{money(manualBonus)}</b></p><p><span>Thưởng KPI đã chốt</span><b>{money(finalizedKpiBonus)}</b></p><p className="total"><span>TỔNG THỰC NHẬN</span><b>{money(income)}</b></p><div><BadgeDollarSign size={30}/><span>{displayPayrollPaid ? "Đã chi lương, thưởng và phụ cấp" : displayPayrollLocked ? "Đã chốt tất cả nguồn, đang chờ chi" : partiallyLocked ? "Một phần nguồn lương đã chốt" : isFullPeriodView ? "KPI chỉ hiển thị sau tổng kết" : `Tạm tính đến ${displayDay(through)}`}<br/><b>{month}</b></span></div></aside></div>
   </div>;
 }
 

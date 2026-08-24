@@ -56,6 +56,7 @@ type ResetShiftSnapshot = {
   transferId: string | null;
   appliedHourlyRate: number | null;
   appliedTiktokAllowance: number | null;
+  appliedSupportAllowance: number | null;
   startedAt: string;
   attendanceStatus: string | null;
   attendanceDeltaMinutes: number | null;
@@ -113,6 +114,7 @@ function canonicalQuery(filter: AdminResetFilter) {
           'shiftPreviousSessionId', s.previous_session_id, 'shiftTransferId', s.transfer_id,
           'shiftAppliedHourlyRate', s.applied_hourly_rate,
           'shiftAppliedTiktokAllowance', s.applied_tiktok_allowance,
+          'shiftAppliedSupportAllowance', s.applied_support_allowance,
           'shiftStartedAt', s.started_at, 'shiftAttendanceStatus', s.attendance_status,
           'shiftAttendanceDeltaMinutes', s.attendance_delta_minutes,
           'shiftClockInLatitude', s.clock_in_latitude, 'shiftClockInLongitude', s.clock_in_longitude,
@@ -158,6 +160,7 @@ function canonicalQuery(filter: AdminResetFilter) {
         'status', s.status, 'workDate', s.work_date, 'previousSessionId', s.previous_session_id,
         'transferId', s.transfer_id, 'appliedHourlyRate', s.applied_hourly_rate,
         'appliedTiktokAllowance', s.applied_tiktok_allowance,
+        'appliedSupportAllowance', s.applied_support_allowance,
         'startedAt', s.started_at, 'endedAt', s.ended_at,
         'attendanceStatus', s.attendance_status, 'attendanceDeltaMinutes', s.attendance_delta_minutes,
         'clockInLatitude', s.clock_in_latitude, 'clockInLongitude', s.clock_in_longitude,
@@ -209,11 +212,14 @@ async function assertPeriodUnlocked(db: Database, storeId: string, period: strin
 function periodUnlockGuard(storeId: string, period: string) {
   return {
     sql: `${incomingStorePeriodUnlockedSql} AND NOT EXISTS (
+        SELECT 1 FROM employee_payroll_closings
+        WHERE store_id = ? AND period = ?
+      ) AND NOT EXISTS (
         SELECT 1 FROM business_records
         WHERE category = 'DIVIDEND' AND status = 'LOCKED'
           AND json_extract(data_json, '$.period') = ?
       )`,
-    bindings: [storeId, period, period],
+    bindings: [storeId, period, storeId, period, period],
   };
 }
 

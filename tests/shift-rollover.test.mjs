@@ -37,7 +37,7 @@ test("attendance uses request arrival time and persists signed classification", 
   const api = await source("../app/api/shift/route.ts");
   const post = api.slice(api.indexOf("export async function POST"));
   assert.ok(post.indexOf("const requestReceivedAt = utcTimestamp()") < post.indexOf("await getSessionUser(request)"));
-  assert.match(post, /resolveScheduleCandidates\(db, user\.storeId, user\.employeeId, new Date\(requestReceivedAt\)\)/u);
+  assert.match(post, /resolveScheduleCandidates\(db, user\.storeId, user\.employeeId, new Date\(requestReceivedAt\), policy\)/u);
   assert.match(post, /const startedAt = requestReceivedAt/u);
   assert.match(post, /const attendanceStatus = schedule\.attendanceStatus/u);
   assert.match(post, /const attendanceDelta = schedule\.attendanceDeltaMinutes/u);
@@ -81,8 +81,8 @@ test("a completed occurrence is skipped while the next occurrence may open early
   const api = await source("../app/api/shift/route.ts");
   assert.match(api, /completedOccurrences = new Set/u);
   assert.match(api, /availableCandidates = candidates\.filter/u);
-  assert.match(api, /const assignedChoices = classifyScheduleCandidates\(now, availableCandidates\)/u);
-  assert.match(api, /untilStart > 0 && untilStart <= ATTENDANCE_EARLY_WINDOW_MINUTES \* 60_000/u);
+  assert.match(api, /const assignedChoices = classifyScheduleCandidates\(now, availableCandidates, policy\)/u);
+  assert.match(api, /untilStart > 0 && untilStart <= policy\.earlyClockInWindowMinutes \* 60_000/u);
   assert.match(api, /completed\.results\.map\(\(row\) =>[\s\S]*row\.workDate[\s\S]*row\.scheduledStart[\s\S]*row\.scheduledEnd/u);
   assert.doesNotMatch(api, /early_closed\.close_reason = 'MANUAL_EARLY'/u);
 });

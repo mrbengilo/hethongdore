@@ -12,7 +12,7 @@ import {
   WalletCards,
 } from "lucide-react";
 import { formatDateTime24, formatTime24, formatVndDisplay } from "../lib/format";
-import { ATTENDANCE_ON_TIME_GRACE_MINUTES } from "../lib/scheduling";
+import { DEFAULT_ATTENDANCE_GRACE_MINUTES } from "../lib/attendance-policy";
 import type { StoreCashflowMode } from "../lib/store-cashflow";
 import { DatePickerControl } from "./DatePickerControl";
 import styles from "./StoreCashflow.module.css";
@@ -96,6 +96,12 @@ type StoreCashflowResponse = {
     period: string;
     timeZone: string;
     rule: { early: string; onTime: string; late: string };
+    policy: {
+      lateGraceMinutes: number;
+      version: number;
+      updatedAt: string;
+      appliesTo: "NEW_CLOCK_INS_ONLY";
+    };
     totals: { early: number; onTime: number; late: number; unknown: number; total: number };
     employees: AttendanceEmployee[];
   };
@@ -365,7 +371,7 @@ export function StoreShiftCashflow({ store, period, onPeriodChange, refreshVersi
     </div>
 
     <section className={`${styles.panel} ${styles.attendance}`}>
-      <header className={styles.panelHeader}><div><h3>Điểm danh đúng giờ, sớm và trễ theo nhân viên</h3><p>Thống kê tháng {data?.attendance.period ?? period}: sớm trước giờ ca, đúng giờ từ giờ bắt đầu đến đúng {ATTENDANCE_ON_TIME_GRACE_MINUTES} phút sau, trễ sau mốc này.</p></div><span>{data?.attendance.totals.total ?? 0} lượt</span></header>
+      <header className={styles.panelHeader}><div><h3>Điểm danh đúng giờ, sớm và trễ theo nhân viên</h3><p>Thống kê tháng {data?.attendance.period ?? period}: sớm trước giờ ca; đúng giờ đến đúng {data?.attendance.policy.lateGraceMinutes ?? DEFAULT_ATTENDANCE_GRACE_MINUTES} phút sau giờ bắt đầu; trễ khi vượt mốc này. Ngưỡng hiện tại áp dụng cho lượt điểm danh mới, lịch sử giữ theo ngưỡng đã lưu của từng ca.</p></div><span>{data?.attendance.totals.total ?? 0} lượt</span></header>
       <div className={styles.attendanceMetrics}>
         <article className={`${styles.attendanceMetric} ${styles.attendanceMetricEarly}`}><span>Điểm danh sớm</span><strong>{data?.attendance.totals.early ?? 0}</strong></article>
         <article className={`${styles.attendanceMetric} ${styles.attendanceMetricOnTime}`}><span>Điểm danh đúng giờ</span><strong>{data?.attendance.totals.onTime ?? 0}</strong></article>

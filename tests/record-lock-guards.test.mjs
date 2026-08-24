@@ -34,6 +34,12 @@ function database() {
       period TEXT NOT NULL,
       status TEXT
     );
+    CREATE TABLE financial_periods (
+      id TEXT PRIMARY KEY,
+      store_id TEXT NOT NULL,
+      period TEXT NOT NULL,
+      status TEXT NOT NULL
+    );
     CREATE TABLE shift_sessions (
       id TEXT PRIMARY KEY,
       store_id TEXT NOT NULL,
@@ -78,12 +84,16 @@ test("records route conditionally guards every payroll-sensitive create, update 
   assert.match(source, /INSERT INTO business_records[\s\S]*?SELECT \?, \?, \?, \?, \?, \?, \?, \?, \?[\s\S]*?WHERE \$\{incomingPeriodLockGuardSql\}/u);
   assert.match(source, /UPDATE business_records[\s\S]*?AND \$\{existingPeriodLockGuardSql\}[\s\S]*?AND \$\{incomingPeriodLockGuardSql\}/u);
   assert.match(source, /SET status = 'DELETED'[\s\S]*?AND \$\{existingPeriodLockGuardSql\}/u);
-  assert.match(lockSource, /category IN \('KPI_SUMMARY', 'PAYROLL_CLOSING'\)/u);
-  assert.match(lockSource, /COALESCE\(store_period_lock\.status, ''\) != 'DELETED'/u);
-  assert.match(lockSource, /COALESCE\(employee_period_lock\.status, ''\) != 'DELETED'/u);
+  assert.match(lockSource, /canonical_period_lock\.status IN \('CONFIRMED', 'PAID', 'LOCKED'\)/u);
+  assert.match(lockSource, /legacy_period_lock\.category = 'PAYROLL_CLOSING'/u);
+  assert.match(lockSource, /legacy_period_lock\.status = 'LOCKED'/u);
+  assert.doesNotMatch(lockSource, /legacy_period_lock\.category[^\n]+KPI_SUMMARY/u);
+  assert.doesNotMatch(lockSource, /employee_payroll_closings/u);
   assert.match(source, /body\.action === "CREATE_SCHEDULE_BATCH"/u);
   assert.doesNotMatch(source, /scheduleClientRequestId/u);
-  assert.equal(source.match(/affectedRows\(result\) === 0/g)?.length, 7);
+  // Six direct write paths use the shared affected-row guard. Schedule writes
+  // use their own same-batch marker/CAS guard and are asserted separately.
+  assert.equal(source.match(/affectedRows\(result\) === 0/g)?.length, 6);
   assert.match(source, /periodLockMessage\(\)[\s\S]*?423/u);
 });
 
@@ -125,52 +135,71 @@ test("period guards block both the existing and incoming period atomically", asy
     WHERE id = ? AND ${existingGuard} AND ${incomingGuard}`);
 
   assert.equal(patch.run("open", "cost", "store-1", "2026-08").changes, 1);
-  addRecord(db, { id: "old-lock", category: "KPI_SUMMARY", period: "2026-07", status: "CLOSING" });
+  addRecord(db, { id: "old-lock", category: "PAYROLL_CLOSING", period: "2026-07", status: "LOCKED" });
   assert.equal(patch.run("blocked-old", "cost", "store-1", "2026-08").changes, 0);
 
   db.prepare("DELETE FROM business_records WHERE id = ?").run("old-lock");
-  addRecord(db, { id: "new-lock", category: "KPI_SUMMARY", period: "2026-08", status: "LOCKED" });
+  addRecord(db, { id: "new-lock", category: "PAYROLL_CLOSING", period: "2026-08", status: "LOCKED" });
   assert.equal(patch.run("blocked-new", "cost", "store-1", "2026-08").changes, 0);
   assert.equal(db.prepare("SELECT title FROM business_records WHERE id = ?").get("cost").title, "open");
 
   db.prepare("DELETE FROM business_records WHERE id = ?").run("new-lock");
   assert.equal(patch.run("moved", "cost", "store-1", "2026-08").changes, 1);
 
-  addRecord(db, { id: "delete-lock", category: "KPI_SUMMARY", period: "2026-07", status: "LOCKED" });
+  addRecord(db, { id: "delete-lock", category: "PAYROLL_CLOSING", period: "2026-07", status: "LOCKED" });
   const remove = db.prepare(`UPDATE business_records SET status = 'DELETED'
     WHERE id = ? AND ${existingGuard}`);
   assert.equal(remove.run("cost").changes, 0);
   assert.equal(db.prepare("SELECT status FROM business_records WHERE id = ?").get("cost").status, "ACTIVE");
 });
 
-test("every non-deleted KPI, payroll and employee-closing lifecycle state locks the whole store period", async () => {
+test("canonical lifecycle is authoritative and legacy fallback only accepts a fully locked payroll closing", async () => {
   const { incomingStorePeriodUnlockedSql } = await periodLockModule();
   const db = database();
   const unlocked = db.prepare(`SELECT CASE WHEN ${incomingStorePeriodUnlockedSql} THEN 1 ELSE 0 END AS unlocked`);
 
-  for (const category of ["KPI_SUMMARY", "PAYROLL_CLOSING"]) {
-    for (const status of [null, "ACTIVE", "CLOSING", "MANAGER_FINALIZED", "SALARY_CONFIRMED", "REWARDS_CONFIRMED", "PAYMENT_CONFIRMED", "LOCKED"]) {
-      db.prepare("DELETE FROM business_records").run();
-      addRecord(db, { id: `lock-${category}-${status ?? "null"}`, category, period: "2026-08", status });
-      assert.equal(unlocked.get("store-1", "2026-08").unlocked, 0, `${category}/${status ?? "NULL"} must lock`);
-      assert.equal(unlocked.get("store-2", "2026-08").unlocked, 1, "another store remains open");
-      assert.equal(unlocked.get("store-1", "2026-09").unlocked, 1, "another period remains open");
-    }
+  for (const status of [null, "ACTIVE", "CLOSING", "LOCKED"]) {
     db.prepare("DELETE FROM business_records").run();
-    addRecord(db, { id: `deleted-${category}`, category, period: "2026-08", status: "DELETED" });
-    assert.equal(unlocked.get("store-1", "2026-08").unlocked, 1, `${category}/DELETED must not lock`);
+    addRecord(db, { id: `kpi-${status ?? "null"}`, category: "KPI_SUMMARY", period: "2026-08", status });
+    assert.equal(unlocked.get("store-1", "2026-08").unlocked, 1, `KPI_SUMMARY/${status ?? "NULL"} is never a fallback lock`);
   }
 
-  for (const status of [null, "CLOSING", "BASE_LOCKED", "LOCKED", "LEGACY_FINALIZED"]) {
+  for (const status of [null, "ACTIVE", "CLOSING", "MANAGER_FINALIZED", "SALARY_CONFIRMED", "REWARDS_CONFIRMED", "PAYMENT_CONFIRMED", "DELETED"]) {
+    db.prepare("DELETE FROM business_records").run();
+    addRecord(db, { id: `payroll-${status ?? "null"}`, category: "PAYROLL_CLOSING", period: "2026-08", status });
+    assert.equal(unlocked.get("store-1", "2026-08").unlocked, 1, `PAYROLL_CLOSING/${status ?? "NULL"} is not finalized`);
+  }
+  db.prepare("DELETE FROM business_records").run();
+  addRecord(db, { id: "legacy-locked", category: "PAYROLL_CLOSING", period: "2026-08", status: "LOCKED" });
+  assert.equal(unlocked.get("store-1", "2026-08").unlocked, 0, "legacy LOCKED payroll closes a period with no canonical row");
+  assert.equal(unlocked.get("store-2", "2026-08").unlocked, 1, "legacy lock is store-scoped");
+  assert.equal(unlocked.get("store-1", "2026-09").unlocked, 1, "legacy lock is period-scoped");
+
+  for (const status of [null, "CLOSING", "BASE_LOCKED", "LOCKED", "LEGACY_FINALIZED", "DELETED"]) {
     db.prepare("DELETE FROM employee_payroll_closings").run();
     db.prepare("INSERT INTO employee_payroll_closings (id, store_id, employee_id, period, status) VALUES (?, ?, ?, ?, ?)")
       .run(`employee-lock-${status ?? "null"}`, "store-1", "unrelated-employee", "2026-08", status);
-    assert.equal(unlocked.get("store-1", "2026-08").unlocked, 0, `employee ${status ?? "NULL"} must lock store-wide`);
+    db.prepare("DELETE FROM business_records").run();
+    assert.equal(unlocked.get("store-1", "2026-08").unlocked, 1, `employee ${status ?? "NULL"} must not lock store-wide`);
   }
-  db.prepare("DELETE FROM employee_payroll_closings").run();
-  db.prepare("INSERT INTO employee_payroll_closings (id, store_id, employee_id, period, status) VALUES (?, ?, ?, ?, 'DELETED')")
-    .run("employee-deleted", "store-1", "unrelated-employee", "2026-08");
-  assert.equal(unlocked.get("store-1", "2026-08").unlocked, 1, "deleted employee closing does not lock");
+
+  for (const status of ["DRAFT", "CALCULATED", "RECONCILING"]) {
+    db.prepare("DELETE FROM financial_periods").run();
+    db.prepare("DELETE FROM business_records").run();
+    addRecord(db, { id: `legacy-ignored-${status}`, category: "PAYROLL_CLOSING", period: "2026-08", status: "LOCKED" });
+    db.prepare("INSERT INTO financial_periods (id, store_id, period, status) VALUES (?, ?, ?, ?)")
+      .run(`canonical-${status}`, "store-1", "2026-08", status);
+    assert.equal(unlocked.get("store-1", "2026-08").unlocked, 1, `canonical ${status} overrides the legacy fallback and remains editable`);
+  }
+  for (const status of ["CONFIRMED", "PAID", "LOCKED"]) {
+    db.prepare("DELETE FROM financial_periods").run();
+    db.prepare("DELETE FROM business_records").run();
+    db.prepare("INSERT INTO financial_periods (id, store_id, period, status) VALUES (?, ?, ?, ?)")
+      .run(`canonical-${status}`, "store-1", "2026-08", status);
+    assert.equal(unlocked.get("store-1", "2026-08").unlocked, 0, `canonical ${status} blocks source mutations`);
+  }
+  assert.equal(unlocked.get("store-2", "2026-08").unlocked, 1, "canonical lock is store-scoped");
+  assert.equal(unlocked.get("store-1", "2026-09").unlocked, 1, "canonical lock is period-scoped");
 });
 
 test("allowance guards are store-wide across previous and next periods", async () => {
@@ -197,12 +226,17 @@ test("allowance guards are store-wide across previous and next periods", async (
 
   db.prepare("INSERT INTO employee_payroll_closings (id, store_id, employee_id, period, status) VALUES (?, ?, ?, ?, ?)")
     .run("old-employee-lock", "store-1", "employee-old", "2026-07", "BASE_LOCKED");
-  assert.equal(patch.run(...values).changes, 0);
+  assert.equal(patch.run(...values).changes, 1, "per-employee closing does not freeze the previous period");
 
   db.prepare("DELETE FROM employee_payroll_closings").run();
   db.prepare("INSERT INTO employee_payroll_closings (id, store_id, employee_id, period, status) VALUES (?, ?, ?, ?, ?)")
     .run("new-employee-lock", "store-1", "employee-new", "2026-08", "CLOSING");
-  assert.equal(patch.run(...values).changes, 0);
+  assert.equal(patch.run(...values).changes, 1, "per-employee closing does not freeze the incoming period");
+  addRecord(db, { id: "old-store-lock", category: "PAYROLL_CLOSING", period: "2026-07", status: "LOCKED" });
+  assert.equal(patch.run(...values).changes, 0, "legacy full-period lock still protects the previous period");
+  db.prepare("DELETE FROM business_records WHERE id = 'old-store-lock'").run();
+  db.prepare("INSERT INTO financial_periods (id, store_id, period, status) VALUES ('incoming-confirmed', 'store-1', '2026-08', 'CONFIRMED')").run();
+  assert.equal(patch.run(...values).changes, 0, "canonical confirmed period protects the incoming period");
   assert.equal(db.prepare("SELECT title FROM business_records WHERE id = ?").get("allowance").title, "updated");
 });
 
@@ -245,7 +279,7 @@ test("voiding a fixed-cost batch preserves history, reduces totals, and respects
   assert.equal(db.prepare("SELECT status FROM business_records WHERE id = 'cost-a'").get().status, "VOID");
 
   addRecord(db, { id: "cost-c", category: "CHI_PHI_CO_DINH", period: "2026-09", total: 20_000 });
-  addRecord(db, { id: "period-lock", category: "KPI_SUMMARY", period: "2026-09", status: "CLOSING" });
+  addRecord(db, { id: "period-lock", category: "PAYROLL_CLOSING", period: "2026-09", status: "LOCKED" });
   assert.equal(voidBatch.run("cost-c").changes, 0);
   assert.equal(db.prepare("SELECT status FROM business_records WHERE id = 'cost-c'").get().status, "ACTIVE");
 

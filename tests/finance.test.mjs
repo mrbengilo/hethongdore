@@ -24,14 +24,14 @@ test("VND values are safe integers and use explicit rounding", async () => {
   assert.equal(formatVnd(12_890), "12,890 đồng");
 });
 
-test("profit sharing uses net final profit and preserves exact 40/60 totals across stores", async () => {
+test("profit sharing never nets store losses and preserves exact legacy 40/60 totals", async () => {
   const { allocateStoreProfitSharing } = await financeModule();
   const rows = allocateStoreProfitSharing([12_000_000, -2_000_000, 6_000_000, 4_000_000]);
-  assert.equal(rows.reduce((sum, row) => sum + row.distributableProfit, 0), 20_000_000);
-  assert.equal(rows.reduce((sum, row) => sum + row.firstShareAmount, 0), 8_000_000);
-  assert.equal(rows.reduce((sum, row) => sum + row.secondShareAmount, 0), 12_000_000);
+  assert.equal(rows.reduce((sum, row) => sum + row.distributableProfit, 0), 22_000_000);
+  assert.equal(rows.reduce((sum, row) => sum + row.firstShareAmount, 0), 8_800_000);
+  assert.equal(rows.reduce((sum, row) => sum + row.secondShareAmount, 0), 13_200_000);
   assert.equal(rows[1].distributableProfit, 0);
-  assert.deepEqual(allocateStoreProfitSharing([12_000_000, -20_000_000]).map((row) => row.distributableProfit), [0, 0]);
+  assert.deepEqual(allocateStoreProfitSharing([12_000_000, -20_000_000]).map((row) => row.distributableProfit), [12_000_000, 0]);
 
   const rounding = allocateStoreProfitSharing([1, 1]);
   assert.equal(rounding.reduce((sum, row) => sum + row.distributableProfit, 0), 2);
@@ -184,26 +184,33 @@ test("comparison populations retain stores that closed between ranges", async ()
   });
 });
 
-test("fixed cash expenses can be recognized after their configured month", async () => {
+test("fixed and inventory cashflow requires an explicit payment timestamp", async () => {
   const source = await readFile(new URL("../app/api/cashflow/route.ts", import.meta.url), "utf8");
-  assert.match(source, /OR \(r\.category = 'CHI_PHI_CO_DINH'\)/u);
-  assert.match(source, /\[data\.paymentDate, data\.paidAt, data\.date\]/u);
+  assert.match(source, /r\.category IN \('NHAP_HANG', 'CHI_PHI_CO_DINH'\)/u);
+  assert.match(source, /\[data\.paidAt, data\.paymentDate, data\.paymentConfirmedAt\]/u);
+  assert.match(source, /skippedUnpaidLegacyCount \+= 1/u);
   assert.match(source, /validEntryDate\(date, range\)/u);
+  assert.doesNotMatch(source, /\[data\.paidAt, data\.paymentDate, data\.date\]/u);
   assert.doesNotMatch(source, /r\.category = 'CHI_PHI_CO_DINH'[\s\S]{0,160}json_extract\(r\.data_json, '\$\.period'\) >= \?/u);
 });
 
-test("report settlement status and legacy current-month ranges stay truthful", async () => {
+test("report settlement status and canonical profit distributions stay truthful", async () => {
   const [reports, storeFinance] = await Promise.all([
     readFile(new URL("../app/api/reports/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/_lib/store-finance.ts", import.meta.url), "utf8"),
   ]);
   assert.match(reports, /to: month\.to > today \? today : month\.to/u);
-  assert.match(reports, /store\.settlementStatus === "LOCKED"/u);
-  assert.match(reports, /for \(const store of report\.stores\)/u);
-  assert.match(reports, /reportRangeData\(db, range, previousRange, "month"/u);
+  assert.match(reports, /readProfitDistribution\(db, distributionPeriod\)/u);
+  assert.match(reports, /listProfitDistributions\(db, \{ limit: 36 \}\)/u);
+  assert.match(reports, /previewProfitDistribution\(db, distributionPeriod\)/u);
+  assert.match(reports, /parsePersistedFinancialPeriodSnapshot\(store\.financialSnapshot\)/u);
+  assert.match(reports, /closeProfitDistribution\(db, \{/u);
+  assert.doesNotMatch(reports, /profitSharingSnapshot|category = 'DIVIDEND'|business_records/u);
   assert.match(storeFinance, /category = 'PAYROLL_CLOSING'.*status != 'DELETED'/u);
   assert.match(storeFinance, /closingRow\?\.status === "LOCKED"/u);
-  assert.match(storeFinance, /calculationStatus: snapshotRow \? "LOCKED" : "PROVISIONAL"/u);
+  assert.match(storeFinance, /function periodStatusPayload/u);
+  assert.match(storeFinance, /calculationStatus: persistedStatus\?\.calculationStatus \?\? "PROVISIONAL"/u);
+  assert.match(storeFinance, /settlementStatus: persistedStatus\?\.settlementStatus \?\? legacySettlementStatus/u);
   assert.match(storeFinance, /if \(activeDayCount === 0\) return null/u);
 });
 
