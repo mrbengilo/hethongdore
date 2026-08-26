@@ -414,18 +414,29 @@ export async function storePeriodFinance(
   let employeeBaseSalary = 0;
   let tiktokAllowance = 0;
   const secondsByEmployee = new Map<string, number>();
+  const salarySecondsByEmployeeRate = new Map<string, { hourlyRate: number; seconds: number }>();
   const supportByTransfer = new Map<string, number>();
   for (const row of shiftResult.results) {
     const seconds = Math.max(0, Math.round(Number(row.durationSeconds ?? 0)));
     const hourlyRate = requireAppliedHourlyRate(row.appliedHourlyRate, row.employeeId);
     incidentalCosts = sumVnd([incidentalCosts, safeVnd(row.incidentalExpense)]);
-    employeeBaseSalary = sumVnd([employeeBaseSalary, multiplyRatioVnd(hourlyRate, seconds, 3_600)]);
+    const salaryGroupKey = JSON.stringify([row.employeeId, hourlyRate]);
+    const salaryGroup = salarySecondsByEmployeeRate.get(salaryGroupKey);
+    salarySecondsByEmployeeRate.set(salaryGroupKey, {
+      hourlyRate,
+      seconds: (salaryGroup?.seconds ?? 0) + seconds,
+    });
     tiktokAllowance = sumVnd([tiktokAllowance, safeVnd(row.tiktokAllowance)]);
     // KPI uses the actual hours recorded at this store. Employment status at
     // query time must not erase work that was actually completed in the period.
     secondsByEmployee.set(row.employeeId, (secondsByEmployee.get(row.employeeId) ?? 0) + seconds);
     if (row.transferId && seconds > 0) supportByTransfer.set(row.transferId, safeVnd(row.supportAllowance));
   }
+  // Payroll groups actual seconds by employee and snapshotted hourly rate, then
+  // rounds the resulting VND amount once. Finance must use the same boundary so
+  // many short shifts cannot introduce a 1-2 VND reconciliation mismatch.
+  employeeBaseSalary = sumVnd([...salarySecondsByEmployeeRate.values()].map(({ hourlyRate, seconds }) =>
+    multiplyRatioVnd(hourlyRate, seconds, 3_600)));
   incidentalCosts = sumVnd([
     incidentalCosts,
     ...incidentalResult.results.map((row) => safeVnd(parseObject(row.dataJson).amount)),

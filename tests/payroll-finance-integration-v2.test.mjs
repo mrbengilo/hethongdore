@@ -159,6 +159,35 @@ test("attendance awaiting reconciliation is excluded from payroll and Finance En
   assert.equal(finance.expenseBreakdown.employeeBaseSalary, 20_000);
 });
 
+test("multiple short shifts round salary once per employee and snapshotted rate", async () => {
+  await db.batch([
+    db.prepare(`INSERT INTO shift_sessions
+        (id, shift_code, store_id, employee_id, shift_name, work_date,
+         applied_hourly_rate, started_at, ended_at, duration_seconds,
+         tiktok_allowance, close_status, status)
+      VALUES ('payroll-rounding-shift-1', 'PFV2-ROUND-1', ?, ?, 'Ca ngắn 1', '2026-09-10',
+        20000, '2026-09-10T01:00:00.000Z', '2026-09-10T01:00:01.000Z', 1,
+        0, 'CLOSED', 'COMPLETED')`)
+      .bind(storeId, employeeId),
+    db.prepare(`INSERT INTO shift_sessions
+        (id, shift_code, store_id, employee_id, shift_name, work_date,
+         applied_hourly_rate, started_at, ended_at, duration_seconds,
+         tiktok_allowance, close_status, status)
+      VALUES ('payroll-rounding-shift-2', 'PFV2-ROUND-2', ?, ?, 'Ca ngắn 2', '2026-09-11',
+        20000, '2026-09-11T01:00:00.000Z', '2026-09-11T01:00:01.000Z', 1,
+        0, 'CLOSED', 'COMPLETED')`)
+      .bind(storeId, employeeId),
+  ]);
+
+  const body = (await payroll("2026-09")).summary;
+  const finance = await storeFinance.storePeriodFinance(db, storeId, "2026-09", junePolicy);
+  assert.ok(finance);
+  assert.equal(body.items[0].durationSeconds, 2);
+  assert.equal(body.items[0].baseSalary, 11);
+  assert.equal(body.totalBaseSalary, 11);
+  assert.equal(finance.expenseBreakdown.employeeBaseSalary, 11);
+});
+
 test("zero and negative operating profit never create employee or manager KPI", async () => {
   const zero = (await payroll("2026-07")).summary;
   assert.equal(zero.profit, 0);
