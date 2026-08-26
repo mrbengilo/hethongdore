@@ -31,10 +31,6 @@ import {
   managerHasGlobalStoreAccess,
   resolveManagerStoreScope,
 } from "../_lib/manager-scope";
-import {
-  financialPolicyTikTokAllowanceVnd,
-  loadFinancialPolicyForPeriod,
-} from "../_lib/financial-policy";
 
 type EmployeeBody = {
   action?: "SET_STATUS";
@@ -165,12 +161,7 @@ export async function GET(request: Request) {
     : storeId
       ? await db.prepare("SELECT e.*, u.username, e.store_id AS homeStoreId, 0 AS isSupport FROM employees e LEFT JOIN users u ON u.employee_id = e.id WHERE e.store_id = ? AND e.status != 'ARCHIVED' AND e.deleted_at IS NULL ORDER BY e.code").bind(storeId).all()
       : await db.prepare("SELECT e.*, u.username, e.store_id AS homeStoreId, 0 AS isSupport FROM employees e LEFT JOIN users u ON u.employee_id = e.id WHERE e.status != 'ARCHIVED' AND e.deleted_at IS NULL ORDER BY e.store_id, e.code").all();
-  const financialPolicy = await loadFinancialPolicyForPeriod(db, localPeriod());
-  return json({
-    employees: result.results,
-    employeeTikTokAllowanceDefault: financialPolicyTikTokAllowanceVnd(financialPolicy.policy),
-    financialPolicyVersion: financialPolicy.version,
-  });
+  return json({ employees: result.results });
 }
 
 export async function POST(request: Request) {
@@ -182,11 +173,7 @@ export async function POST(request: Request) {
   }
   const hourlyRate = Number(body.hourlyRate);
   const db = await initDb();
-  const financialPolicy = await loadFinancialPolicyForPeriod(db, localPeriod());
-  const tiktokAllowance = employeeTikTokAllowanceForCreate(
-    body.tiktokAllowance,
-    financialPolicyTikTokAllowanceVnd(financialPolicy.policy),
-  );
+  const tiktokAllowance = employeeTikTokAllowanceForCreate(body.tiktokAllowance);
   const profile = profileValues(body);
   if (!body.storeId || !body.code?.trim() || !body.name?.trim() || !body.position?.trim() || !body.phone?.trim() || !body.username?.trim() || !body.password || body.password.length < 6 || !Number.isSafeInteger(hourlyRate) || hourlyRate <= 0 || tiktokAllowance === null || !validProfile(profile)) return json({ message: "Vui lòng nhập đủ mã, tên, SĐT, địa chỉ, tuổi, ảnh CCCD; lương và phụ cấp TikTok phải là số nguyên VND an toàn; mật khẩu tối thiểu 6 ký tự." }, 400);
   if (!await isStoreActive(body.storeId)) return json({ message: INACTIVE_STORE_MESSAGE }, 409);

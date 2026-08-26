@@ -63,7 +63,7 @@ Các luồng hiện tại đã lưu bền bằng `shift_sessions`, `employee_tra
 | Nhập hàng | `products`, `purchase_receipts`, `purchase_items` | mặt hàng, phiếu nhập và giá vốn |
 | Dòng tiền | `cash_entries`, `expense_categories`, `fixed_cost_settings` | thu/chi, marketing và chi phí mặc định |
 | Lương | `payroll_periods`, `payroll_items`, `allowances`, `bonuses` | chuẩn hóa snapshot `KPI_SUMMARY` và khoản cộng/trừ hiện lưu trong `business_records` |
-| TikTok | `store_reward_settings`, `tiktok_submissions` | cấu hình và ghi nhận clip theo ca |
+| TikTok | `employees.tiktok_allowance`, `shift_sessions.applied_tiktok_allowance` | mức riêng theo nhân viên/cửa hàng và snapshot áp dụng theo ca |
 | Điều chuyển | `transfer_shifts`, `transfer_approvals` | chuẩn hóa danh sách ca/người duyệt bổ sung cho `employee_transfers` khi cần quy trình duyệt nhiều cấp |
 | Cổ đông | `shareholders`, `ownership_periods`, `dividend_periods`, `dividend_items` | tỷ lệ theo kỳ và lịch sử cổ tức |
 | Báo cáo | `period_locks`, `report_exports` | khóa kỳ và nhật ký xuất báo cáo |
@@ -97,7 +97,9 @@ Không cập nhật ngược cấu hình đã được dùng trong snapshot kỳ
 - DELETE cửa hàng phải kiểm tra lại `NOT EXISTS orders` trong cùng batch ghi tombstone. Batch đó đóng ca còn mở bằng giờ server, đối soát doanh thu ca hỗ trợ vào cửa hàng nhận, thu hồi phiên liên quan và không xóa các bản ghi lịch sử.
 - Một nhân viên chỉ có tối đa một `shift_session` đang mở tại một thời điểm; `users.current_shift` phải trỏ đúng phiên đó.
 - Một ca chỉ được hưởng một phụ cấp TikTok cho mỗi nhân viên.
+- `employees.tiktok_allowance` phải được nhập rõ khi tạo nhân viên (`0` hợp lệ); không lấy fallback từ chính sách toàn hệ thống. Ca đang chạy và kỳ đã khóa chỉ đọc snapshot đã lưu.
 - Tỷ lệ cổ đông của một kỳ phải có tổng bằng 100%.
+- Báo cáo kỳ mở có thể đọc danh sách/tỷ lệ cấu hình từ phiên bản `financial_policy_versions` đang có hiệu lực; phân chia đã chốt và lịch sử chỉ đọc thành viên/tỷ lệ/số tiền từ snapshot `DIVIDEND/LOCKED`.
 
 ## 5. API hiện tại
 

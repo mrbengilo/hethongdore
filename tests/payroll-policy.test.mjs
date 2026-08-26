@@ -33,11 +33,14 @@ function payload(version, salary = 4_500_000, managerRate = 2.5) {
   return {
     managerMonthlySalaryVnd: salary,
     managerKpiRatePercent: managerRate,
-    employeeTikTokAllowanceVnd: 32_000,
     employeeKpiTiers: [
       { minimumProfitPerHour: 30_000, ratePercent: 8 },
       { minimumProfitPerHour: 15_000, ratePercent: 5.5 },
       { minimumProfitPerHour: 7_000, ratePercent: 3.25 },
+    ],
+    profitSharingMembers: [
+      { memberId: "member-a", name: "Thành viên A", ratePercent: 40 },
+      { memberId: "member-b", name: "Thành viên B", ratePercent: 60 },
     ],
     expectedVersion: version,
   };
@@ -73,8 +76,9 @@ test("payroll policy is superadmin-only, private and no-store", async () => {
   assert.match(result.headers.get("cache-control") ?? "", /no-store/u);
   assert.equal(result.body.policy.managerMonthlySalaryVnd, 3_000_000);
   assert.equal(result.body.policy.managerKpiRatePercent, null);
-  assert.equal(result.body.policy.employeeTikTokAllowanceVnd, null);
+  assert.equal("employeeTikTokAllowanceVnd" in result.body.policy, false);
   assert.deepEqual(result.body.policy.employeeKpiTiers.map((tier) => tier.ratePercent), [7, 5, 3]);
+  assert.deepEqual(result.body.policy.profitSharingMembers, []);
 });
 
 test("payroll policy rejects unsafe salary, percent, precision and unordered tiers", async () => {
@@ -118,25 +122,40 @@ test("optimistic update admits one writer, writes one audit and leaves locked hi
   const financialPolicy = JSON.parse(financialVersions.results[1].policyJson);
   assert.equal(financialPolicy.managerMonthlySalaryVnd, current.body.policy.managerMonthlySalaryVnd);
   assert.equal(financialPolicy.managerKpiRateBasisPoints, current.body.policy.managerKpiRatePercent * 100);
-  assert.equal(financialPolicy.allowances.TIKTOK.amountVnd, 32_000);
+  assert.equal(financialPolicy.allowances.TIKTOK, undefined);
+  assert.deepEqual(financialPolicy.profitSharingMembers, [
+    { memberId: "member-a", name: "Thành viên A", rateBasisPoints: 4_000 },
+    { memberId: "member-b", name: "Thành viên B", rateBasisPoints: 6_000 },
+  ]);
+  assert.deepEqual(current.body.policy.profitSharingMembers, [
+    { memberId: "member-a", name: "Thành viên A", ratePercent: 40 },
+    { memberId: "member-b", name: "Thành viên B", ratePercent: 60 },
+  ]);
   assert.match(financialVersions.results[1].effectiveFromPeriod, /^\d{4}-(?:0[1-9]|1[0-2])$/u);
   const afterRow = await db.prepare("SELECT data_json AS dataJson FROM business_records WHERE id = 'kpi-history'").first();
   assert.equal(afterRow.dataJson, before.dataJson);
 });
 
-test("legacy clients may omit TikTok allowance without overwriting the current policy", async () => {
+test("saving profit-sharing members survives reload without creating a global TikTok default", async () => {
   const initial = await response(await route.GET(request(superToken)));
-  const previousAllowance = initial.body.policy.employeeTikTokAllowanceVnd;
   const next = payload(initial.body.policy.version, 5_250_000, 2.75);
-  delete next.employeeTikTokAllowanceVnd;
+  next.profitSharingMembers = [
+    { memberId: "member-a", name: "Thành viên A", ratePercent: 35 },
+    { memberId: "member-b", name: "Thành viên B", ratePercent: 65 },
+  ];
 
   const updated = await response(await route.PATCH(request(superToken, "PATCH", next)));
   assert.equal(updated.status, 200);
-  assert.equal(updated.body.policy.employeeTikTokAllowanceVnd, previousAllowance);
+  assert.deepEqual(updated.body.policy.profitSharingMembers, next.profitSharingMembers);
+  const reloaded = await response(await route.GET(request(superToken)));
+  assert.deepEqual(reloaded.body.policy.profitSharingMembers, next.profitSharingMembers);
+  assert.equal("employeeTikTokAllowanceVnd" in reloaded.body.policy, false);
 
   const stored = await db.prepare(`SELECT policy_json AS policyJson
     FROM financial_policy_versions WHERE superseded_at IS NULL ORDER BY version DESC LIMIT 1`).first();
-  assert.equal(JSON.parse(stored.policyJson).allowances.TIKTOK.amountVnd, previousAllowance);
+  const storedPolicy = JSON.parse(stored.policyJson);
+  assert.equal(storedPolicy.allowances.TIKTOK, undefined);
+  assert.deepEqual(storedPolicy.profitSharingMembers.map((member) => member.rateBasisPoints), [3_500, 6_500]);
 });
 
 test("employee KPI payout preserves a fractional 5.50 percent policy rate", () => {

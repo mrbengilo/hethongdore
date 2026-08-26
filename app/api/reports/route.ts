@@ -23,6 +23,10 @@ import {
   type ProfitDistributionRecord,
 } from "../../lib/profit-distributions";
 import { getSessionUser, json } from "../_lib/auth";
+import {
+  loadFinancialPolicyForPeriod,
+  type FinancialPolicyVersion,
+} from "../_lib/financial-policy";
 import { parsePersistedFinancialPeriodSnapshot } from "../_lib/financial-period";
 import {
   MANAGER_STORE_SCOPE_MESSAGE,
@@ -300,6 +304,14 @@ function profitSharingMembers(distribution: CanonicalProfitDistribution | null) 
   })) ?? [];
 }
 
+function configuredProfitSharingMembers(policyVersion: FinancialPolicyVersion | null) {
+  return policyVersion?.policy.profitSharingMembers.map((member) => ({
+    id: member.memberId,
+    name: member.name,
+    percentage: member.rateBasisPoints / 100,
+  })) ?? [];
+}
+
 function distributionErrorMessage(error: ProfitDistributionError) {
   const messages: Record<ProfitDistributionError["code"], string> = {
     INVALID_INPUT: "Dữ liệu chia lợi nhuận không hợp lệ.",
@@ -372,6 +384,7 @@ export async function GET(request: Request) {
   const distributionPeriod = range.to.slice(0, 7);
   let currentDistribution: ProfitDistributionRecord | null = null;
   let previewDistribution: ProfitDistributionPreview | null = null;
+  let configuredFinancialPolicy: FinancialPolicyVersion | null = null;
   let profitSharingHistory: ProfitSharingHistory[] = [];
   let profitSharingReadiness: null | {
     ready: boolean;
@@ -381,11 +394,13 @@ export async function GET(request: Request) {
   } = null;
   if (globalStoreAccess) {
     try {
-      const [current, summaries] = await Promise.all([
+      const [current, summaries, financialPolicy] = await Promise.all([
         readProfitDistribution(db, distributionPeriod),
         listProfitDistributions(db, { limit: 36 }),
+        loadFinancialPolicyForPeriod(db, distributionPeriod),
       ]);
       currentDistribution = current;
+      configuredFinancialPolicy = financialPolicy;
       const historyRecords = await Promise.all(summaries.map(async (summary) => {
         const record = summary.period === distributionPeriod && current
           ? current
@@ -433,7 +448,47 @@ export async function GET(request: Request) {
     }
   }
   const memberSource = currentDistribution ?? previewDistribution;
+  const configuredMembers = configuredProfitSharingMembers(configuredFinancialPolicy);
   const profitSharingPreview = previewDistribution ? uiProfitSharingSummary(previewDistribution) : null;
+  const profitSharingMemberSource = globalStoreAccess
+    ? currentDistribution
+      ? {
+          type: "LOCKED_DISTRIBUTION_SNAPSHOT" as const,
+          policyVersionId: currentDistribution.policyVersionId,
+          policyVersion: currentDistribution.configVersion,
+          effectiveFromPeriod: null,
+          immutable: true,
+        }
+      : previewDistribution
+        ? {
+            type: "LOCKED_PERIOD_PREVIEW" as const,
+            policyVersionId: previewDistribution.policyVersionId,
+            policyVersion: previewDistribution.configVersion,
+            effectiveFromPeriod: null,
+            immutable: true,
+          }
+        : configuredFinancialPolicy
+          ? {
+              type: "FINANCIAL_POLICY" as const,
+              policyVersionId: configuredFinancialPolicy.id,
+              policyVersion: configuredFinancialPolicy.version,
+              effectiveFromPeriod: configuredFinancialPolicy.effectiveFromPeriod,
+              immutable: false,
+            }
+          : {
+              type: "UNCONFIGURED" as const,
+              policyVersionId: null,
+              policyVersion: null,
+              effectiveFromPeriod: null,
+              immutable: false,
+            }
+    : {
+        type: "HIDDEN" as const,
+        policyVersionId: null,
+        policyVersion: null,
+        effectiveFromPeriod: null,
+        immutable: false,
+      };
   return json({
     ...data,
     period: range.to.slice(0, 7),
@@ -455,6 +510,15 @@ export async function GET(request: Request) {
       performanceRewards: "Thưởng KPI kỳ mở là số xem trước theo chính sách hiện hành; kỳ đã khóa chỉ dùng ảnh chụp bất biến.",
     },
     profitSharingMembers: globalStoreAccess ? profitSharingMembers(memberSource) : [],
+    configuredProfitSharingMembers: globalStoreAccess ? configuredMembers : [],
+    profitSharingMemberSource,
+    profitSharingPolicy: globalStoreAccess && configuredFinancialPolicy
+      ? {
+          id: configuredFinancialPolicy.id,
+          version: configuredFinancialPolicy.version,
+          effectiveFromPeriod: configuredFinancialPolicy.effectiveFromPeriod,
+        }
+      : null,
     profitSharingPreview,
     profitSharingHistory,
     dividendHistory: profitSharingHistory,

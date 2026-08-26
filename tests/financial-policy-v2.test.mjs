@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  financialPolicyTikTokAllowanceVnd,
   financialPolicyFromPayrollSnapshot,
   isFinancialPeriod,
   loadFinancialPolicyForPeriod,
@@ -125,8 +124,8 @@ test("normalizes explicit policy fields without injecting business defaults", ()
   assert.equal(Object.isFrozen(normalized), true);
   assert.equal(Object.isFrozen(normalized.allowances.TIKTOK), true);
   assert.equal(Object.isFrozen(normalized.profitSharingMembers[0]), true);
-  assert.equal(financialPolicyTikTokAllowanceVnd(normalized), 30_000);
-  assert.equal(financialPolicyTikTokAllowanceVnd({ allowances: {} }), null);
+  assert.equal(normalized.allowances.TIKTOK.amountVnd, 30_000,
+    "legacy policy payloads remain parseable for immutable historical snapshots");
 
   assert.equal(normalizeFinancialPolicy({ ...source, allowances: undefined }), null);
   assert.equal(normalizeFinancialPolicy({ ...source, profitSharingMembers: undefined }), null);

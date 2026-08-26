@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const componentUrl = new URL("../app/components/FinancialReports.tsx", import.meta.url);
+const reportRouteUrl = new URL("../app/api/reports/route.ts", import.meta.url);
 
 test("profit-sharing UI derives every member column and amount from API data", async () => {
   const source = await readFile(componentUrl, "utf8");
@@ -21,10 +22,25 @@ test("profit-sharing UI derives every member column and amount from API data", a
 
   assert.match(source, /profitSharingMemberCatalog/u);
   assert.match(source, /data\?\.profitSharingMembers \?\? \[\]/u);
+  assert.match(source, /data\?\.configuredProfitSharingMembers \?\? snapshotMembers/u);
+  assert.match(source, /currentHistory \|\| preview \? snapshotMembers\s*: configuredMembers/u);
+  assert.match(source, /history\.flatMap\(\(item\) => item\.memberAllocations \?\? \[\]\),\s*\[\]/u,
+    "historical columns must derive from immutable distribution snapshots, never current policy");
   assert.match(source, /currentMembers\.map/u);
   assert.match(source, /historyMembers\.map/u);
   assert.match(source, /memberAllocation\(store\.memberAllocations, member\)/u);
   assert.match(source, /memberAllocation\(item\.memberAllocations, member\)/u);
+});
+
+test("open reports expose configured members separately from immutable distribution snapshots", async () => {
+  const source = await readFile(reportRouteUrl, "utf8");
+
+  assert.match(source, /loadFinancialPolicyForPeriod\(db, distributionPeriod\)/u);
+  assert.match(source, /configuredProfitSharingMembers: globalStoreAccess \? configuredMembers : \[\]/u);
+  assert.match(source, /profitSharingMembers: globalStoreAccess \? profitSharingMembers\(memberSource\) : \[\]/u);
+  assert.match(source, /type: "FINANCIAL_POLICY" as const/u);
+  assert.match(source, /type: "LOCKED_DISTRIBUTION_SNAPSHOT" as const/u);
+  assert.match(source, /type: "HIDDEN" as const/u);
 });
 
 test("profit-sharing CSV and lifecycle provenance are dynamic and legacy-safe", async () => {

@@ -26,7 +26,7 @@ Quản lý được thêm, sửa và chuyển cửa hàng giữa hai trạng th�
 - Giao việc theo cửa hàng, ca và ngày áp dụng.
 - Điều chuyển nhân sự hỗ trợ giữa các cửa hàng.
 - Quản lý lương thưởng của nhân viên/quản lý, xác nhận từng khoản chi, khóa kỳ, báo cáo toàn hệ thống và cổ tức.
-- Thiết lập tiền phụ cấp TikTok, thưởng TikTok và thưởng khác theo từng cửa hàng.
+- Thiết lập phụ cấp TikTok riêng cho từng nhân viên tại từng cửa hàng; không có mức mặc định toàn hệ thống. Thưởng và phụ cấp khác vẫn được ghi theo đúng nhân viên/cửa hàng phát sinh.
 
 ### 3.2. Nhân viên
 
@@ -151,7 +151,8 @@ Kỳ lương tại cửa hàng đi qua sáu bước: chốt lương nhân viên 
 
 ### 9.3. Phụ cấp TikTok
 
-- Quản lý đặt mức phụ cấp TikTok riêng cho từng cửa hàng.
+- Quản lý bắt buộc đặt mức phụ cấp TikTok riêng trong hồ sơ từng nhân viên của từng cửa hàng; `0 đồng` là giá trị hợp lệ khi không áp dụng. Cài đặt chính sách toàn hệ thống không chứa mức mặc định TikTok.
+- Khi bắt đầu ca, hệ thống chụp mức của nhân viên vào phiên ca; thay đổi hồ sơ sau đó chỉ áp dụng cho ca mới, không sửa ca đang chạy hay lịch sử đã khóa.
 - Khi kết ca, nhân viên tick “Ca này có làm clip TikTok”.
 - Hệ thống ghi nhận một khoản phụ cấp cho ca đó, không được ghi trùng khi gửi lại.
 - Cuối tháng cộng tất cả khoản phụ cấp TikTok hợp lệ của nhân viên.
@@ -181,7 +182,8 @@ Mục **Dòng tiền** của cửa hàng cho phép tạo từng chi phí phát s
 ## 11. Cổ tức
 
 - Lợi nhuận sau cùng bằng doanh thu trừ tất cả chi phí của toàn chuỗi.
-- Tỷ lệ hiện tại gồm hai phần chia: 60% và 40%.
+- Danh sách người nhận và tỷ lệ chia được quản trị cấp cao cấu hình trong **Cài đặt chính sách**; tổng tỷ lệ phải đúng 100% và được lưu theo phiên bản có hiệu lực.
+- Kỳ đang mở hiển thị tỷ lệ cấu hình hiện hành để đối soát, nhưng lịch sử kỳ đã chốt luôn hiển thị tỷ lệ và số tiền từ snapshot bất biến của chính kỳ đó.
 - Chỉ cho phép xác nhận chia khi tất cả cửa hàng `ACTIVE` đã khóa kỳ lương tương ứng; xác nhận xong lưu lịch sử và khóa kỳ để ngăn sửa/xóa.
 - Có lịch sử theo kỳ, so sánh kỳ trước, xuất CSV và đánh giá hiệu quả/chiều hướng từ số liệu thực.
 - Khung phân tích cuối trang nêu biến động doanh thu, chi phí, biên lợi nhuận và cổ tức từng cổ đông.

@@ -26,7 +26,7 @@ export const employees = sqliteTable("employees", {
   cccdImageKey: text("cccd_image_key"),
   cccdImageName: text("cccd_image_name"),
   hourlyRate: integer("hourly_rate").notNull().default(20000),
-  tiktokAllowance: integer("tiktok_allowance").notNull().default(25000),
+  tiktokAllowance: integer("tiktok_allowance").notNull().default(0),
   status: text("status").notNull().default("ACTIVE"),
   inactiveAt: text("inactive_at"),
   statusUpdatedAt: text("status_updated_at"),

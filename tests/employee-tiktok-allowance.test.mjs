@@ -10,7 +10,7 @@ const {
   employeeTikTokAllowanceForPatch,
 } = await import("../app/lib/employee-tiktok.ts");
 
-test("TikTok allowance migration preserves existing employees and historical shifts", async () => {
+test("legacy TikTok allowance migration remains replayable without rewriting historical shifts", async () => {
   const migration = await source("../drizzle/0009_employee_tiktok_allowance.sql");
   const db = new DatabaseSync(":memory:");
   db.exec(`
@@ -53,7 +53,7 @@ test("TikTok allowance migration preserves existing employees and historical shi
   db.close();
 });
 
-test("employee API validates per-employee VND and preserves omitted PATCH values", async () => {
+test("employee API requires explicit per-employee VND and preserves omitted PATCH values", async () => {
   const [schema, runtime, employeesApi, allowancePolicy] = await Promise.all([
     source("../db/schema.ts"),
     source("../db/runtime.ts"),
@@ -61,25 +61,27 @@ test("employee API validates per-employee VND and preserves omitted PATCH values
     source("../app/lib/employee-tiktok.ts"),
   ]);
 
-  assert.match(schema, /tiktokAllowance: integer\("tiktok_allowance"\)\.notNull\(\)\.default\(25000\)/u);
-  assert.match(runtime, /ADD COLUMN tiktok_allowance INTEGER NOT NULL DEFAULT 25000/u);
+  assert.match(schema, /tiktokAllowance: integer\("tiktok_allowance"\)\.notNull\(\)\.default\(0\)/u);
+  assert.match(runtime, /ADD COLUMN tiktok_allowance INTEGER NOT NULL DEFAULT 0/u);
   assert.match(runtime, /SET applied_tiktok_allowance = \([\s\S]*employee\.tiktok_allowance[\s\S]*status = 'ACTIVE' AND applied_tiktok_allowance IS NULL/u);
   assert.match(employeesApi, /tiktokAllowance\?: number \| string/u);
-  assert.match(employeesApi, /employeeTikTokAllowanceForCreate\([\s\S]*body\.tiktokAllowance,[\s\S]*financialPolicyTikTokAllowanceVnd/u);
+  assert.match(employeesApi, /employeeTikTokAllowanceForCreate\(body\.tiktokAllowance\)/u);
+  assert.doesNotMatch(employeesApi, /financialPolicyTikTokAllowanceVnd/u);
   assert.match(employeesApi, /employeeTikTokAllowanceForPatch\(body\.tiktokAllowance, existing\.tiktokAllowance\)/u);
   assert.doesNotMatch(employeesApi, /body\.tiktokAllowance \|\|/u);
   assert.match(employeesApi, /tiktok_allowance = CASE WHEN \? = 1 THEN \? ELSE tiktok_allowance END/u);
   assert.doesNotMatch(employeesApi, /UPDATE shift_sessions\s+SET applied_tiktok_allowance/u);
   assert.match(employeesApi, /activeShiftSnapshotsPreserved: true/u);
-  assert.match(allowancePolicy, /input === undefined[\s\S]*employeeTikTokAllowanceSnapshot\(configuredDefault\)/u);
+  assert.match(allowancePolicy, /employeeTikTokAllowanceForCreate\(input: AllowanceInput\) \{\s*return parsedAllowance\(input\);/u);
   assert.doesNotMatch(allowancePolicy, /DEFAULT_EMPLOYEE_TIKTOK_ALLOWANCE/u);
   assert.match(allowancePolicy, /if \(input === undefined\) return validAllowance\(current\) \? current : null/u);
 });
 
-test("effective-dated manager updates preserve active and historical shift snapshots", () => {
-  assert.equal(employeeTikTokAllowanceForCreate(undefined, 25_000), 25_000);
-  assert.equal(employeeTikTokAllowanceForCreate(undefined, null), null);
-  assert.equal(employeeTikTokAllowanceForCreate(0, 25_000), 0);
+test("per-employee manager updates preserve active and historical shift snapshots", () => {
+  assert.equal(employeeTikTokAllowanceForCreate(undefined), null);
+  assert.equal(employeeTikTokAllowanceForCreate(null), null);
+  assert.equal(employeeTikTokAllowanceForCreate(0), 0);
+  assert.equal(employeeTikTokAllowanceForCreate(49_000), 49_000);
   assert.equal(employeeTikTokAllowanceForPatch(undefined, 49_000), 49_000);
   assert.equal(employeeTikTokAllowanceForPatch(0, 49_000), 0);
 

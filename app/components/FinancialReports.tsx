@@ -121,9 +121,29 @@ type FinancialReportResponse = {
   previousTotals: FinancialSnapshot;
   comparison: Comparison;
   profitSharingMembers?: ProfitSharingMember[];
+  configuredProfitSharingMembers?: ProfitSharingMember[];
+  profitSharingMemberSource?: {
+    type: "LOCKED_DISTRIBUTION_SNAPSHOT" | "LOCKED_PERIOD_PREVIEW" | "FINANCIAL_POLICY" | "UNCONFIGURED" | "HIDDEN";
+    policyVersionId: string | null;
+    policyVersion: number | null;
+    effectiveFromPeriod: string | null;
+    immutable: boolean;
+  };
+  profitSharingPolicy?: {
+    id: string;
+    version: number;
+    effectiveFromPeriod: string;
+  } | null;
   profitSharingPreview?: ProfitSharingSummary | null;
   profitSharingHistory: ProfitSharingHistoryItem[];
   dividendHistory?: ProfitSharingHistoryItem[];
+  profitSharingReadiness?: {
+    ready: boolean;
+    status: "READY" | "LOCKED" | "UNAVAILABLE";
+    code: string;
+    message: string;
+  } | null;
+  profitSharingMessage?: string | null;
   message?: string;
 };
 
@@ -566,20 +586,37 @@ export function ManagerProfitSharingClosing({ initialPeriod }: { initialPeriod?:
   const distributableProfit = currentHistory?.distributableProfit ?? preview?.distributableProfit ?? 0;
   const allocations = currentHistory?.memberAllocations ?? preview?.memberAllocations ?? [];
   const storeAllocations = currentHistory?.storeAllocations ?? preview?.storeAllocations ?? [];
-  const configuredMembers = data?.profitSharingMembers ?? [];
+  const snapshotMembers = data?.profitSharingMembers ?? [];
+  const configuredMembers = data?.configuredProfitSharingMembers ?? snapshotMembers;
+  const currentFallbackMembers = currentHistory || preview ? snapshotMembers : configuredMembers;
   const currentMembers = profitSharingMemberCatalog([
     ...allocations,
     ...storeAllocations.flatMap((store) => store.memberAllocations ?? []),
-  ], configuredMembers);
+  ], currentFallbackMembers);
   const historyMembers = profitSharingMemberCatalog(
     history.flatMap((item) => item.memberAllocations ?? []),
-    configuredMembers,
+    [],
   );
   const allocatedTotal = allocations.reduce((sum, allocation) => sum + (finiteNumber(allocation.amount) ?? 0), 0);
   const periodClosed = period < currentPeriod();
   const allStoresLocked = storeAllocations.length > 0 && storeAllocations.every((store) => store.settlementStatus === "LOCKED");
-  const pendingStoreCount = storeAllocations.filter((store) => store.settlementStatus !== "LOCKED").length;
-  const currentStatus = currentHistory ? profitSharingStatusLabel(currentHistory) : "BẢN XEM TRƯỚC";
+  const currentStatus = currentHistory
+    ? profitSharingStatusLabel(currentHistory)
+    : preview
+      ? "BẢN XEM TRƯỚC"
+      : configuredMembers.length > 0
+        ? "CHÍNH SÁCH ĐÃ LƯU"
+        : "CHƯA CẤU HÌNH";
+  const readinessMessage = data?.profitSharingReadiness?.message ?? data?.profitSharingMessage ?? "";
+  const currentSourceDescription = currentHistory
+    ? currentHistory.legacy
+      ? "Lịch sử cũ · chỉ đọc"
+      : `Snapshot khóa bởi ${currentHistory.closedBy || "tài khoản không xác định"}`
+    : preview
+      ? "Snapshot các kỳ cửa hàng đã khóa"
+      : data?.profitSharingPolicy
+        ? `Chính sách v${data.profitSharingPolicy.version} · hiệu lực từ ${periodLabel(data.profitSharingPolicy.effectiveFromPeriod)}`
+        : "Chưa có chính sách phân chia";
 
   const closeProfitSharing = async () => {
     if (!data || currentHistory) return;
@@ -642,7 +679,7 @@ export function ManagerProfitSharingClosing({ initialPeriod }: { initialPeriod?:
     {loading && !data && <div className="report-profit-note"><RefreshCw size={17}/> Đang tải số liệu chia lợi nhuận…</div>}
     {data && currentHistory?.legacy && <div className="report-profit-note"><LockKeyhole size={17}/> Kỳ này là lịch sử cũ chỉ đọc. Tổng số tiền được giữ nguyên; chi tiết cửa hàng hoặc cấu hình nguồn có thể chưa được lưu đầy đủ.</div>}
     {data && !currentHistory && currentMembers.length === 0 && <div className="report-profit-note">Chưa có cấu hình thành viên nhận phân chia lợi nhuận. Không thể xác nhận khóa kỳ.</div>}
-    {data && !currentHistory && periodClosed && !allStoresLocked && <div className="report-profit-note"><LockKeyhole size={17}/> Còn {pendingStoreCount} cửa hàng chưa khóa lợi nhuận sau cùng. Hoàn tất khóa kỳ trước khi xác nhận chia.</div>}
+    {data && !currentHistory && currentMembers.length > 0 && data.profitSharingReadiness && !data.profitSharingReadiness.ready && <div className="report-profit-note"><LockKeyhole size={17}/> {readinessMessage}</div>}
     {data && <>
       <div className="manager-metrics four">
         <Metric icon={TrendingUp} label="DOANH THU KỲ" value={money(currentRevenue)} note={changeText(data.comparison.revenueChange)}/>
@@ -655,7 +692,7 @@ export function ManagerProfitSharingClosing({ initialPeriod }: { initialPeriod?:
           ? <p><span>Chưa có thành viên</span><b>—</b><em>Vui lòng cấu hình trước khi khóa kỳ</em></p>
           : currentMembers.map((member) => {
             const allocation = memberAllocation(allocations, member);
-            return <p key={memberKey(member)}><span>{memberColumnLabel(member)} · {allocationPercentage(allocation, member)}</span><b>{money(allocation?.amount ?? 0)}</b><em>{currentHistory ? currentStatus : "Bản xem trước theo cấu hình hiện hành"}</em></p>;
+            return <p key={memberKey(member)}><span>{memberColumnLabel(member)} · {allocationPercentage(allocation, member)}</span><b>{money(allocation?.amount ?? 0)}</b><em>{currentHistory ? currentStatus : preview ? "Bản xem trước từ snapshot kỳ đã khóa" : "Tỷ lệ từ chính sách đã lưu; chờ kỳ đủ điều kiện tính"}</em></p>;
           })}
         <p><span>Tổng lợi nhuận được chia</span><b>{money(distributableProfit)}</b><em>{periodLabel(period)}</em></p>
         <button className="primary-button wide" disabled={saving || loading || Boolean(currentHistory) || currentMembers.length === 0 || !periodClosed || !allStoresLocked} onClick={() => void closeProfitSharing()}><LockKeyhole size={17}/> {saving ? "ĐANG KHÓA KỲ…" : currentHistory ? "KỲ CHIA LỢI NHUẬN ĐÃ KHÓA" : currentMembers.length === 0 ? "CHƯA CÓ CẤU HÌNH THÀNH VIÊN" : !periodClosed ? "CHỜ KẾT THÚC KỲ" : !allStoresLocked ? "CHỜ CỬA HÀNG KHÓA KỲ" : "XÁC NHẬN CHIA VÀ KHÓA KỲ"}</button>
@@ -663,7 +700,7 @@ export function ManagerProfitSharingClosing({ initialPeriod }: { initialPeriod?:
         <p><span>Nguồn tính</span><b>Lợi nhuận sau cùng đã khóa</b><em>Từng cửa hàng</em></p>
         <p><span>Điều kiện phân chia</span><b>Chỉ lợi nhuận sau cùng dương</b><em>Cửa hàng lỗ có lợi nhuận được chia bằng 0</em></p>
         <p><span>Tổng phân bổ cho thành viên</span><b>{money(allocatedTotal)}</b><em>Đối chiếu với lợi nhuận được chia</em></p>
-        <p><span>Trạng thái và nguồn</span><b>{currentStatus}</b><em>{currentHistory ? currentHistory.legacy ? "Lịch sử cũ · chỉ đọc" : `Snapshot khóa bởi ${currentHistory.closedBy || "tài khoản không xác định"}` : "Chưa tạo snapshot khóa sổ"}</em></p>
+        <p><span>Trạng thái và nguồn</span><b>{currentStatus}</b><em>{currentSourceDescription}</em></p>
       </section></div>
       <section className="manager-panel table-panel"><div className="panel-title"><div><h2>THỐNG KÊ PHÂN CHIA THEO TỪNG CỬA HÀNG</h2><p>Lợi nhuận được chia lấy từ số liệu sau cùng và trạng thái khóa của từng cửa hàng</p></div><span>{storeAllocations.length} cửa hàng</span></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>Cửa hàng</th><th>Trạng thái số liệu</th><th>Doanh thu</th><th>Tổng chi phí</th><th>Lợi nhuận sau cùng</th><th>Lợi nhuận được chia</th>{currentMembers.map((member) => <th key={memberKey(member)}>{memberColumnLabel(member)}</th>)}</tr></thead><tbody>
         {storeAllocations.length === 0

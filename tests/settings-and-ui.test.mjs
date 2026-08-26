@@ -105,16 +105,17 @@ test("employee editor exposes a per-employee formatted TikTok allowance", async 
   ]);
 
   assert.match(management, /tiktokAllowance: Number\(row\.tiktok_allowance \?\? row\.tiktokAllowance \?\? 0\)/u);
-  assert.match(management, /employeeTikTokAllowanceDefault/u);
-  assert.match(management, /emptyEmployeeForm\(policyTikTokAllowanceDefault\)/u);
+  assert.doesNotMatch(management, /employeeTikTokAllowanceDefault/u);
+  assert.match(management, /function emptyEmployeeForm\(\): EmployeeForm/u);
+  assert.match(management, /tiktokAllowance: ""/u);
   assert.match(management, /tiktokAllowance: formatVndInput\(employee\.tiktokAllowance\)/u);
   assert.match(management, /tiktokAllowance: parseVndInput\(form\.tiktokAllowance\)/u);
   assert.match(management, /Phụ cấp TikTok phải là số nguyên từ 0 đồng trở lên/u);
   assert.match(management, /<th>Phụ cấp TikTok<\/th>/u);
   assert.match(management, /className="employee-tiktok-allowance">\{formatMoney\(employee\.tiktokAllowance\)\}/u);
-  assert.match(management, /id="employee-tiktok-allowance"[\s\S]*?inputMode="numeric"[\s\S]*?aria-describedby="employee-tiktok-allowance-help"/u);
+  assert.match(management, /id="employee-tiktok-allowance"[\s\S]*?inputMode="numeric"[\s\S]*?required[\s\S]*?aria-describedby="employee-tiktok-allowance-help"/u);
   assert.match(management, /updateForm\("tiktokAllowance", formatVndInput\(event\.target\.value\)\)/u);
-  assert.match(management, /áp dụng riêng cho mỗi ca có TikTok; ca đã bắt đầu giữ nguyên mức đã chụp/u);
+  assert.match(management, /mức riêng của nhân viên tại cửa hàng; ca đã bắt đầu giữ nguyên mức đã chụp/u);
   assert.match(styles, /\.employee-tiktok-field\{[^}]*grid-column:1\/-1;[^}]*min-width:0;/u);
   assert.match(styles, /\.employee-tiktok-field>input\{[^}]*width:100%;[^}]*min-width:0;/u);
   assert.match(styles, /\.employee-tiktok-allowance\{[^}]*white-space:nowrap/u);

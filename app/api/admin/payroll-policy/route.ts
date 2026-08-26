@@ -13,11 +13,10 @@ import {
   serializePayrollPolicy,
   validatePayrollPolicyCombination,
 } from "../../../lib/payroll-policy";
-import { isVnd, localPeriod } from "../../../lib/finance";
+import { localPeriod } from "../../../lib/finance";
 import { getSessionUser, json as responseJson } from "../../_lib/auth";
 import {
   financialPolicyFromPayrollSnapshot,
-  financialPolicyTikTokAllowanceVnd,
   loadFinancialPolicyForPeriod,
   normalizeProfitSharingMembers,
   serializeFinancialPolicy,
@@ -51,7 +50,6 @@ async function responseData(db: Awaited<ReturnType<typeof initDb>>) {
   return {
     policy: {
       ...payrollPolicyPayload(policy, actor?.name ?? null),
-      employeeTikTokAllowanceVnd: financialPolicyTikTokAllowanceVnd(financialPolicyVersion.policy),
       profitSharingMembers: financialPolicyVersion.policy.profitSharingMembers.map((member) => ({
         memberId: member.memberId,
         name: member.name,
@@ -80,7 +78,6 @@ export async function PATCH(request: Request) {
   const body = await request.json().catch(() => ({})) as {
     managerMonthlySalaryVnd?: unknown;
     managerKpiRatePercent?: unknown;
-    employeeTikTokAllowanceVnd?: unknown;
     employeeKpiTiers?: Array<{ minimumProfitPerHour?: unknown; ratePercent?: unknown }>;
     profitSharingMembers?: Array<{ memberId?: unknown; name?: unknown; ratePercent?: unknown }>;
     expectedVersion?: unknown;
@@ -91,9 +88,6 @@ export async function PATCH(request: Request) {
   }
   if (!isSafeManagerSalary(body.managerMonthlySalaryVnd)) {
     return json({ message: `Lương quản lý phải là số nguyên từ ${MIN_MANAGER_MONTHLY_SALARY_VND.toLocaleString("vi-VN")} đến ${MAX_MANAGER_MONTHLY_SALARY_VND.toLocaleString("vi-VN")} đồng.` }, 400);
-  }
-  if (body.employeeTikTokAllowanceVnd !== undefined && !isVnd(body.employeeTikTokAllowanceVnd)) {
-    return json({ message: "Phụ cấp TikTok mặc định phải là số nguyên VND từ 0 đồng trở lên." }, 400);
   }
   const managerKpiRateBasisPoints = typeof body.managerKpiRatePercent === "number"
     ? Math.round(body.managerKpiRatePercent * 100)
@@ -160,10 +154,10 @@ export async function PATCH(request: Request) {
     createdBy: user.id,
     now: updatedAt,
   });
-  const currentTikTokAllowanceVnd = financialPolicyTikTokAllowanceVnd(currentFinancialPolicyVersion.policy);
-  const nextTikTokAllowanceVnd = body.employeeTikTokAllowanceVnd === undefined
-    ? currentTikTokAllowanceVnd
-    : Number(body.employeeTikTokAllowanceVnd);
+  const nextAllowances = Object.fromEntries(
+    Object.entries(currentFinancialPolicyVersion.policy.allowances)
+      .filter(([key]) => key !== TIKTOK_ALLOWANCE_POLICY_KEY),
+  );
   const financialVersionRow = await db.prepare(
     "SELECT COALESCE(MAX(version), 0) + 1 AS nextVersion FROM financial_policy_versions",
   ).first<{ nextVersion: number }>();
@@ -177,12 +171,7 @@ export async function PATCH(request: Request) {
     updatedAt,
   };
   const nextFinancialPolicy = financialPolicyFromPayrollSnapshot(nextSnapshot, {
-    allowances: nextTikTokAllowanceVnd === null
-      ? currentFinancialPolicyVersion.policy.allowances
-      : {
-        ...currentFinancialPolicyVersion.policy.allowances,
-        [TIKTOK_ALLOWANCE_POLICY_KEY]: { amountVnd: nextTikTokAllowanceVnd },
-      },
+    allowances: nextAllowances,
     profitSharingMembers: profitSharingMembers ?? currentFinancialPolicyVersion.policy.profitSharingMembers,
   });
   const nextFinancialPolicyJson = serializeFinancialPolicy(nextFinancialPolicy);
@@ -192,7 +181,6 @@ export async function PATCH(request: Request) {
     managerMonthlySalaryVnd: current.managerMonthlySalaryVnd,
     managerKpiRateBasisPoints: current.managerKpiRateBasisPoints,
     employeeKpiTiers: current.employeeKpiTiers,
-    employeeTikTokAllowanceVnd: currentTikTokAllowanceVnd,
     profitSharingMembers: currentFinancialPolicyVersion.policy.profitSharingMembers,
     payrollPolicyVersion: current.version,
     financialPolicyVersion: currentFinancialPolicyVersion.version,
@@ -205,7 +193,6 @@ export async function PATCH(request: Request) {
     financialPolicyVersion: financialVersion,
     financialPolicyVersionId,
     effectiveFromPeriod,
-    employeeTikTokAllowanceVnd: nextTikTokAllowanceVnd,
     profitSharingMembers: nextFinancialPolicy.profitSharingMembers,
   };
   const beforeJson = JSON.stringify(before);
@@ -258,5 +245,5 @@ export async function PATCH(request: Request) {
   if (affectedRows(results[0]) !== 1 || affectedRows(results[1]) !== 1 || affectedRows(results[3]) !== 1) {
     return json({ ...(await responseData(db)), message: "Chính sách vừa được cập nhật ở một phiên khác. Dữ liệu mới nhất đã được tải lại." }, 409);
   }
-  return json({ ...(await responseData(db)), message: "Đã lưu chính sách lương và KPI cho toàn bộ cửa hàng." });
+  return json({ ...(await responseData(db)), message: "Đã lưu chính sách lương, KPI và chia lợi nhuận cho toàn bộ cửa hàng." });
 }

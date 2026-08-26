@@ -57,22 +57,10 @@ export type FinancialPolicyExtensions = Readonly<{
   profitSharingMembers?: readonly ProfitSharingMemberPolicy[];
 }>;
 
+// Kept only to recognize and remove the retired global default when a new
+// policy version is saved. Historical policy rows remain readable and are not
+// rewritten, so locked-period snapshots stay immutable.
 export const TIKTOK_ALLOWANCE_POLICY_KEY = "TIKTOK";
-
-/**
- * Return the versioned per-shift TikTok allowance. Missing legacy policy data
- * is intentionally reported as null instead of silently applying a code
- * constant; an administrator must persist the business value before it can be
- * used as a default for new employees.
- */
-export function financialPolicyTikTokAllowanceVnd(
-  policy: Pick<FinancialPolicy, "allowances">,
-): number | null {
-  const entry = policy.allowances[TIKTOK_ALLOWANCE_POLICY_KEY];
-  if (!isRecord(entry)) return null;
-  const amount = entry.amountVnd;
-  return Number.isSafeInteger(amount) && Number(amount) >= 0 ? Number(amount) : null;
-}
 
 const INVALID_JSON = Symbol("INVALID_JSON");
 const PERIOD_PATTERN = /^\d{4}-(?:0[1-9]|1[0-2])$/u;

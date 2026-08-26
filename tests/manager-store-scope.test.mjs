@@ -171,6 +171,9 @@ test("omitted storeId defaults to the scoped manager home store while global rol
   assert.deepEqual(reportDefault.body.storeOptions.map((row) => row.id), ["scope-store-a"]);
   assert.deepEqual(reportDefault.body.profitSharingHistory, [], "scoped report must not expose global DIVIDEND history");
   assert.deepEqual(reportDefault.body.profitSharingMembers, [], "scoped report must not expose global profit-sharing identities");
+  assert.deepEqual(reportDefault.body.configuredProfitSharingMembers, [], "scoped report must not expose configured global identities");
+  assert.equal(reportDefault.body.profitSharingMemberSource.type, "HIDDEN");
+  assert.equal(reportDefault.body.profitSharingPolicy, null);
   assert.equal(reportDefault.body.profitSharingPreview, null);
 
   for (const token of [tokens.global, tokens.super]) {

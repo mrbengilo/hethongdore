@@ -59,7 +59,7 @@ type EmployeeForm = {
 const MAX_CCCD_BYTES = 5 * 1024 * 1024;
 const ALLOWED_CCCD_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
-function emptyEmployeeForm(defaultTikTokAllowanceVnd: number | null = null): EmployeeForm {
+function emptyEmployeeForm(): EmployeeForm {
   return {
     code: "",
     name: "",
@@ -71,7 +71,7 @@ function emptyEmployeeForm(defaultTikTokAllowanceVnd: number | null = null): Emp
     cccdNumber: "",
     position: "Nhân viên bán hàng",
     hourlyRate: "20,000",
-    tiktokAllowance: defaultTikTokAllowanceVnd === null ? "" : formatVndInput(defaultTikTokAllowanceVnd),
+    tiktokAllowance: "",
     username: "",
     password: "",
     status: "ACTIVE",
@@ -158,7 +158,6 @@ function EmployeePhoto({ employee, size = 46 }: { employee: Employee; size?: num
 
 export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
   const [employees, setEmployees] = useState<Employee[]>([]);
-  const [policyTikTokAllowanceDefault, setPolicyTikTokAllowanceDefault] = useState<number | null>(null);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"ALL" | EmployeeStatus>("ALL");
   const [open, setOpen] = useState(false);
@@ -195,17 +194,9 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
     setListError("");
     try {
       const response = await fetch(`/api/employees?storeId=${encodeURIComponent(store.id)}`);
-      const result = await response.json().catch(() => ({})) as {
-        employees?: unknown[];
-        employeeTikTokAllowanceDefault?: unknown;
-        message?: string;
-      };
+      const result = await response.json().catch(() => ({})) as { employees?: unknown[]; message?: string };
       if (!response.ok) throw new Error(result.message ?? "Không thể tải danh sách nhân viên.");
       setEmployees((result.employees ?? []).map(normalizeEmployee).filter((employee): employee is Employee => employee !== null));
-      const configuredDefault = Number(result.employeeTikTokAllowanceDefault);
-      setPolicyTikTokAllowanceDefault(
-        Number.isSafeInteger(configuredDefault) && configuredDefault >= 0 ? configuredDefault : null,
-      );
     } catch (error) {
       setListError(error instanceof Error ? error.message : "Không thể tải danh sách nhân viên.");
     } finally {
@@ -254,7 +245,7 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
       status: employee.status,
       cccdImageKey: employee.cccdImageKey,
       cccdImageName: employee.cccdImageName,
-    } : emptyEmployeeForm(policyTikTokAllowanceDefault));
+    } : emptyEmployeeForm());
     setCccdFile(null);
     setFileInputVersion((current) => current + 1);
     setFormError("");
@@ -296,7 +287,7 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
     if (!/^\d{12}$/.test(form.cccdNumber)) return "Số CCCD phải gồm đúng 12 chữ số.";
     const hourlyRate = parseVndInput(form.hourlyRate);
     if (!Number.isSafeInteger(hourlyRate) || hourlyRate <= 0) return "Lương theo giờ phải là số nguyên dương.";
-    if (!form.tiktokAllowance.trim()) return "Chưa có mức phụ cấp TikTok mặc định. Vui lòng nhập số tiền hoặc thiết lập tại Cài Đặt Chính Sách.";
+    if (!form.tiktokAllowance.trim()) return "Vui lòng nhập mức phụ cấp TikTok riêng của nhân viên; nhập 0 nếu không áp dụng.";
     const tiktokAllowance = parseVndInput(form.tiktokAllowance);
     if (!Number.isSafeInteger(tiktokAllowance) || tiktokAllowance < 0) return "Phụ cấp TikTok phải là số nguyên từ 0 đồng trở lên.";
     if (!form.position.trim()) return "Vui lòng chọn chức vụ.";
@@ -557,19 +548,20 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
               <label>Chức vụ *<select value={form.position} onChange={(event) => updateForm("position", event.target.value)}><option>Nhân viên bán hàng</option><option>Thu ngân</option><option>Kho</option><option>Quản lý ca</option></select></label>
               <label>Lương theo giờ *<input type="text" inputMode="numeric" required value={form.hourlyRate} onChange={(event) => updateForm("hourlyRate", formatVndInput(event.target.value))} placeholder="20,000"/><small>{formatMoney(parseVndInput(form.hourlyRate))}/giờ</small></label>
               <label className="employee-tiktok-field">
-                Phụ cấp TikTok
+                Phụ cấp TikTok *
                 <input
                   id="employee-tiktok-allowance"
                   type="text"
                   inputMode="numeric"
+                  required
                   aria-describedby="employee-tiktok-allowance-help"
                   value={form.tiktokAllowance}
                   onChange={(event) => updateForm("tiktokAllowance", formatVndInput(event.target.value))}
-                  placeholder="Theo chính sách hệ thống"
+                  placeholder="Nhập mức riêng của nhân viên"
                 />
                 <small id="employee-tiktok-allowance-help">
-                  {form.tiktokAllowance ? formatMoney(parseVndInput(form.tiktokAllowance)) : "Chưa thiết lập"}
-                  {" · "}áp dụng riêng cho mỗi ca có TikTok; ca đã bắt đầu giữ nguyên mức đã chụp.
+                  {form.tiktokAllowance ? formatMoney(parseVndInput(form.tiktokAllowance)) : "Bắt buộc nhập; 0 đồng nếu không áp dụng"}
+                  {" · "}mức riêng của nhân viên tại cửa hàng; ca đã bắt đầu giữ nguyên mức đã chụp.
                 </small>
               </label>
             </div>

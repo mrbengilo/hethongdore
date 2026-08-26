@@ -10,18 +10,9 @@ function parsedAllowance(input: AllowanceInput) {
   return validAllowance(value) ? value : null;
 }
 
-/**
- * New employees inherit the persisted, versioned policy when the field is
- * omitted. The business value is deliberately supplied by the caller so this
- * module never becomes a second source of truth.
- */
-export function employeeTikTokAllowanceForCreate(
-  input: AllowanceInput,
-  configuredDefault: unknown,
-) {
-  return input === undefined
-    ? employeeTikTokAllowanceSnapshot(configuredDefault)
-    : parsedAllowance(input);
+/** New employees must receive an explicit, per-employee allowance. */
+export function employeeTikTokAllowanceForCreate(input: AllowanceInput) {
+  return parsedAllowance(input);
 }
 
 /** Legacy clients omit this field; omission must preserve the stored value. */

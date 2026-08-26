@@ -55,14 +55,14 @@ Mọi màn hình nhận `store_id` từ ngữ cảnh quản lý, không nhận t
 | Tổng quan | KPI, biểu đồ, hoạt động hôm nay | doanh thu, chi phí, lợi nhuận, nhân viên, ca, đơn |
 | Ca làm việc | định nghĩa ca và số người | mã ca, giờ bắt đầu/kết thúc, trạng thái |
 | Lịch phân ca | xếp nhiều nhân viên theo ngày/ca | ngày, ca, nhân viên, vị trí, ghi chú |
-| Nhân viên | tạo, sửa, lưu trữ và tài khoản | mã NV, họ tên, SĐT, tỉnh, phường, đường/ấp, tuổi, ảnh CCCD, chức vụ, lương giờ |
+| Nhân viên | tạo, sửa, lưu trữ và tài khoản | mã NV, họ tên, SĐT, tỉnh, phường, đường/ấp, tuổi, ảnh CCCD, chức vụ, lương giờ, phụ cấp TikTok riêng |
 | Nhập hàng | danh sách nhiều dòng và lịch sử phiếu | tên, số lượng, đơn vị, cân nặng, đơn giá/kg, vận chuyển, thành tiền |
 | Chấm công | giờ vào/ra và lương giờ | ca, thời gian thực tế, số giờ, trạng thái đi trễ/vắng |
 | Lương thưởng | tổng kết tháng | giờ làm, lương cứng, phụ cấp, thưởng, thực nhận, trạng thái chi |
 | Đơn hàng | xem toàn bộ đơn cửa hàng | nhân viên, ca, thanh toán, giá trị, trạng thái |
 | Dòng tiền | doanh thu/chi phí/lợi nhuận | kỳ, loại giao dịch, số tiền, chứng từ, người tạo |
 | Báo cáo | thống kê và xuất tệp | kỳ, cửa hàng, nhóm chỉ số |
-| Cài đặt | cấu hình cửa hàng | phụ cấp TikTok, thưởng, chi phí cố định |
+| Cài đặt | cấu hình cửa hàng | thưởng, chi phí cố định và các thiết lập vận hành khác |
 
 ## 4. Ca làm và chấm công
 
@@ -80,7 +80,7 @@ Mọi màn hình nhận `store_id` từ ngữ cảnh quản lý, không nhận t
 - Nếu chi phí lớn hơn 0, nội dung chi là bắt buộc.
 - Nếu `tiền mặt + chuyển khoản > 0`, backend phải tìm thấy ít nhất một đơn `COMPLETED` có đúng cửa hàng, nhân viên và `shift_code` của ca hiện tại; đơn hủy, đơn ca khác hoặc nhân viên khác không thỏa điều kiện.
 - Ghi nhận thời gian kết thúc, trạng thái công việc, doanh thu/chi phí ca và cờ TikTok vào `shift_sessions` trước khi xóa trạng thái ca đang mở của tài khoản.
-- Nếu cờ TikTok bật, sinh đúng một khoản phụ cấp theo cấu hình cửa hàng.
+- Nếu cờ TikTok bật, sinh đúng một khoản phụ cấp từ mức riêng của nhân viên đã snapshot khi bắt đầu ca; không đọc mức mặc định toàn hệ thống và không tính lại lịch sử khi hồ sơ thay đổi.
 - Sau khi kết ca, khóa thao tác thêm/sửa/hủy đơn của ca vừa kết thúc.
 - API trả thời gian kết thúc và thông báo đã ghi lịch sử; lịch sử dùng `shift_name`, `work_date`, mã/tên nhân viên từ bản ghi nguồn.
 
@@ -219,9 +219,10 @@ Ca làm tại cửa hàng nhận hỗ trợ chịu lương, thưởng và phụ 
 
 1. Tổng hợp doanh thu và tất cả chi phí đã khóa của kỳ.
 2. Tính lợi nhuận sau cùng và tỷ lệ lợi nhuận.
-3. Tính cổ tức theo tỷ lệ cổ đông tại kỳ đó.
-4. Chỉ cho quản lý xác nhận khi mọi cửa hàng `ACTIVE` đã có `PAYROLL_CLOSING/LOCKED` của kỳ; chia 60%/40%, lưu `DIVIDEND/LOCKED` và audit.
-5. Sau khi khóa, chỉ được xem/in/xuất; mọi điều chỉnh phải tạo kỳ điều chỉnh có audit.
+3. Tính cổ tức theo danh sách người nhận và tỷ lệ chính sách có hiệu lực tại kỳ đó; tổng tỷ lệ phải đúng 100%.
+4. Chỉ cho quản lý xác nhận khi mọi cửa hàng `ACTIVE` đã có `PAYROLL_CLOSING/LOCKED` của kỳ; lưu thành `DIVIDEND/LOCKED` cùng snapshot thành viên/tỷ lệ/số tiền và audit.
+5. Khi kỳ chưa đủ điều kiện chốt, giao diện vẫn hiển thị cấu hình chia lợi nhuận đã lưu để đối soát, nhưng không được giả lập nó thành snapshot đã khóa.
+6. Sau khi khóa, chỉ được xem/in/xuất; mọi điều chỉnh phải tạo kỳ điều chỉnh có audit.
 
 ## 11. Tiêu chí nghiệm thu chính
 

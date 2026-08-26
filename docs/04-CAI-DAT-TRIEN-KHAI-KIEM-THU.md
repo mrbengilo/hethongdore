@@ -84,7 +84,7 @@ node --test tests/shift-rollover.test.mjs tests/requirements-contracts.test.mjs
 - Công thức thưởng tại các ngưỡng 6,999/7,000, 14,999/15,000 và 29,999/30,000; xác nhận chỉ một tỷ lệ 3%/5%/7% được áp dụng.
 - Tổng kết KPI tạo snapshot khóa duy nhất theo cửa hàng/tháng; nhân viên khác không đọc được dòng lương không thuộc mình.
 - Bảng lương nhân viên hỗ trợ nêu đúng ca/cửa hàng nguồn-cửa hàng nhận, giờ thực tế, lương hỗ trợ/giờ, lương cứng, phụ cấp hỗ trợ được phân bổ, thực nhận và trạng thái chi.
-- Phụ cấp TikTok không ghi trùng.
+- Tạo nhân viên bắt buộc nhập phụ cấp TikTok riêng (`0` hợp lệ); không có fallback mặc định toàn hệ thống. Phụ cấp không ghi trùng, ca đã bắt đầu và snapshot kỳ khóa không đổi khi sửa mức trên hồ sơ.
 - Chi phí cố định setup, mặt bằng, điện, nước, wifi, rác, marketing và khác được áp dụng đúng `store_id`/kỳ; thay đổi kỳ mới không làm sai snapshot kỳ đã khóa.
 - Mỗi lần lưu chi phí cố định phải tăng lịch sử cập nhật và hiển thị đủ ngày giờ 24 giờ; tổng quan cửa hàng phải cộng khoản này vào tổng tất cả chi phí.
 - Tạo chi phí phát sinh ở mục Dòng tiền; xác nhận ngày/nội dung/số tiền được validate, lịch sử và CSV đúng, khoản chi được cộng vào `incidentalCosts` và bị khóa cùng kỳ KPI.
@@ -93,7 +93,7 @@ node --test tests/shift-rollover.test.mjs tests/requirements-contracts.test.mjs
 - Kiểm thử mốc 00:00, ca qua đêm và cuối tháng: timestamp lưu UTC nhưng `work_date`, bộ lọc kỳ và hiển thị đúng `Asia/Ho_Chi_Minh`.
 - Điều chuyển chưa hiệu lực dùng cửa hàng chính; trong kỳ dùng cửa hàng nhận; hết hạn/hủy/kết thúc tự thu hồi quyền. Ca hỗ trợ đang chạy phải giữ đúng snapshot cửa hàng và lương giờ.
 - Đi đủ sáu bước chốt lương nhân viên → chốt quản lý → xác nhận lương → xác nhận thưởng/phụ cấp → xác nhận đã chi → khóa kỳ; thử sửa/xóa snapshot phải bị chặn.
-- Chốt cổ tức chỉ sau khi tất cả cửa hàng `ACTIVE` đã khóa kỳ lương; xác nhận lịch sử 60%/40%, so sánh kỳ trước và không thể chốt lại cùng kỳ.
+- Lưu danh sách/tỷ lệ chia lợi nhuận tổng đúng 100%, tải lại trang và xác nhận kỳ mở vẫn hiển thị cấu hình đã lưu dù chưa đủ điều kiện preview. Chỉ chốt sau khi tất cả cửa hàng `ACTIVE` đã khóa kỳ lương; lịch sử phải giữ tỷ lệ snapshot của từng kỳ và không thể chốt lại cùng kỳ.
 - Đối chiếu báo cáo cửa hàng/toàn hệ thống: doanh thu từ ca đã hoàn thành, toàn bộ 12 nhóm chi phí, lợi nhuận trước thưởng hiệu quả, lợi nhuận cuối, xếp loại và chiều hướng.
 - Xác nhận `15,000` hiển thị `15,000 đồng`, `12,890` hiển thị `12,890 đồng`; mọi ngày giờ giao diện theo đồng hồ 24 giờ Việt Nam.
 - Responsive trên điện thoại, tablet và desktop.

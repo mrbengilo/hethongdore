@@ -155,6 +155,25 @@ before(async () => {
   await db.prepare(`INSERT INTO sessions (id, user_id, token_hash, expires_at, created_at)
     VALUES ('overview-finance-session', 'overview-finance-manager', ?, ?, ?)`)
     .bind(await auth.sha256(token), Date.now() + 300_000, now).run();
+  const policyVersion = await financialPolicy.loadFinancialPolicyForPeriod(db, period, {
+    createdBy: "overview-finance-manager",
+    now,
+  });
+  await db.prepare("UPDATE financial_policy_versions SET superseded_at = ? WHERE id = ?")
+    .bind(now, policyVersion.id).run();
+  const nextVersionRow = await db.prepare(
+    "SELECT COALESCE(MAX(version), 0) + 1 AS nextVersion FROM financial_policy_versions",
+  ).first();
+  await db.prepare(`INSERT INTO financial_policy_versions
+      (id, version, effective_from_period, policy_json, created_by, created_at, superseded_at)
+    VALUES ('overview-finance-profit-sharing-policy', ?, ?, ?, 'overview-finance-manager', ?, NULL)`)
+    .bind(Number(nextVersionRow.nextVersion), period, financialPolicy.serializeFinancialPolicy({
+      ...policyVersion.policy,
+      profitSharingMembers: [
+        { memberId: "member-a", name: "Thành viên A", rateBasisPoints: 4_000 },
+        { memberId: "member-b", name: "Thành viên B", rateBasisPoints: 6_000 },
+      ],
+    }), now).run();
 });
 
 after(async () => {
@@ -410,6 +429,14 @@ test("financial report recognizes full fixed costs for every store and the compa
   assert.equal(body.profitSharingReadiness.status, "UNAVAILABLE");
   assert.equal(body.profitSharingReadiness.code, "MISSING_PERIOD");
   assert.match(body.profitSharingMessage, /Chưa đủ kỳ tài chính/u);
+  assert.deepEqual(body.profitSharingMembers, [], "open-period policy must not masquerade as an immutable distribution snapshot");
+  assert.deepEqual(body.configuredProfitSharingMembers, [
+    { id: "member-a", name: "Thành viên A", percentage: 40 },
+    { id: "member-b", name: "Thành viên B", percentage: 60 },
+  ]);
+  assert.equal(body.profitSharingMemberSource.type, "FINANCIAL_POLICY");
+  assert.equal(body.profitSharingMemberSource.immutable, false);
+  assert.equal(typeof body.profitSharingPolicy.id, "string");
   assert.equal(body.comparison.expenseChange, (expectedCurrentTotal - expectedPriorTotal) / expectedPriorTotal * 100);
   assert.equal(body.comparison.profitChange, (-expectedCurrentTotal + expectedPriorTotal) / expectedPriorTotal * 100);
   assert.match(body.recognitionPolicy.monthlyAccrual, /ghi nhận đủ một lần/u);
