@@ -24,6 +24,7 @@ import {
   type ProfitDistributionRecord,
 } from "../../lib/profit-distributions";
 import { type SetupRepayment } from "../../lib/profit-sharing";
+import { saveSetupRepayment, SetupRepaymentError, type SavedSetupRepayment } from "../../lib/profit-setup-repayments";
 import { getSessionUser, json } from "../_lib/auth";
 import {
   loadFinancialPolicyForPeriod,
@@ -330,6 +331,7 @@ function distributionErrorMessage(error: ProfitDistributionError) {
     POLICY_MISMATCH: "Các cửa hàng không dùng cùng phiên bản chính sách đã khóa.",
     POLICY_NOT_CONFIGURED: "Chính sách chia lợi nhuận chưa được cấu hình hợp lệ.",
     ALREADY_CLOSED: "Kỳ chia lợi nhuận này đã được chốt và khóa.",
+    STALE_SETUP_REPAYMENT: "Hoàn trả setup đã thay đổi. Vui lòng lưu các số đang nhập và tải lại để đối chiếu trước khi khóa kỳ chia.",
     INTEGRITY_ERROR: "Dữ liệu chia lợi nhuận đã khóa không toàn vẹn.",
     ATOMIC_WRITE_FAILED: "Không thể ghi nhận chia lợi nhuận an toàn; không có dữ liệu dở dang được lưu.",
   };
@@ -393,6 +395,7 @@ export async function GET(request: Request) {
   const distributionPeriod = range.to.slice(0, 7);
   let currentDistribution: ProfitDistributionRecord | null = null;
   let previewDistribution: ProfitDistributionPreview | null = null;
+  let profitSharingSetupRepayments: SavedSetupRepayment[] = [];
   let configuredFinancialPolicy: FinancialPolicyVersion | null = null;
   let profitSharingHistory: ProfitSharingHistory[] = [];
   let profitSharingReadiness: null | {
@@ -436,6 +439,7 @@ export async function GET(request: Request) {
         try {
           const availability = await readProfitDistributionAvailability(db, distributionPeriod);
           previewDistribution = availability.preview;
+          profitSharingSetupRepayments = availability.savedSetupRepayments;
           const ready = Boolean(previewDistribution) && availability.pendingStores.length === 0;
           profitSharingReadiness = {
             ready,
@@ -446,7 +450,7 @@ export async function GET(request: Request) {
             message: ready
               ? "Tất cả cửa hàng đã khóa kỳ; có thể xác nhận chia lợi nhuận."
               : previewDistribution
-                ? `${previewDistribution.stores.length}/${availability.expectedStoreCount} cửa hàng đã khóa kỳ. Có thể nhập hoàn trả setup và xem phân chia cho các cửa hàng này; khóa sổ khi các cửa hàng còn lại hoàn tất.`
+                ? `${previewDistribution.stores.length}/${availability.expectedStoreCount} cửa hàng đã khóa kỳ. Nhập và lưu hoàn trả setup riêng từng cửa hàng; chỉ khóa kỳ chia khi tất cả cửa hàng hoàn tất.`
                 : "Chưa có cửa hàng khóa kỳ trong tháng đã chọn. Hoàn tất lương thưởng và khóa kỳ tại cửa hàng để nhập hoàn trả setup.",
           };
         } catch (error) {
@@ -539,6 +543,7 @@ export async function GET(request: Request) {
         }
       : null,
     profitSharingPreview,
+    profitSharingSetupRepayments,
     profitSharingHistory,
     dividendHistory: profitSharingHistory,
     profitSharingReadiness,
@@ -548,7 +553,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    return await closeReport(request);
+    return await updateProfitSharing(request);
   } catch (error) {
     const requestId = crypto.randomUUID();
     console.error(`[profit-sharing:${requestId}]`, error);
@@ -556,7 +561,7 @@ export async function POST(request: Request) {
   }
 }
 
-async function closeReport(request: Request) {
+async function updateProfitSharing(request: Request) {
   const user = await getSessionUser(request);
   if (!user || user.role !== "MANAGER") return json({ message: "Không có quyền chốt chia lợi nhuận." }, 403);
   if (!managerHasGlobalStoreAccess(user)) return json({ message: MANAGER_STORE_SCOPE_MESSAGE }, 403);
@@ -564,12 +569,27 @@ async function closeReport(request: Request) {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     return json({ message: "Dữ liệu chia lợi nhuận không hợp lệ." }, 400);
   }
-  const body = input as { action?: string; period?: string; reason?: string; setupRepayments?: readonly SetupRepayment[] };
+  const body = input as {
+    action?: string; period?: string; reason?: string; setupRepayments?: readonly SetupRepayment[];
+    storeId?: unknown; amount?: unknown; expectedVersion?: unknown;
+    expectedSetupVersions?: readonly { storeId: string; version: number }[];
+  };
   const period = body.period ?? "";
-  const validAction = body.action === "CLOSE_PROFIT_SHARING" || body.action === "CLOSE_DIVIDEND";
+  const validAction = body.action === "SAVE_SETUP_REPAYMENT" || body.action === "CLOSE_PROFIT_SHARING" || body.action === "CLOSE_DIVIDEND";
   if (!validAction || typeof period !== "string" || !validPeriod(period)) return json({ message: "Thao tác hoặc kỳ chia lợi nhuận không hợp lệ." }, 400);
   if (period >= localPeriod()) return json({ message: "Chỉ được chốt chia lợi nhuận sau khi kỳ tháng đã kết thúc." }, 409);
   const db = await initDb();
+  if (body.action === "SAVE_SETUP_REPAYMENT") {
+    try {
+      const repayment = await saveSetupRepayment(db, {
+        storeId: body.storeId, period, amount: body.amount, expectedVersion: body.expectedVersion, actorId: user.id,
+      });
+      return json({ repayment, message: "Đã lưu hoàn trả setup của cửa hàng trong kỳ." });
+    } catch (error) {
+      if (error instanceof SetupRepaymentError) return json({ message: error.message }, error.status);
+      throw error;
+    }
+  }
   if (body.reason !== undefined && typeof body.reason !== "string") return json({ message: "Lý do chốt không hợp lệ." }, 400);
   const reason = body.reason?.trim() || "Xác nhận chia lợi nhuận cuối kỳ trên báo cáo tài chính.";
   try {
@@ -578,6 +598,7 @@ async function closeReport(request: Request) {
       actorId: user.id,
       reason,
       setupRepayments: body.setupRepayments,
+      expectedSetupVersions: body.expectedSetupVersions,
     });
     const record = uiProfitSharingHistory(canonicalRecord);
     return json({

@@ -1,12 +1,9 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { policy, seedPolicy, seedPeriod } from "./helpers/profit-distribution-fixtures.mjs";
+import { policy, seedPolicy, seedPeriod, createProfitDistributionDatabase as database } from "./helpers/profit-distribution-fixtures.mjs";
 
-const [{ createSqliteDatabase }, distributions] = await Promise.all([
-  import("../db/sqlite.ts"),
-  import("../app/lib/profit-distributions.ts"),
-]);
+const distributions = await import("../app/lib/profit-distributions.ts");
 
 function migrationStatements(source) {
   return source
@@ -14,48 +11,6 @@ function migrationStatements(source) {
     .map((statement) => statement.trim())
     .filter(Boolean);
 }
-
-async function database(storeIds = ["store-a", "store-b", "store-c", "store-d"], withSetup = true) {
-  const db = await createSqliteDatabase(":memory:");
-  await db.prepare(`CREATE TABLE stores (
-    id TEXT PRIMARY KEY NOT NULL,
-    name TEXT NOT NULL,
-    address TEXT NOT NULL DEFAULT '',
-    status TEXT NOT NULL DEFAULT 'ACTIVE',
-    created_at TEXT NOT NULL
-  )`).run();
-  await db.prepare(`CREATE TABLE audit_logs (
-    id TEXT PRIMARY KEY NOT NULL,
-    user_id TEXT,
-    store_id TEXT,
-    action TEXT NOT NULL,
-    entity_type TEXT NOT NULL,
-    entity_id TEXT,
-    detail TEXT,
-    before_json TEXT,
-    after_json TEXT,
-    reason TEXT,
-    created_at TEXT NOT NULL
-  )`).run();
-  const [foundation, distributionMigration] = await Promise.all([
-    readFile(new URL("../drizzle/0027_finance_engine_foundation.sql", import.meta.url), "utf8"),
-    readFile(new URL("../drizzle/0032_profit_distributions.sql", import.meta.url), "utf8"),
-  ]);
-  // Policy/period tables and indexes are the first seven statements. The
-  // remaining foundation tables have their own focused migration tests.
-  for (const statement of migrationStatements(foundation).slice(0, 7)) await db.prepare(statement).run();
-  for (const statement of migrationStatements(distributionMigration)) await db.prepare(statement).run();
-  const setupMigration = await readFile(new URL("../drizzle/0033_profit_setup_repayment.sql", import.meta.url), "utf8");
-  if (withSetup) for (const statement of migrationStatements(setupMigration)) await db.prepare(statement).run();
-  const createdAt = "2026-08-01T00:00:00.000Z";
-  for (const id of storeIds) {
-    await db.prepare("INSERT INTO stores (id, name, status, created_at) VALUES (?, ?, 'ACTIVE', ?)")
-      .bind(id, `DORE ${id.toUpperCase()}`, createdAt)
-      .run();
-  }
-  return db;
-}
-
 
 
 test("partial preview calculates setup only for locked stores and keeps an open store pending", async () => {
