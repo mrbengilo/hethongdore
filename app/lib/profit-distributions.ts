@@ -1,6 +1,7 @@
 import { parsePersistedFinancialPeriodSnapshot } from "../api/_lib/financial-period";
 import { requireVnd, storeExistsInPeriod } from "./finance";
 import { allocateProfitShares, calculateProfitSharing, type SetupRepayment } from "./profit-sharing";
+import { readSetupRepayments } from "./profit-setup-repayments";
 
 export type ProfitDistributionErrorCode =
   | "INVALID_INPUT"
@@ -10,6 +11,7 @@ export type ProfitDistributionErrorCode =
   | "POLICY_MISMATCH"
   | "POLICY_NOT_CONFIGURED"
   | "ALREADY_CLOSED"
+  | "STALE_SETUP_REPAYMENT"
   | "INTEGRITY_ERROR"
   | "ATOMIC_WRITE_FAILED";
 
@@ -348,10 +350,10 @@ async function loadPolicy(
 export async function readProfitDistributionAvailability(
   db: D1Database,
   periodInput: string,
-  setupRepayments: readonly SetupRepayment[] = [],
+  setupRepayments?: readonly SetupRepayment[],
 ) {
   const period = requiredPeriod(periodInput);
-  const [periodResult, expectedStoreResult] = await Promise.all([
+  const [periodResult, expectedStoreResult, savedSetupRepayments] = await Promise.all([
     db.prepare(`SELECT period_row.id, period_row.store_id AS storeId, store.name AS storeName,
         period_row.status, period_row.period, period_row.policy_version_id AS policyVersionId,
         period_row.config_version AS configVersion, period_row.revision,
@@ -366,6 +368,7 @@ export async function readProfitDistributionAvailability(
       .all<RawLockedPeriodRow>(),
     db.prepare("SELECT id, name, created_at AS createdAt FROM stores WHERE status IN ('ACTIVE', 'INACTIVE') ORDER BY id")
       .all<{ id: string; name: string; createdAt: string }>(),
+    readSetupRepayments(db, period),
   ]);
   const rows = periodResult.results;
   const periodsByStore = new Map(rows.map((row) => [String(row.storeId), row]));
@@ -383,16 +386,16 @@ export async function readProfitDistributionAvailability(
   }
   const lockedRows = rows.filter((row) => row.status === "LOCKED");
   const preview = lockedRows.length
-    ? await calculateDistributionPreview(db, period, lockedRows, setupRepayments)
+    ? await calculateDistributionPreview(db, period, lockedRows, setupRepayments === undefined ? savedSetupRepayments : setupRepayments)
     : null;
-  return Object.freeze({ preview, expectedStoreCount: expectedStores.size, pendingStores: Object.freeze(pendingStores) });
+  return Object.freeze({ preview, savedSetupRepayments, expectedStoreCount: expectedStores.size, pendingStores: Object.freeze(pendingStores) });
 }
 
 /** A global close still requires every store that participated in the month. */
 export async function previewProfitDistribution(
   db: D1Database,
   periodInput: string,
-  setupRepayments: readonly SetupRepayment[] = [],
+  setupRepayments?: readonly SetupRepayment[],
 ): Promise<ProfitDistributionPreview> {
   const { preview, pendingStores } = await readProfitDistributionAvailability(db, periodInput, setupRepayments);
   if (pendingStores.some((store) => store.status === "MISSING") || (!preview && !pendingStores.length)) {
@@ -643,6 +646,7 @@ export async function closeProfitDistribution(
     actorId: string;
     reason: string;
     setupRepayments?: readonly SetupRepayment[];
+    expectedSetupVersions?: readonly { storeId: string; version: number }[];
     now?: Date | string;
     id?: string;
     auditId?: string;
@@ -655,7 +659,30 @@ export async function closeProfitDistribution(
   const now = canonicalTimestamp(nowValue, "now");
   const existing = await readProfitDistribution(db, period);
   if (existing) fail("ALREADY_CLOSED", `Profit distribution ${period} is already closed`);
-  const preview = await previewProfitDistribution(db, period, input.setupRepayments);
+  const savedSetup = await readSetupRepayments(db, period);
+  const savedVersions = new Map(savedSetup.map((row) => [row.storeId, row.version]));
+  const preview = await previewProfitDistribution(db, period, input.setupRepayments === undefined ? savedSetup : input.setupRepayments);
+  // Older clients can still close unsaved inputs, but must never replace an
+  // independently saved amount with stale component state.
+  if (input.setupRepayments !== undefined && savedSetup.length) {
+    const savedAmounts = new Map(savedSetup.map((row) => [row.storeId, row.amount]));
+    if (preview.stores.some((store) => store.setupRepayment !== (savedAmounts.get(store.storeId) ?? 0))) {
+      fail("STALE_SETUP_REPAYMENT", "Setup repayments must be saved before closing");
+    }
+  }
+  if (input.expectedSetupVersions !== undefined) {
+    const expected = input.expectedSetupVersions;
+    if (!Array.isArray(expected) || expected.some((row) => !row || typeof row.storeId !== "string"
+      || !Number.isSafeInteger(row.version) || row.version < 0)
+      || new Set(expected.map((row) => row.storeId)).size !== expected.length) {
+      fail("INVALID_INPUT", "Danh sách phiên bản hoàn trả setup không hợp lệ.");
+    }
+    if (expected.length !== preview.stores.length || preview.stores.some((store) =>
+      !expected.some((row) => row.storeId === store.storeId && row.version === (savedVersions.get(store.storeId) ?? 0)))) {
+      fail("STALE_SETUP_REPAYMENT", "Setup repayments changed since the preview");
+    }
+  }
+  const setupVersionJson = JSON.stringify(savedSetup.map(({ storeId, version }) => ({ storeId, version })));
   const id = input.id ? requiredString(input.id, "id") : generatedId(`profit-distribution:${period}`);
   const auditId = input.auditId ? requiredString(input.auditId, "auditId") : generatedId("audit:profit-distribution");
   const statements: D1PreparedStatement[] = [
@@ -663,7 +690,12 @@ export async function closeProfitDistribution(
       (id, period, status, policy_version_id, config_version, policy_snapshot_json,
        total_final_profit, total_distributable_profit, store_count, member_count,
        closed_by, closed_at, reason, created_at, allocation_method)
-      VALUES (?, ?, 'LOCKED', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PER_STORE')`)
+      SELECT ?, ?, 'LOCKED', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PER_STORE'
+      WHERE (SELECT COUNT(*) FROM profit_setup_repayments WHERE period = ?) = ?
+        AND NOT EXISTS (SELECT 1 FROM profit_setup_repayments saved WHERE saved.period = ?
+          AND NOT EXISTS (SELECT 1 FROM json_each(?) expected
+            WHERE json_extract(expected.value, '$.storeId') = saved.store_id
+              AND json_extract(expected.value, '$.version') = saved.version))`)
       .bind(
         id,
         period,
@@ -678,6 +710,10 @@ export async function closeProfitDistribution(
         now,
         reason,
         now,
+        period,
+        savedSetup.length,
+        period,
+        setupVersionJson,
       ),
   ];
   for (const store of preview.stores) {
@@ -772,6 +808,10 @@ export async function closeProfitDistribution(
       .bind(period)
       .first<{ id: string }>();
     if (conflict) fail("ALREADY_CLOSED", `Profit distribution ${period} is already closed`, error);
+    const latestSetup = await readSetupRepayments(db, period);
+    if (JSON.stringify(latestSetup.map(({ storeId, version }) => ({ storeId, version }))) !== setupVersionJson) {
+      fail("STALE_SETUP_REPAYMENT", "Setup repayments changed during close; no distribution was written", error);
+    }
     fail("ATOMIC_WRITE_FAILED", "Profit distribution close was rolled back", error);
   }
   const record = await readProfitDistribution(db, period);

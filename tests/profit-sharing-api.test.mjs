@@ -86,11 +86,31 @@ test("locked stores remain visible while another store is missing or still open"
   assert.deepEqual(report.profitSharingReadiness.pendingStores, [
     { storeId: "store-b", storeName: "DORE store-b", status: "MISSING" },
   ]);
+  const saveBody = { action: "SAVE_SETUP_REPAYMENT", period, storeId: "store-a", amount: 2_000_000, expectedVersion: 0 };
+  assert.equal((await reports.POST(request("POST", saveBody, "anonymous"))).status, 403);
+  assert.equal((await reports.POST(request("POST", saveBody, scopedToken))).status, 403);
+  for (const amount of [-1, 1.5, "2000000", null, Number.MAX_SAFE_INTEGER + 1]) {
+    assert.equal((await reports.POST(request("POST", { ...saveBody, amount }))).status, 400);
+  }
+  assert.equal((await reports.POST(request("POST", { ...saveBody, storeId: "store-b" }))).status, 409);
+  const saved = await reports.POST(request("POST", saveBody));
+  assert.equal(saved.status, 200);
+  assert.equal((await saved.json()).repayment.version, 1);
+  report = await read();
+  assert.equal(report.profitSharingReadiness.status, "PARTIAL");
+  assert.equal(report.profitSharingSetupRepayments[0].amount, 2_000_000);
+  assert.equal(report.profitSharingPreview.setupRepayment, 2_000_000);
+  assert.equal(report.profitSharingPreview.distributableProfit, 3_000_000);
+  assert.deepEqual(report.profitSharingPreview.memberAllocations.map((row) => row.amount), [1_200_000, 1_800_000]);
+  assert.equal((await reports.POST(request("POST", saveBody))).status, 409, "stale retry cannot overwrite a saved amount");
+  const scopedRead = await (await reports.GET(request("GET", undefined, scopedToken))).json();
+  assert.deepEqual(scopedRead.profitSharingSetupRepayments, [], "store accounts cannot read admin distribution inputs");
   const close = await reports.POST(request("POST", {
     action: "CLOSE_PROFIT_SHARING", period, setupRepayments: [{ storeId: "store-a", amount: 2_000_000 }],
   }));
   assert.equal(close.status, 409, "partial preview must not allow a global close");
   assert.equal(await db.prepare("SELECT COUNT(*) FROM profit_distributions").first("COUNT(*)"), 0);
+  assert.equal((await reports.POST(request("POST", { ...saveBody, amount: 0, expectedVersion: 1 }))).status, 200);
   // A store created exactly at September's Vietnam-time boundary must not block August.
   await db.prepare("INSERT INTO stores (id, name, address, status, created_at) VALUES ('future', 'Future store', '', 'ACTIVE', '2026-08-31T17:00:00.000Z')").run();
   report = await read();
@@ -118,10 +138,17 @@ test("only global admins can close setup-adjusted shares; invalid values cannot 
 test("HTTP preview, close and history reconcile each store and each member after setup", async () => {
   const before = await reports.GET(request("GET"));
   assert.equal(before.status, 200);
-  const preview = (await before.json()).profitSharingPreview;
+  const initial = await before.json();
+  const preview = initial.profitSharingPreview;
   assert.equal(preview.setupRepayment, 0);
   assert.equal(preview.distributableProfit, 6_000_000);
-  const body = { action: "CLOSE_PROFIT_SHARING", period, setupRepayments: [{ storeId: "store-a", amount: 2_000_000 }] };
+  const saveResponse = await reports.POST(request("POST", { action: "SAVE_SETUP_REPAYMENT", period,
+    storeId: "store-a", amount: 2_000_000, expectedVersion: initial.profitSharingSetupRepayments[0].version }));
+  assert.equal(saveResponse.status, 200);
+  const saved = (await saveResponse.json()).repayment;
+  const body = { action: "CLOSE_PROFIT_SHARING", period, expectedSetupVersions: [
+    { storeId: "store-a", version: saved.version }, { storeId: "store-b", version: 0 },
+  ] };
   const responses = await Promise.all([reports.POST(request("POST", body)), reports.POST(request("POST", body))]);
   assert.deepEqual(responses.map((response) => response.status).sort(), [201, 409]);
   const closed = await responses.find((response) => response.status === 201).json();
@@ -146,4 +173,6 @@ test("HTTP preview, close and history reconcile each store and each member after
   assert.deepEqual(history.profitSharingHistory[0], closed.record);
   assert.equal(await db.prepare("SELECT COUNT(*) FROM audit_logs WHERE action = 'PROFIT_DISTRIBUTION_CLOSE'").first("COUNT(*)"), 1);
   assert.equal(await db.prepare("SELECT COUNT(*) FROM cashflow_entries").first("COUNT(*)"), 0, "allocation does not fabricate a cash disbursement");
+  assert.equal((await reports.POST(request("POST", { action: "SAVE_SETUP_REPAYMENT", period,
+    storeId: "store-a", amount: 0, expectedVersion: saved.version }))).status, 409);
 });

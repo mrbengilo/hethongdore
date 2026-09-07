@@ -9,6 +9,7 @@ import {
   Download,
   LockKeyhole,
   RefreshCw,
+  Save,
   TrendingUp,
   WalletCards,
   type LucideIcon,
@@ -16,6 +17,7 @@ import {
 
 import { calculateProfitSharing } from "../lib/profit-sharing";
 import { readFinancialResponse } from "../lib/financial-response";
+import type { SavedSetupRepayment } from "../lib/profit-setup-repayments";
 import ScrollableTable from "./ScrollableTable";
 
 type ExpenseBreakdown = {
@@ -143,6 +145,7 @@ type FinancialReportResponse = {
     effectiveFromPeriod: string;
   } | null;
   profitSharingPreview?: ProfitSharingSummary | null;
+  profitSharingSetupRepayments?: SavedSetupRepayment[];
   profitSharingHistory: ProfitSharingHistoryItem[];
   dividendHistory?: ProfitSharingHistoryItem[];
   profitSharingReadiness?: {
@@ -378,9 +381,12 @@ function useFinancialReport(period: string, storeId?: string) {
   const [data, setData] = useState<FinancialReportResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const requestVersion = useRef(0);
 
   const load = useCallback(async (signal?: AbortSignal) => {
     if (!period) return;
+    const version = ++requestVersion.current;
+    const isCurrent = () => !signal?.aborted && version === requestVersion.current;
     setLoading(true);
     setError("");
     const query = new URLSearchParams({ period });
@@ -388,13 +394,13 @@ function useFinancialReport(period: string, storeId?: string) {
     try {
       const response = await fetch(`/api/reports?${query.toString()}`, { cache: "no-store", signal });
       const payload = await readFinancialResponse<FinancialReportResponse>(response);
-      if (!signal?.aborted) setData(payload);
+      if (isCurrent()) setData(payload);
     } catch (cause) {
-      if (cause instanceof DOMException && cause.name === "AbortError") return;
+      if (!isCurrent()) return;
       setData(null);
       setError(cause instanceof Error ? cause.message : "Không thể tải báo cáo tài chính.");
     } finally {
-      if (!signal?.aborted) setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
   }, [period, storeId]);
 
@@ -583,18 +589,30 @@ export function ManagerProfitSharingClosing({ initialPeriod, onPeriodChange }: {
   const setPeriod = onPeriodChange ?? setLocalPeriod;
   const { data: reportData, loading, error, reload } = useFinancialReport(period);
   const data = reportData?.period === period ? reportData : null;
-  const [setupDrafts, setSetupDrafts] = useState<Record<string, Record<string, string>>>({});
+  const [setupDrafts, setSetupDrafts] = useState<Record<string, Record<string, { value: string; version: number }>>>({});
   const [setupStoreId, setSetupStoreId] = useState("");
   const actionInFlight = useRef(false);
+  const activePeriod = useRef(period);
+  useEffect(() => {
+    activePeriod.current = period;
+    return () => { activePeriod.current = ""; };
+  }, [period]);
   const [saving, setSaving] = useState(false);
+  const [savingSetup, setSavingSetup] = useState(false);
+  const [actionPeriod, setActionPeriod] = useState(period);
   const [actionError, setActionError] = useState("");
   const [message, setMessage] = useState("");
   const history = data?.profitSharingHistory ?? data?.dividendHistory ?? [];
   const currentHistory = history.find((item) => item.period === period);
   const sourcePreview = data?.profitSharingPreview;
-  const setupRepayments = Object.entries(setupDrafts[period] ?? {}).map(([storeId, value]) => ({
-    storeId, amount: /^\d*$/.test(value) ? Number(value) : NaN,
-  }));
+  const savedSetup = new Map((data?.profitSharingSetupRepayments ?? []).map((row) => [row.storeId, row]));
+  const setupRepayments = (sourcePreview?.storeAllocations ?? []).map((store) => {
+    const draft = setupDrafts[period]?.[store.storeId];
+    return { storeId: store.storeId, amount: draft
+      ? /^\d*$/.test(draft.value) ? Number(draft.value) : NaN
+      : store.setupRepayment };
+  });
+  const hasUnsavedSetup = setupRepayments.some((entry) => entry.amount !== (savedSetup.get(entry.storeId)?.amount ?? 0));
   let preview = sourcePreview;
   let calculationError = "";
   if (sourcePreview && !currentHistory) {
@@ -625,6 +643,12 @@ export function ManagerProfitSharingClosing({ initialPeriod, onPeriodChange }: {
   const allocations = currentHistory?.memberAllocations ?? preview?.memberAllocations ?? [];
   const storeAllocations = currentHistory?.storeAllocations ?? preview?.storeAllocations ?? [];
   const setupStore = storeAllocations.find((store) => store.storeId === setupStoreId) ?? storeAllocations[0];
+  const selectedSavedSetup = setupStore ? savedSetup.get(setupStore.storeId) : undefined;
+  const selectedDraft = setupStore ? setupDrafts[period]?.[setupStore.storeId] : undefined;
+  const selectedAmount = selectedDraft ? /^\d*$/.test(selectedDraft.value) ? Number(selectedDraft.value) : NaN : selectedSavedSetup?.amount ?? 0;
+  const invalidSelectedAmount = !Number.isSafeInteger(selectedAmount) || selectedAmount < 0;
+  const selectedSetupChanged = selectedAmount !== (selectedSavedSetup?.amount ?? 0);
+  const setupConflict = selectedDraft !== undefined && selectedDraft.version !== (selectedSavedSetup?.version ?? 0);
   const snapshotMembers = data?.profitSharingMembers ?? [];
   const configuredMembers = data?.configuredProfitSharingMembers ?? snapshotMembers;
   const currentFallbackMembers = currentHistory || preview ? snapshotMembers : configuredMembers;
@@ -659,8 +683,44 @@ export function ManagerProfitSharingClosing({ initialPeriod, onPeriodChange }: {
         ? `Chính sách v${data.profitSharingPolicy.version} · hiệu lực từ ${periodLabel(data.profitSharingPolicy.effectiveFromPeriod)}`
         : "Chưa có chính sách phân chia";
 
+  const clearSetupDraft = (draftPeriod: string, storeId: string) => {
+    setSetupDrafts((previous) => {
+      const next = { ...previous[draftPeriod] };
+      delete next[storeId];
+      return { ...previous, [draftPeriod]: next };
+    });
+  };
+
+  const saveSelectedSetup = async () => {
+    if (!setupStore || !data || currentHistory || loading || invalidSelectedAmount || setupConflict || actionInFlight.current) return;
+    const storeId = setupStore.storeId;
+    actionInFlight.current = true;
+    setSavingSetup(true);
+    setActionPeriod(period);
+    setActionError("");
+    setMessage("");
+    try {
+      const response = await fetch("/api/reports", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "SAVE_SETUP_REPAYMENT", period, storeId,
+          amount: selectedAmount, expectedVersion: selectedDraft?.version ?? selectedSavedSetup?.version ?? 0 }),
+      });
+      await readFinancialResponse<{ repayment: SavedSetupRepayment }>(response);
+      if (activePeriod.current === period) await reload();
+      clearSetupDraft(period, storeId);
+      setMessage(`Đã lưu hoàn trả setup ${money(selectedAmount)} cho ${setupStore.storeName} · ${periodLabel(period)}.`);
+    } catch (cause) {
+      if (activePeriod.current === period) await reload();
+      setActionError(cause instanceof Error ? cause.message : "Không thể lưu hoàn trả setup.");
+    } finally {
+      actionInFlight.current = false;
+      setSavingSetup(false);
+    }
+  };
+
   const closeProfitSharing = async () => {
-    if (!data || !preview || !allStoresLocked || !periodClosed || currentHistory || loading || calculationError || actionInFlight.current) return;
+    if (!data || !preview || !allStoresLocked || !periodClosed || currentHistory || loading || calculationError || hasUnsavedSetup || actionInFlight.current) return;
     if (currentMembers.length === 0) {
       setActionError("Chưa có cấu hình thành viên nhận phân chia lợi nhuận.");
       return;
@@ -668,19 +728,23 @@ export function ManagerProfitSharingClosing({ initialPeriod, onPeriodChange }: {
     if (!window.confirm(`Đã trừ ${money(setupRepayment)} hoàn trả setup. Xác nhận chia ${money(distributableProfit)} lợi nhuận cho ${currentMembers.length} thành viên và khóa kỳ ${period}?`)) return;
     actionInFlight.current = true;
     setSaving(true);
+    setActionPeriod(period);
     setActionError("");
     setMessage("");
     try {
       const response = await fetch("/api/reports", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "CLOSE_PROFIT_SHARING", period, setupRepayments }),
+        body: JSON.stringify({ action: "CLOSE_PROFIT_SHARING", period,
+          expectedSetupVersions: storeAllocations.map((store) => ({
+            storeId: store.storeId, version: savedSetup.get(store.storeId)?.version ?? 0,
+          })) }),
       });
       const payload = await readFinancialResponse<{ message?: string }>(response);
       setMessage(payload.message || "Đã xác nhận chia lợi nhuận và khóa kỳ.");
-      await reload();
+      if (activePeriod.current === period) await reload();
     } catch (cause) {
-      await reload();
+      if (activePeriod.current === period) await reload();
       setActionError(cause instanceof Error ? cause.message : "Không thể xác nhận chia lợi nhuận.");
     } finally {
       actionInFlight.current = false;
@@ -722,9 +786,9 @@ export function ManagerProfitSharingClosing({ initialPeriod, onPeriodChange }: {
       setPeriod(nextPeriod);
       setActionError("");
       setMessage("");
-    }} onRefresh={reload} onExport={exportHistory} loading={loading || saving} exportDisabled={!data || history.length === 0}/>
-    {(error || actionError) && <div className="form-message">{actionError || error}</div>}
-    {message && <div className="success-banner">{message}</div>}
+    }} onRefresh={reload} onExport={exportHistory} loading={loading || saving || savingSetup} exportDisabled={!data || history.length === 0}/>
+    {(error || (actionPeriod === period && actionError)) && <div className="form-message">{(actionPeriod === period && actionError) || error}</div>}
+    {actionPeriod === period && message && <div className="success-banner" role="status">{message}</div>}
     {calculationError && <div className="form-message" role="alert">{calculationError}</div>}
     {loading && !data && <div className="report-profit-note"><RefreshCw size={17}/> Đang tải số liệu chia lợi nhuận…</div>}
     {data && currentHistory?.legacy && <div className="report-profit-note"><LockKeyhole size={17}/> Kỳ này là lịch sử cũ chỉ đọc. Tổng số tiền được giữ nguyên; chi tiết cửa hàng hoặc cấu hình nguồn có thể chưa được lưu đầy đủ.</div>}
@@ -747,22 +811,34 @@ export function ManagerProfitSharingClosing({ initialPeriod, onPeriodChange }: {
         <h2>HOÀN TRẢ SETUP CỬA HÀNG</h2>
         <div className="setup-repayment-fields">
           <label>Cửa hàng
-            <select value={setupStore.storeId} disabled={loading || saving} onChange={(event) => setSetupStoreId(event.target.value)}>
+            <select value={setupStore.storeId} disabled={loading || saving || savingSetup} onChange={(event) => setSetupStoreId(event.target.value)}>
               {storeAllocations.map((store) => <option key={store.storeId} value={store.storeId}>{store.storeName}</option>)}
             </select>
           </label>
           <label>Chi phí hoàn trả setup (đồng)
             <input type="number" inputMode="numeric" min="0" step="1" max={Number.MAX_SAFE_INTEGER}
-              placeholder="0" value={setupDrafts[period]?.[setupStore.storeId] ?? ""}
-              disabled={loading || saving} aria-describedby="setup-repayment-note"
+              placeholder="0" value={selectedDraft?.value ?? String(selectedSavedSetup?.amount ?? 0)}
+              disabled={loading || saving || savingSetup} aria-describedby="setup-repayment-note setup-repayment-status"
               onChange={(event) => setSetupDrafts((previous) => ({
                 ...previous,
-                [period]: { ...previous[period], [setupStore.storeId]: event.target.value },
+                [period]: { ...previous[period], [setupStore.storeId]: {
+                  value: event.target.value, version: selectedDraft?.version ?? selectedSavedSetup?.version ?? 0,
+                } },
               }))}/>
           </label>
         </div>
-        <p id="setup-repayment-note">Lợi nhuận sau lương thưởng {money(setupStore.finalProfit)} − hoàn trả setup {money(setupStore.setupRepayment)} = còn lại {money(setupStore.profitAfterSetup)}.</p>
-        <p>Số tiền nhập được lưu khi chọn “Xác nhận chia và khóa kỳ”. Cửa hàng không hoàn trả setup để 0.</p>
+        <p id="setup-repayment-note">{invalidSelectedAmount ? "Nhập số tiền đồng nguyên, không âm." : `Lợi nhuận sau lương thưởng ${money(setupStore.finalProfit)} − hoàn trả setup ${money(selectedAmount)} = còn lại ${money(setupStore.finalProfit - selectedAmount)}.`}</p>
+        <div className="setup-repayment-actions">
+          <button className="primary-button" disabled={loading || saving || savingSetup || invalidSelectedAmount || setupConflict || Boolean(selectedSavedSetup && !selectedSetupChanged)}
+            onClick={() => void saveSelectedSetup()}><Save size={17}/>{savingSetup ? "Đang lưu…" : "Lưu hoàn trả setup"}</button>
+          <span id="setup-repayment-status" role="status">{setupConflict
+            ? "Số đã lưu vừa thay đổi. Tải số mới trước khi sửa tiếp."
+            : selectedSetupChanged ? "Chưa lưu thay đổi"
+              : selectedSavedSetup ? `Đã lưu ${dateTime(selectedSavedSetup.updatedAt)}` : "Không hoàn trả setup: để 0 đồng."}</span>
+          {setupConflict && <button className="ghost-button" disabled={loading || saving || savingSetup}
+            onClick={() => clearSetupDraft(period, setupStore.storeId)}>Tải số đã lưu</button>}
+        </div>
+        <p>Lưu riêng từng cửa hàng và kỳ; có thể sửa trước khi khóa kỳ chia lợi nhuận.</p>
       </section>}
       <div className="comparison-grid"><section className="manager-panel"><h2>THÀNH VIÊN VÀ TỶ LỆ PHÂN CHIA</h2>
         {currentMembers.length === 0
@@ -772,7 +848,8 @@ export function ManagerProfitSharingClosing({ initialPeriod, onPeriodChange }: {
             return <p key={memberKey(member)}><span>{memberColumnLabel(member)} · {allocationPercentage(allocation, member)}</span><b>{money(allocation?.amount ?? 0)}</b><em>{currentHistory ? currentStatus : preview ? "Bản xem trước từ snapshot kỳ đã khóa" : "Tỷ lệ từ chính sách đã lưu; chờ kỳ đủ điều kiện tính"}</em></p>;
           })}
         <p><span>Tổng lợi nhuận được chia</span><b>{money(distributableProfit)}</b><em>{periodLabel(period)}</em></p>
-        <button className="primary-button wide" disabled={saving || loading || Boolean(calculationError) || Boolean(currentHistory) || currentMembers.length === 0 || !periodClosed || !allStoresLocked} onClick={() => void closeProfitSharing()}><LockKeyhole size={17}/> {saving ? "ĐANG KHÓA KỲ…" : currentHistory ? "KỲ CHIA LỢI NHUẬN ĐÃ KHÓA" : currentMembers.length === 0 ? "CHƯA CÓ CẤU HÌNH THÀNH VIÊN" : !periodClosed ? "CHỜ KẾT THÚC KỲ" : !allStoresLocked ? "CHỜ CỬA HÀNG KHÓA KỲ" : "XÁC NHẬN CHIA VÀ KHÓA KỲ"}</button>
+        {hasUnsavedSetup && <p role="status">Lưu hoàn trả setup đã nhập trước khi khóa kỳ chia lợi nhuận.</p>}
+        <button className="primary-button wide" disabled={saving || savingSetup || loading || hasUnsavedSetup || Boolean(calculationError) || Boolean(currentHistory) || currentMembers.length === 0 || !periodClosed || !allStoresLocked} onClick={() => void closeProfitSharing()}><LockKeyhole size={17}/> {saving ? "ĐANG KHÓA KỲ…" : currentHistory ? "KỲ CHIA LỢI NHUẬN ĐÃ KHÓA" : currentMembers.length === 0 ? "CHƯA CÓ CẤU HÌNH THÀNH VIÊN" : !periodClosed ? "CHỜ KẾT THÚC KỲ" : !allStoresLocked ? "CHỜ CỬA HÀNG KHÓA KỲ" : "XÁC NHẬN CHIA VÀ KHÓA KỲ"}</button>
       </section><section className="manager-panel"><h2>NGUYÊN TẮC GHI NHẬN</h2>
         <p><span>Nguồn tính</span><b>Lợi nhuận sau cùng đã khóa</b><em>Từng cửa hàng</em></p>
         <p><span>Hoàn trả setup trong kỳ</span><b>{money(setupRepayment)}</b><em>Trừ riêng tại từng cửa hàng sau lương thưởng</em></p>

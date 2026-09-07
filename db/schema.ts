@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { AnySQLiteColumn, check, index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { AnySQLiteColumn, check, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const stores = sqliteTable("stores", {
   id: text("id").primaryKey(),
@@ -468,6 +468,22 @@ export const profitDistributions = sqliteTable("profit_distributions", {
   ),
   uniqueIndex("idx_profit_distributions_period").on(table.period),
   index("idx_profit_distributions_closed_at").on(table.closedAt, table.id),
+]);
+
+/** Saved independently until the global distribution closes. */
+export const profitSetupRepayments = sqliteTable("profit_setup_repayments", {
+  storeId: text("store_id").notNull().references(() => stores.id, { onDelete: "restrict", onUpdate: "restrict" }),
+  period: text("period").notNull(),
+  amount: integer("amount").notNull(),
+  version: integer("version").notNull(),
+  updatedBy: text("updated_by").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.period, table.storeId] }),
+  check("profit_setup_repayments_period", sql`${table.period} GLOB '[0-9][0-9][0-9][0-9]-[0-1][0-9]' AND substr(${table.period}, 6, 2) BETWEEN '01' AND '12'`),
+  check("profit_setup_repayments_amount", sql`typeof(${table.amount}) = 'integer' AND ${table.amount} BETWEEN 0 AND 9007199254740991`),
+  check("profit_setup_repayments_version", sql`typeof(${table.version}) = 'integer' AND ${table.version} BETWEEN 1 AND 9007199254740991`),
+  check("profit_setup_repayments_actor", sql`length(trim(${table.updatedBy})) > 0`),
 ]);
 
 /** Per-store provenance; negative stores retain their loss but distribute zero. */
