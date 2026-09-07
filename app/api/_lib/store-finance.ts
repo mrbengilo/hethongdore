@@ -1,4 +1,5 @@
 import { initDb } from "../../../db/runtime";
+import { applyPayrollReview, readPayrollReviews, reviewedKpiAmount, type PayrollReview, type PayrollReviewSource } from "../../lib/payroll-review";
 import { readStoreManagerSalary } from "../../lib/store-manager-salary";
 import {
   type LocalDateRange,
@@ -198,10 +199,13 @@ function financialPeriodResult(store: StoreRow, period: string, row: FinancialPe
   }
   const finance = persistedSnapshot.finance;
   const snapshot = parseObject(row.snapshotJson);
-  const savedBreakdown = snapshot.expenseBreakdown && typeof snapshot.expenseBreakdown === "object"
-    && !Array.isArray(snapshot.expenseBreakdown)
-    ? snapshot.expenseBreakdown as Record<string, unknown>
-    : {};
+  const savedConfig = snapshot.configSnapshot;
+  const payrollSnapshot = savedConfig && typeof savedConfig === "object" && !Array.isArray(savedConfig)
+    ? (savedConfig as Record<string, unknown>).payrollSummary : null;
+  const candidate = snapshot.expenseBreakdown ?? (payrollSnapshot && typeof payrollSnapshot === "object" && !Array.isArray(payrollSnapshot)
+    ? (payrollSnapshot as Record<string, unknown>).costBreakdown : null);
+  const savedBreakdown = candidate && typeof candidate === "object" && !Array.isArray(candidate)
+    ? candidate as Record<string, unknown> : {};
   const breakdownVnd = (field: string, fallback: number) => Object.hasOwn(savedBreakdown, field)
     ? requireVnd(Number(savedBreakdown[field]), `expenseBreakdown.${field}`)
     : requireVnd(Number(fallback), `expenseBreakdown.${field}`);
@@ -332,6 +336,7 @@ export async function storePeriodFinance(
   storeId: string,
   period: string,
   requestedFinancePolicy?: FinancePolicyInput,
+  requestedReviews?: ReadonlyMap<string, PayrollReview>,
 ): Promise<StorePeriodFinance | null> {
   // The compatibility argument remains available for isolated legacy tests.
   // Production callers resolve the immutable policy version effective for the
@@ -411,13 +416,26 @@ export async function storePeriodFinance(
       .bind(storeId, period).first<RecordRow & { status: string }>(),
   ]);
 
+  const reviews = requestedReviews ?? await readPayrollReviews(db, storeId, period);
+  const reviewSources = new Map<string, PayrollReviewSource>();
+  if (reviews.size) {
+    const employeeIds = [...reviews.keys()];
+    const employees = await db.prepare(`SELECT id, hourly_rate FROM employees WHERE id IN (${employeeIds.map(() => "?").join(",")})`)
+      .bind(...employeeIds).all<{ id: string; hourly_rate: number }>();
+    for (const employee of employees.results) {
+      if (reviews.has(employee.id)) reviewSources.set(employee.id, {
+        durationSeconds: 0, kpiDurationSeconds: 0, hourlyRate: employee.hourly_rate, baseSalary: 0,
+        tiktokAllowance: 0, supportAllowance: 0, manualAllowance: 0, manualBonus: 0, kpiBonus: null,
+      });
+    }
+  }
   const revenue = sumVnd(orderResult.results.map((row) => safeVnd(row.amount)));
   let incidentalCosts = 0;
   let employeeBaseSalary = 0;
   let tiktokAllowance = 0;
   const secondsByEmployee = new Map<string, number>();
-  const salarySecondsByEmployeeRate = new Map<string, { hourlyRate: number; seconds: number }>();
-  const supportByTransfer = new Map<string, number>();
+  const salarySecondsByEmployeeRate = new Map<string, { employeeId: string; hourlyRate: number; seconds: number }>();
+  const supportByTransfer = new Map<string, { employeeId: string; amount: number }>();
   for (const row of shiftResult.results) {
     const seconds = Math.max(0, Math.round(Number(row.durationSeconds ?? 0)));
     const hourlyRate = requireAppliedHourlyRate(row.appliedHourlyRate, row.employeeId);
@@ -425,20 +443,30 @@ export async function storePeriodFinance(
     const salaryGroupKey = JSON.stringify([row.employeeId, hourlyRate]);
     const salaryGroup = salarySecondsByEmployeeRate.get(salaryGroupKey);
     salarySecondsByEmployeeRate.set(salaryGroupKey, {
-      hourlyRate,
+      employeeId: row.employeeId, hourlyRate,
       seconds: (salaryGroup?.seconds ?? 0) + seconds,
     });
     tiktokAllowance = sumVnd([tiktokAllowance, safeVnd(row.tiktokAllowance)]);
     // KPI uses the actual hours recorded at this store. Employment status at
     // query time must not erase work that was actually completed in the period.
     secondsByEmployee.set(row.employeeId, (secondsByEmployee.get(row.employeeId) ?? 0) + seconds);
-    if (row.transferId && seconds > 0) supportByTransfer.set(row.transferId, safeVnd(row.supportAllowance));
+    const source = reviewSources.get(row.employeeId);
+    if (source) {
+      source.durationSeconds += seconds;
+      source.kpiDurationSeconds += seconds;
+      source.tiktokAllowance = sumVnd([source.tiktokAllowance, safeVnd(row.tiktokAllowance)]);
+    }
+    if (row.transferId && seconds > 0) supportByTransfer.set(row.transferId, { employeeId: row.employeeId, amount: safeVnd(row.supportAllowance) });
   }
   // Payroll groups actual seconds by employee and snapshotted hourly rate, then
   // rounds the resulting VND amount once. Finance must use the same boundary so
   // many short shifts cannot introduce a 1-2 VND reconciliation mismatch.
-  employeeBaseSalary = sumVnd([...salarySecondsByEmployeeRate.values()].map(({ hourlyRate, seconds }) =>
-    multiplyRatioVnd(hourlyRate, seconds, 3_600)));
+  employeeBaseSalary = sumVnd([...salarySecondsByEmployeeRate.values()].map(({ employeeId, hourlyRate, seconds }) => {
+    const amount = multiplyRatioVnd(hourlyRate, seconds, 3_600);
+    const source = reviewSources.get(employeeId);
+    if (source) source.baseSalary = sumVnd([source.baseSalary, amount]);
+    return amount;
+  }));
   incidentalCosts = sumVnd([
     incidentalCosts,
     ...incidentalResult.results.map((row) => safeVnd(parseObject(row.dataJson).amount)),
@@ -456,9 +484,25 @@ export async function storePeriodFinance(
     const data = parseObject(row.dataJson);
     if (data.kind === "ALLOWANCE") manualAllowance = sumVnd([manualAllowance, safeVnd(data.amount)]);
     if (data.kind === "BONUS") manualBonus = sumVnd([manualBonus, safeVnd(data.amount)]);
+    const source = reviewSources.get(String(data.employeeId));
+    if (source && data.kind === "ALLOWANCE") source.manualAllowance = sumVnd([source.manualAllowance, safeVnd(data.amount)]);
+    if (source && data.kind === "BONUS") source.manualBonus = sumVnd([source.manualBonus, safeVnd(data.amount)]);
   }
 
-  const supportAllowance = sumVnd([...supportByTransfer.values()]);
+  let supportAllowance = sumVnd([...supportByTransfer.values()].map(({ employeeId, amount }) => {
+    const source = reviewSources.get(employeeId);
+    if (source) source.supportAllowance = sumVnd([source.supportAllowance, amount]);
+    return amount;
+  }));
+  for (const [employeeId, source] of reviewSources) {
+    const reviewed = applyPayrollReview(source, reviews.get(employeeId));
+    employeeBaseSalary = sumVnd([employeeBaseSalary - source.baseSalary, reviewed.baseSalary]);
+    tiktokAllowance = sumVnd([tiktokAllowance - source.tiktokAllowance, reviewed.tiktokAllowance]);
+    supportAllowance = sumVnd([supportAllowance - source.supportAllowance, reviewed.supportAllowance]);
+    manualAllowance = sumVnd([manualAllowance - source.manualAllowance, reviewed.manualAllowance]);
+    manualBonus = sumVnd([manualBonus - source.manualBonus, reviewed.manualBonus]);
+    secondsByEmployee.set(employeeId, reviewed.kpiDurationSeconds);
+  }
   const monthEndExpense = sumVnd(monthEndResult.results.map((row) => safeVnd(row.amount)));
   const lockedSnapshot = snapshotRow ? parseObject(snapshotRow.dataJson) : null;
   // A locked KPI snapshot owns the manager salary used for that period. A
@@ -490,7 +534,7 @@ export async function storePeriodFinance(
   });
   const employeeKpiBonus = lockedSnapshot
     ? safeVnd(lockedSnapshot.totalKpiBonus)
-    : provisionalKpi?.employeeKpiTotal ?? 0;
+    : sumVnd((provisionalKpi?.employeeAllocations ?? []).map((row) => reviewedKpiAmount(row.employeeId, row.employeeKpi, reviews)));
   const managerBonus = lockedSnapshot
     ? safeVnd(lockedSnapshot.managerBonus)
     : provisionalKpi?.managerKpi ?? 0;
@@ -930,6 +974,10 @@ export async function storeDateRangeFinance(
   );
   if (activeDayCount === 0) return null;
   const periodStatuses: StoreDateRangeFinance["periodStatuses"] = [];
+  const reviewedPeriods = new Set<string>();
+  if (options.payrollRecognition === "PREVIEW") {
+    for (const period of periods) if ((await readPayrollReviews(db, storeId, period)).size) reviewedPeriods.add(period);
+  }
   monthlyFinances.forEach((finance, index) => {
     if (!finance) return;
     const period = periods[index];
@@ -947,6 +995,13 @@ export async function storeDateRangeFinance(
       // Financial reports and store overviews mirror the current payroll
       // preview for open periods. Locked periods still carry their immutable
       // snapshot values from storePeriodFinance.
+      if (reviewedPeriods.has(period)) {
+        // Corrections are monthly accruals, leaving original shift records intact.
+        for (const field of ["employeeBaseSalary", "tiktokAllowance", "manualAllowance", "manualBonus"] as const) {
+          for (const day of timeline) if (day.date.slice(0, 7) === period) day.expenseBreakdown[field] = 0;
+          allocateMonthlyExpense(finance.expenseBreakdown[field], field, eligibleDates, days);
+        }
+      }
       allocateMonthlyExpense(finance.expenseBreakdown.managerSalary, "managerSalary", eligibleDates, days);
       allocateMonthlyExpense(finance.expenseBreakdown.employeeKpiBonus, "employeeKpiBonus", eligibleDates, days);
       allocateMonthlyExpense(finance.expenseBreakdown.managerBonus, "managerBonus", eligibleDates, days);

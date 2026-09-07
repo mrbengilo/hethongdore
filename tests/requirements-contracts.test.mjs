@@ -237,7 +237,7 @@ test("payroll and dividend ledgers can only advance through audited locking acti
     "PAYROLL_PERIOD_CLOSE",
   ]) assert.match(payrollApi, new RegExp(audit, "u"));
 
-  assert.match(recordsApi, /protectedCategories = new Set\(\["KPI_SUMMARY", "PAYROLL_CLOSING", "DIVIDEND", "STORE_MANAGER_SALARY"\]\)/u);
+  assert.match(recordsApi, /protectedCategories = new Set\(\["KPI_SUMMARY", "PAYROLL_CLOSING", "DIVIDEND", "STORE_MANAGER_SALARY", "PAYROLL_REVIEW"\]\)/u);
   assert.match(recordsApi, /protectedCategories\.has\(body\.category\)/u);
   assert.match(recordsApi, /String\(existing\.status\) === "LOCKED" \|\| protectedCategories\.has/u);
   assert.match(recordsApi, /protectedCategories\.has\(existing\.category\)/u);
@@ -396,8 +396,8 @@ test("manager payroll uses only locked store ledgers and final profit includes e
   assert.doesNotMatch(payrollApi, /MANAGER_FIXED_WORK_HOURS_PER_STORE|managerFixedHours/u);
   assert.match(payrollApi, /const policyVersion = await loadFinancialPolicyForPeriod\(db, period\)/u);
   assert.match(payrollApi, /managerMonthlySalaryVnd: version\.policy\.managerMonthlySalaryVnd/u);
-  assert.match(payrollApi, /storePeriodFinance\(db, storeId, period, financePolicy\)/u);
-  assert.match(payrollApi, /const kpiDistribution = calculateKpi\(\{[\s\S]*actualSeconds: item\.durationSeconds/u);
+  assert.match(payrollApi, /storePeriodFinance\(db, storeId, period, financePolicy, reviews\)/u);
+  assert.match(payrollApi, /const kpiDistribution = calculateKpi\(\{[\s\S]*actualSeconds: item\.kpiDurationSeconds/u);
   assert.match(payrollApi, /const finance = calculateFinance\(\{[\s\S]*monthEndExpense: costBreakdown\.monthEndExpenses/u);
   assert.doesNotMatch(payrollApi, /loadPayrollPolicy|distributeStoreKpiByPolicy|settleStoreProfit/u);
   assert.match(portal, /view === "Lương thưởng quản lý"[\s\S]*return <StoreManagerPayroll/u);

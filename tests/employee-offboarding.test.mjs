@@ -61,7 +61,7 @@ test("individual payroll locks are immutable, idempotent and preserve offboardin
   assert.doesNotMatch(payroll, /FROM employees e WHERE e\.id = \? AND e\.status (?:=|!=|IN)/u);
   assert.match(payroll, /const kpiDeferred = true/u);
   assert.doesNotMatch(payroll, /kpiDeferred = period === localPeriod\(\)/u);
-  assert.match(payroll, /employeePayWithKpi\(item, allocation\.employeeKpi\)/u);
+  assert.match(payroll, /employeePayWithKpi\(item, kpiBonus\)/u);
   assert.match(payroll, /employeePayWithKpi\(sourceItem, 0\)/u);
   assert.match(payroll, /\(e\.statusAtPeriodEnd IN \('ACTIVE', 'SUSPENDED'\) AND e\.store_id = \?\)/u);
   assert.match(payroll, /lifecycle_exit\.effective_at >= \? AND lifecycle_exit\.effective_at < \?[\s\S]*lifecycle_exit\.to_status IN \('TERMINATED', 'INACTIVE', 'ARCHIVED'\)/u);
@@ -127,7 +127,7 @@ test("previous-period individual closing defers KPI until the locked store summa
   assert.match(payroll, /const kpiDeferred = true/u);
   assert.match(payroll, /kpiBonus: 0/u);
   assert.match(payroll, /employeePayWithKpi\(sourceItem, 0\)/u);
-  assert.match(payroll, /employeePayWithKpi\(item, allocation\.employeeKpi\)/u);
+  assert.match(payroll, /employeePayWithKpi\(item, kpiBonus\)/u);
   assert.match(payroll, /single immutable KPI_SUMMARY created by FINALIZE_EMPLOYEE/u);
 });
 
@@ -159,7 +159,7 @@ test("offboarding KPI keeps historical actual work and individual KPI deferred",
 
   assert.match(payroll, /AS completedShiftCount/u);
   assert.match(payroll, /const kpiDistribution = calculateKpi\(\{/u);
-  assert.match(payroll, /actualSeconds: item\.durationSeconds/u);
+  assert.match(payroll, /actualSeconds: item\.kpiDurationSeconds/u);
   assert.match(payroll, /kpiCompletedShiftCount/u);
   assert.match(payroll, /kpiEligibleDurationSeconds/u);
   assert.match(payroll, /const kpiDeferred = true/u);

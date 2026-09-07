@@ -1,6 +1,7 @@
 import { getDatabasePlatform } from "./platform";
 import { storeManagerSalaryGuardStatements } from "./store-manager-salary-guards";
 import { profitSetupRepaymentStatements } from "./profit-setup-repayments";
+import { payrollReviewGuardStatements } from "./payroll-review-guards";
 import { ensureSqliteStoreBaseline, managerPasswordHash } from "./bootstrap";
 import {
   nextAvailableStoreOrderCodePrefix,
@@ -1289,6 +1290,7 @@ async function initializeDb() {
   await db.batch(financialPeriodLifecycleGuardStatements.map((sql) => db.prepare(sql)));
   await db.batch(storeManagerSalaryGuardStatements.map((sql) => db.prepare(sql)));
   await db.batch(profitSetupRepaymentStatements.map((sql) => db.prepare(sql)));
+  await db.batch(payrollReviewGuardStatements.map((sql) => db.prepare(sql)));
   await db.prepare("CREATE INDEX IF NOT EXISTS idx_shift_sessions_store_work_date ON shift_sessions(store_id, work_date, status)").run();
   await db.prepare("CREATE INDEX IF NOT EXISTS idx_shift_sessions_store_work_date_started ON shift_sessions(store_id, work_date, started_at, id)").run();
   await db.prepare("CREATE INDEX IF NOT EXISTS idx_orders_store_created ON orders(store_id, created_at, id)").run();

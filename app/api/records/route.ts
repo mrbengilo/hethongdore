@@ -42,7 +42,7 @@ const allowedCategories = new Set([
   "CHI_PHI_CO_DINH", "PAYROLL_CLOSING",
 ]);
 
-const protectedCategories = new Set(["KPI_SUMMARY", "PAYROLL_CLOSING", "DIVIDEND", "STORE_MANAGER_SALARY"]);
+const protectedCategories = new Set(["KPI_SUMMARY", "PAYROLL_CLOSING", "DIVIDEND", "STORE_MANAGER_SALARY", "PAYROLL_REVIEW"]);
 const immutableHistoryCategories = new Set(["NHAP_HANG", "CHI_PHI_CO_DINH"]);
 const payrollSensitiveCategories = new Set(["LUONG_THUONG", "CHI_PHI_CO_DINH", "DONG_TIEN", "NHAP_HANG"]);
 
