@@ -146,9 +146,11 @@ type FinancialReportResponse = {
   dividendHistory?: ProfitSharingHistoryItem[];
   profitSharingReadiness?: {
     ready: boolean;
-    status: "READY" | "LOCKED" | "UNAVAILABLE";
+    status: "READY" | "PARTIAL" | "LOCKED" | "UNAVAILABLE";
     code: string;
     message: string;
+    expectedStoreCount?: number;
+    pendingStores?: { storeId: string; storeName: string; status: string }[];
   } | null;
   profitSharingMessage?: string | null;
   message?: string;
@@ -633,7 +635,9 @@ export function ManagerProfitSharingClosing({ initialPeriod }: { initialPeriod?:
   );
   const allocatedTotal = allocations.reduce((sum, allocation) => sum + (finiteNumber(allocation.amount) ?? 0), 0);
   const periodClosed = period < currentPeriod();
-  const allStoresLocked = storeAllocations.length > 0 && storeAllocations.every((store) => store.settlementStatus === "LOCKED");
+  const allStoresLocked = data?.profitSharingReadiness?.ready === true;
+  const pendingStores = data?.profitSharingReadiness?.pendingStores ?? [];
+  const sourceScope = `${storeAllocations.length}/${data?.profitSharingReadiness?.expectedStoreCount ?? storeAllocations.length} cửa hàng đã khóa kỳ`;
   const currentStatus = currentHistory
     ? profitSharingStatusLabel(currentHistory)
     : preview
@@ -653,7 +657,7 @@ export function ManagerProfitSharingClosing({ initialPeriod }: { initialPeriod?:
         : "Chưa có chính sách phân chia";
 
   const closeProfitSharing = async () => {
-    if (!data || !preview || currentHistory || loading || calculationError || actionInFlight.current) return;
+    if (!data || !preview || !allStoresLocked || !periodClosed || currentHistory || loading || calculationError || actionInFlight.current) return;
     if (currentMembers.length === 0) {
       setActionError("Chưa có cấu hình thành viên nhận phân chia lợi nhuận.");
       return;
@@ -725,11 +729,17 @@ export function ManagerProfitSharingClosing({ initialPeriod }: { initialPeriod?:
     {data && !currentHistory && currentMembers.length > 0 && data.profitSharingReadiness && !data.profitSharingReadiness.ready && <div className="report-profit-note"><LockKeyhole size={17}/> {readinessMessage}</div>}
     {data && <>
       <div className="manager-metrics four">
-        <Metric icon={TrendingUp} label="DOANH THU KỲ" value={money(currentRevenue)} note={changeText(data.comparison.revenueChange)}/>
-        <Metric icon={WalletCards} label="TỔNG CHI PHÍ" value={money(currentExpense)} note={changeText(data.comparison.expenseChange)} tone="orange"/>
-        <Metric icon={BadgeDollarSign} label="LỢI NHUẬN SAU CÙNG" value={money(finalProfit)} note={changeText(data.comparison.profitChange)} tone="blue"/>
+        <Metric icon={TrendingUp} label="DOANH THU ĐÃ CHỐT" value={preview || currentHistory ? money(currentRevenue) : "—"} note={sourceScope}/>
+        <Metric icon={WalletCards} label="TỔNG CHI PHÍ ĐÃ CHỐT" value={preview || currentHistory ? money(currentExpense) : "—"} note="Đã gồm lương thưởng nhân viên và quản lý" tone="orange"/>
+        <Metric icon={BadgeDollarSign} label="LỢI NHUẬN SAU CÙNG" value={preview || currentHistory ? money(finalProfit) : "—"} note={sourceScope} tone="blue"/>
         <Metric icon={currentHistory ? CheckCircle2 : LockKeyhole} label="TRẠNG THÁI KỲ" value={currentStatus} note={currentHistory ? `${dateTime(currentHistory.closedAt)} · ${currentHistory.closedBy || "Không rõ người khóa"}` : periodLabel(period)} tone="purple"/>
       </div>
+      {pendingStores.length > 0 && <details className="manager-panel pending-store-panel">
+        <summary>Còn {pendingStores.length} cửa hàng chờ khóa kỳ</summary>
+        <ul>{pendingStores.map((store) => <li key={store.storeId}>
+          <b>{store.storeName}</b> · {store.status === "MISSING" ? "Chưa tạo kỳ" : store.status === "PAID" ? "Đã chi, chờ khóa kỳ" : "Chưa hoàn tất chốt kỳ"}
+        </li>)}</ul>
+      </details>}
       {preview && !currentHistory && setupStore && <section className="manager-panel setup-repayment-panel">
         <h2>HOÀN TRẢ SETUP CỬA HÀNG</h2>
         <div className="setup-repayment-fields">
@@ -774,7 +784,7 @@ export function ManagerProfitSharingClosing({ initialPeriod }: { initialPeriod?:
             const allocation = memberAllocation(store.memberAllocations, member);
             return <td key={memberKey(member)}><b>{money(allocation?.amount ?? 0)}</b><br/><small>{allocationPercentage(allocation, member)}</small></td>;
           })}</tr>)}
-      </tbody><tfoot><tr><td colSpan={2}>TỔNG TẤT CẢ CỬA HÀNG</td><td>{money(currentRevenue)}</td><td>{money(currentExpense)}</td><td>{money(finalProfit)}</td><td>{money(setupRepayment)}</td><td>{money(distributableProfit)}</td>{currentMembers.map((member) => <td key={memberKey(member)}>{money(memberAllocation(allocations, member)?.amount ?? 0)}</td>)}</tr></tfoot></table></div></section>
+      </tbody><tfoot><tr><td colSpan={2}>TỔNG CỬA HÀNG ĐÃ KHÓA KỲ</td><td>{money(currentRevenue)}</td><td>{money(currentExpense)}</td><td>{money(finalProfit)}</td><td>{money(setupRepayment)}</td><td>{money(distributableProfit)}</td>{currentMembers.map((member) => <td key={memberKey(member)}>{money(memberAllocation(allocations, member)?.amount ?? 0)}</td>)}</tr></tfoot></table></div></section>
       <section className="manager-panel table-panel"><div className="panel-title"><div><h2>LỊCH SỬ CHIA LỢI NHUẬN</h2><p>Snapshot LOCKED bất biến; lịch sử cũ được giữ ở chế độ chỉ đọc</p></div><span>{history.length} kỳ</span></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>Kỳ</th><th>Doanh thu</th><th>Tổng chi phí</th><th>Lợi nhuận sau cùng</th><th>Hoàn trả setup</th><th>Lợi nhuận được chia</th>{historyMembers.map((member) => <th key={memberKey(member)}>{memberColumnLabel(member)}</th>)}<th>Trạng thái</th><th>Ngày giờ khóa</th><th>Người khóa</th><th>Nguồn dữ liệu</th></tr></thead><tbody>
         {history.length === 0
           ? <tr><td colSpan={10 + historyMembers.length} className="empty-cell">Chưa có lịch sử chia lợi nhuận đã khóa.</td></tr>
