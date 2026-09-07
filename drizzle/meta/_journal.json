@@ -204,6 +204,13 @@
       "when": 1788652800000,
       "tag": "0033_profit_setup_repayment",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "6",
+      "when": 1788739200000,
+      "tag": "0034_store_manager_salary",
+      "breakpoints": true
     }
   ]
 }

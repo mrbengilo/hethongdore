@@ -1,0 +1,216 @@
+/* Shared content sizing: keep complete labels and values inside their cards. */
+.page-content,
+.page-content > *,
+.reference-module,
+.manager-reference,
+.manager-panel,
+.table-card,
+.employee-panel,
+.store-manager-payroll {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.page-content .page-content { padding: 0; }
+.page-content { gap: 16px; }
+.store-manager-payroll { display: grid; gap: 16px; }
+
+.stats-grid,
+.ref-metrics,
+.manager-metrics,
+.comparison-grid { align-items: start; }
+
+.stats-grid > *,
+.ref-metrics > *,
+.manager-metrics > *,
+.comparison-grid > * { min-width: 0; }
+
+.manager-metrics.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.comparison-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+.stat-card,
+.manager-metric,
+.ref-metric,
+.store-cashflow-metric {
+  min-height: 0;
+  height: auto;
+  gap: 12px;
+  padding: 16px;
+  align-items: flex-start;
+}
+
+.stat-card > div,
+.manager-metric > div,
+.ref-metric > div,
+.store-cashflow-metric > div { min-width: 0; }
+
+.stat-card :is(span, strong, small),
+.manager-metric :is(span, strong, small),
+.ref-metric :is(span, strong, small),
+.store-cashflow-metric :is(span, strong, small) {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+}
+
+.stat-card span,
+.manager-metric span,
+.ref-metric span { font-size: 12px; }
+.stat-card small,
+.manager-metric small,
+.ref-metric small { font-size: 12px; }
+.stat-card strong,
+.manager-metric strong,
+.ref-metric strong { font-size: clamp(20px, 1.6vw, 28px); }
+.manager-metric > i,
+.stat-icon,
+.ref-metric > i,
+.metric-icon { flex: none; width: 40px; height: 40px; }
+.metric-icon { display: grid; place-items: center; color: #087d36; background: #edf8f0; border-radius: 10px; }
+
+/* Explanatory notes have a full row, instead of an 80px-wide text column. */
+.comparison-grid > .manager-panel > p {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 4px 12px;
+  padding: 10px 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.comparison-grid > .manager-panel > p > * { min-width: 0; overflow-wrap: anywhere; }
+.comparison-grid > .manager-panel > p > b { text-align: right; }
+.comparison-grid > .manager-panel > p > em {
+  grid-column: 1 / -1;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 500;
+  color: #607166;
+}
+.comparison-grid > .manager-panel > .wide { margin-top: 12px; }
+.manager-panel h2 { line-height: 1.4; overflow-wrap: anywhere; }
+.manager-panel > p:last-child { margin-bottom: 0; }
+.manager-panel select { min-width: 0; max-width: 100%; }
+
+.ref-toolbar,
+.ref-toolbar-actions,
+.panel-title,
+.table-head,
+.section-title { flex-wrap: wrap; gap: 12px; }
+.ref-toolbar > div,
+.panel-title > div,
+.table-head > div,
+.section-title > div { min-width: 0; }
+.ref-toolbar-actions { justify-content: flex-end; }
+.ref-toolbar-actions > :is(input, select) { width: auto; max-width: 100%; }
+.ref-toolbar :is(h2, p),
+.panel-title :is(h2, p),
+.table-head :is(h2, p),
+.section-title :is(h2, p) { overflow-wrap: anywhere; }
+.panel-title p,
+.table-head p { font-size: 12px; line-height: 1.5; }
+.page-content :is(button, input, select, textarea) { max-width: 100%; }
+.page-content button { white-space: normal; overflow-wrap: anywhere; }
+.page-content button > svg { flex-shrink: 0; }
+.page-content :is(input, select, textarea) { min-width: 0; }
+.page-content :is(label, dd, .status-pill) { overflow-wrap: anywhere; }
+.page-content .status-pill { white-space: normal; line-height: 1.4; }
+.compact-data-list { margin: 0; }
+.compact-data-list > div {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 6px 16px; padding: 10px 0; border-bottom: 1px solid #edf0ee;
+}
+.compact-data-list > div:last-child { border-bottom: 0; }
+.compact-data-list dt,
+.compact-data-list dd { margin: 0; min-width: 0; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.compact-data-list dd { text-align: right; font-weight: 700; }
+
+.finance-metric { min-height: 0; padding: 16px; }
+.finance-metric-main > div { min-width: 0; }
+.finance-metric strong,
+.stat-card strong,
+.finance-share-list p > span,
+.notification-item b,
+.sidebar-user b,
+.sidebar-user span {
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+}
+.finance-metric strong { line-height: 1.4; }
+.finance-metric :is(span, small),
+.finance-share-list p { font-size: 12px; line-height: 1.5; }
+.finance-share-list p { grid-template-columns: 10px minmax(0, 1fr) auto; }
+.sidebar-user { align-items: flex-start; }
+
+.data-table-wrap { min-width: 0; max-width: 100%; overscroll-behavior-inline: contain; }
+.data-table :is(th, td) { font-size: 12px; line-height: 1.5; }
+.data-table th { white-space: normal; }
+.data-table td { overflow-wrap: anywhere; }
+.data-table-wrap:focus-visible { outline: 2px solid #087d36; outline-offset: -2px; }
+.data-table .empty-cell { padding: 24px 16px; }
+.table-scroll-hint { margin: 0; padding: 8px 16px; color: #607166; font-size: 12px; }
+
+.profit-sharing-reference .manager-metric.purple strong { font-size: 18px; }
+.pending-store-panel { padding: 12px 16px; }
+.pending-store-panel summary { cursor: pointer; color: #235c38; font-weight: 600; line-height: 1.5; }
+.pending-store-panel ul { margin: 10px 0 0; padding-left: 20px; }
+.pending-store-panel li { padding: 4px 0; line-height: 1.5; overflow-wrap: anywhere; }
+.setup-repayment-fields { align-items: end; gap: 12px; margin: 12px 0; }
+.setup-repayment-fields > button { justify-self: start; min-height: 44px; }
+.setup-repayment-panel p,
+.store-manager-payroll .manager-panel p { font-size: 13px; line-height: 1.6; }
+.report-profit-note { align-items: flex-start; line-height: 1.6; }
+.report-profit-note > svg { flex: none; margin-top: 2px; }
+
+@media (max-width: 1100px) {
+  .stats-grid.four,
+  .manager-metrics.four { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .comparison-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 720px) {
+  .page-content { gap: 12px; padding: 14px; }
+  .manager-panel { padding: 14px; }
+  .manager-panel.table-panel { padding: 0; }
+  .manager-metrics.three { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .manager-metrics.three > :last-child { grid-column: 1 / -1; }
+  .stat-card,
+  .manager-metric,
+  .ref-metric,
+  .store-cashflow-metric { min-height: 0; padding: 12px; gap: 8px; }
+  .stat-card strong,
+  .manager-metric strong,
+  .ref-metric strong { font-size: 20px; }
+  .ref-toolbar-actions { justify-content: flex-start; }
+  .page-content :is(.ref-toolbar-actions, .store-toolbar-actions, .payroll-actions) > button {
+    min-height: 44px; font-size: 12px; line-height: 1.4;
+  }
+  .setup-repayment-fields { grid-template-columns: minmax(0, 1fr); }
+  .setup-repayment-fields > button { width: 100%; }
+  .page-content input:not([type="checkbox"]):not([type="radio"]),
+  .page-content select,
+  .page-content textarea { font-size: 16px; }
+  .mobile-header { height: auto; min-height: 56px; padding-block: 10px; gap: 8px; }
+  .mobile-header > b {
+    white-space: normal; overflow: visible; overflow-wrap: anywhere; line-height: 1.4;
+  }
+}
+
+@media (max-width: 480px) {
+  /* Decorative icons give their space to the complete numeric values. */
+  .stat-card > .stat-icon,
+  .manager-metric > i,
+  .ref-metric > i,
+  .store-cashflow-metric > i,
+  .manager-metric > .metric-icon { display: none; }
+  .stat-card span,
+  .manager-metric span,
+  .ref-metric span,
+  .stat-card small,
+  .manager-metric small,
+  .ref-metric small { font-size: 12px; }
+  .comparison-grid > .manager-panel > p { grid-template-columns: minmax(0, 1fr); }
+  .comparison-grid > .manager-panel > p > b { text-align: left; }
+  .compact-data-list > div { grid-template-columns: minmax(0, 1fr); }
+  .compact-data-list dd { text-align: left; }
+}

@@ -71,10 +71,36 @@ before(async () => {
     { minimumProfitPerHour: 7_000, rateBasisPoints: 0 },
   ] });
   await lockStorePeriod("store-a", 5_000_000);
-  await lockStorePeriod("store-b", 1_000_000);
 });
 
 after(async () => { db.close?.(); await rm(directory, { recursive: true, force: true }); });
+
+test("locked stores remain visible while another store is missing or still open", async () => {
+  const read = async () => (await reports.GET(request("GET"))).json();
+  let report = await read();
+  assert.equal(report.profitSharingPreview?.finalProfit, 5_000_000);
+  assert.deepEqual(report.profitSharingPreview.storeAllocations.map((store) => store.storeId), ["store-a"]);
+  assert.equal(report.profitSharingReadiness.ready, false);
+  assert.equal(report.profitSharingReadiness.status, "PARTIAL");
+  assert.equal(report.profitSharingReadiness.expectedStoreCount, 2);
+  assert.deepEqual(report.profitSharingReadiness.pendingStores, [
+    { storeId: "store-b", storeName: "DORE store-b", status: "MISSING" },
+  ]);
+  const close = await reports.POST(request("POST", {
+    action: "CLOSE_PROFIT_SHARING", period, setupRepayments: [{ storeId: "store-a", amount: 2_000_000 }],
+  }));
+  assert.equal(close.status, 409, "partial preview must not allow a global close");
+  assert.equal(await db.prepare("SELECT COUNT(*) FROM profit_distributions").first("COUNT(*)"), 0);
+  // A store created exactly at September's Vietnam-time boundary must not block August.
+  await db.prepare("INSERT INTO stores (id, name, address, status, created_at) VALUES ('future', 'Future store', '', 'ACTIVE', '2026-08-31T17:00:00.000Z')").run();
+  report = await read();
+  assert.equal(report.profitSharingReadiness.expectedStoreCount, 2);
+  await lockStorePeriod("store-b", 1_000_000);
+  report = await read();
+  assert.equal(report.profitSharingReadiness.ready, true);
+  assert.deepEqual(report.profitSharingReadiness.pendingStores, []);
+  assert.equal(report.profitSharingPreview.finalProfit, 6_000_000);
+});
 
 test("only global admins can close setup-adjusted shares; invalid values cannot write", async () => {
   const body = { action: "CLOSE_PROFIT_SHARING", period, setupRepayments: [{ storeId: "store-a", amount: 2_000_000 }] };

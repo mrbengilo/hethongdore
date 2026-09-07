@@ -42,7 +42,7 @@ const allowedCategories = new Set([
   "CHI_PHI_CO_DINH", "PAYROLL_CLOSING",
 ]);
 
-const protectedCategories = new Set(["KPI_SUMMARY", "PAYROLL_CLOSING", "DIVIDEND"]);
+const protectedCategories = new Set(["KPI_SUMMARY", "PAYROLL_CLOSING", "DIVIDEND", "STORE_MANAGER_SALARY"]);
 const immutableHistoryCategories = new Set(["NHAP_HANG", "CHI_PHI_CO_DINH"]);
 const payrollSensitiveCategories = new Set(["LUONG_THUONG", "CHI_PHI_CO_DINH", "DONG_TIEN", "NHAP_HANG"]);
 
@@ -1550,7 +1550,7 @@ export async function DELETE(request: Request) {
   } else if (existing.status === "DELETED") {
     return json({ message: "Không tìm thấy dữ liệu" }, 404);
   }
-  if (existing.category === "KPI_SUMMARY" || existing.category === "PAYROLL_CLOSING" || existing.category === "DIVIDEND") return json({ message: "Sổ đã chốt không thể xóa." }, 423);
+  if (protectedCategories.has(existing.category)) return json({ message: "Dữ liệu này được quản lý bởi quy trình riêng, không thể xóa tại đây." }, 423);
   if (immutableHistoryCategories.has(existing.category)) return json({ message: immutableHistoryMessage(existing.category, "delete") }, 423);
   if (existing.storeId && !await isStoreActive(existing.storeId)) return json({ message: INACTIVE_STORE_MESSAGE }, 409);
   if (existing.category === "LICH_PHAN_CA" && !requestedDeleteReason) {

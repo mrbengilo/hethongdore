@@ -1,5 +1,5 @@
 import { parsePersistedFinancialPeriodSnapshot } from "../api/_lib/financial-period";
-import { requireVnd } from "./finance";
+import { requireVnd, storeExistsInPeriod } from "./finance";
 import { allocateProfitShares, calculateProfitSharing, type SetupRepayment } from "./profit-sharing";
 
 export type ProfitDistributionErrorCode =
@@ -66,6 +66,12 @@ export type ProfitDistributionPreview = Readonly<{
   totalDistributableProfit: number;
   stores: readonly ProfitDistributionStore[];
   members: readonly ProfitDistributionMember[];
+}>;
+
+export type PendingProfitDistributionStore = Readonly<{
+  storeId: string;
+  storeName: string;
+  status: string;
 }>;
 
 export type ProfitDistributionRecord = ProfitDistributionPreview & Readonly<{
@@ -336,14 +342,14 @@ async function loadPolicy(
 }
 
 /**
- * Preview a close from canonical LOCKED store snapshots only. Current live
- * expenses, payroll or policy values are never consulted.
+ * Read each available LOCKED source without waiting for other stores. Pending
+ * stores are explicit; they never contribute live amounts to the preview.
  */
-export async function previewProfitDistribution(
+export async function readProfitDistributionAvailability(
   db: D1Database,
   periodInput: string,
   setupRepayments: readonly SetupRepayment[] = [],
-): Promise<ProfitDistributionPreview> {
+) {
   const period = requiredPeriod(periodInput);
   const [periodResult, expectedStoreResult] = await Promise.all([
     db.prepare(`SELECT period_row.id, period_row.store_id AS storeId, store.name AS storeName,
@@ -358,17 +364,51 @@ export async function previewProfitDistribution(
       WHERE period_row.period = ? ORDER BY period_row.store_id`)
       .bind(period)
       .all<RawLockedPeriodRow>(),
-    db.prepare("SELECT id FROM stores WHERE status IN ('ACTIVE', 'INACTIVE') ORDER BY id")
-      .all<{ id: string }>(),
+    db.prepare("SELECT id, name, created_at AS createdAt FROM stores WHERE status IN ('ACTIVE', 'INACTIVE') ORDER BY id")
+      .all<{ id: string; name: string; createdAt: string }>(),
   ]);
   const rows = periodResult.results;
-  if (rows.length === 0) fail("MISSING_PERIOD", `No financial periods exist for ${period}`);
-  const presentStoreIds = new Set(rows.map((row) => String(row.storeId)));
-  const missing = expectedStoreResult.results.map((row) => row.id).filter((id) => !presentStoreIds.has(id));
-  if (missing.length > 0) {
-    fail("MISSING_PERIOD", `Missing financial period for stores: ${missing.join(", ")}`);
+  const periodsByStore = new Map(rows.map((row) => [String(row.storeId), row]));
+  // Keep historical period sources even if a store's current lifecycle changed.
+  const expectedStores = new Map(expectedStoreResult.results
+    .filter((store) => storeExistsInPeriod(store.createdAt, period))
+    .map((store) => [store.id, store.name]));
+  for (const row of rows) expectedStores.set(String(row.storeId), String(row.storeName));
+  const pendingStores: PendingProfitDistributionStore[] = [];
+  for (const [storeId, storeName] of expectedStores) {
+    const row = periodsByStore.get(storeId);
+    if (row?.status !== "LOCKED") pendingStores.push(Object.freeze({
+      storeId, storeName, status: row ? String(row.status) : "MISSING",
+    }));
   }
+  const lockedRows = rows.filter((row) => row.status === "LOCKED");
+  const preview = lockedRows.length
+    ? await calculateDistributionPreview(db, period, lockedRows, setupRepayments)
+    : null;
+  return Object.freeze({ preview, expectedStoreCount: expectedStores.size, pendingStores: Object.freeze(pendingStores) });
+}
 
+/** A global close still requires every store that participated in the month. */
+export async function previewProfitDistribution(
+  db: D1Database,
+  periodInput: string,
+  setupRepayments: readonly SetupRepayment[] = [],
+): Promise<ProfitDistributionPreview> {
+  const { preview, pendingStores } = await readProfitDistributionAvailability(db, periodInput, setupRepayments);
+  if (pendingStores.some((store) => store.status === "MISSING") || (!preview && !pendingStores.length)) {
+    fail("MISSING_PERIOD", `Missing financial periods for ${periodInput}`);
+  }
+  if (pendingStores.length) fail("PERIOD_NOT_LOCKED", `Stores still pending for ${periodInput}`);
+  if (!preview) fail("MISSING_PERIOD", `No locked financial periods exist for ${periodInput}`);
+  return preview;
+}
+
+async function calculateDistributionPreview(
+  db: D1Database,
+  period: string,
+  rows: RawLockedPeriodRow[],
+  setupRepayments: readonly SetupRepayment[],
+): Promise<ProfitDistributionPreview> {
   const stores = rows.map((row, ordinal) => Object.freeze({ ...lockedStoreFromRow(row, period), ordinal }));
   const policyVersionId = stores[0].policyVersionId;
   const configVersion = stores[0].configVersion;

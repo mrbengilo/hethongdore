@@ -12,8 +12,8 @@ test("manager report and cash-flow menu items open separate views", async () => 
   const portal = await source("app/components/Portal.tsx");
   assert.match(portal, /view === "Dòng tiền"[\s\S]*?<ManagerCashflow\/>/u);
   assert.match(portal, /view === "Báo cáo"[\s\S]*?<ManagerBusinessReport\/>/u);
-  assert.doesNotMatch(portal, /view === "Dòng tiền"[\s\S]{0,100}<ManagerBusinessReport\/>/u);
-  assert.match(portal, /financeOwnsHeader = view === "Báo cáo" \|\| view === "Dòng tiền"/u);
+  assert.doesNotMatch(portal, /if \(view === "Dòng tiền"\)\s*return <ManagerBusinessReport\/>/u);
+  assert.match(portal, /financeOwnsHeader = view === "Chia lợi nhuận" \|\| view === "Báo cáo" \|\| view === "Dòng tiền"/u);
 });
 
 test("cash-flow API derives totals from persisted operational records", async () => {
@@ -62,6 +62,6 @@ test("store report selection stays on the store tab and all-store cash outflows 
   assert.match(portal, /label="TỔNG DOANH THU" value=\{money\(totals\.revenue\)\}/u);
   assert.match(portal, /label="TỔNG CHI PHÍ" value=\{money\(totals\.expense\)\}/u);
   assert.match(portal, /\/api\/stores\?period=\$\{encodeURIComponent\(period\)\}/u);
-  assert.match(portal, /type="month" value=\{period\} onChange=/u);
+  assert.match(portal, /MonthPickerControl ariaLabel="Tháng báo cáo" value=\{period\} onChange=\{onPeriodChange\}/u);
   assert.match(portal, /so với kỳ trước/u);
 });

@@ -151,7 +151,7 @@ test("reports compare periods and profit sharing reads and closes canonical lock
   assert.match(reportsApi, /comparison:/u);
   assert.match(reportsApi, /readProfitDistribution\(db, distributionPeriod\)/u);
   assert.match(reportsApi, /listProfitDistributions\(db, \{ limit: 36 \}\)/u);
-  assert.match(reportsApi, /previewProfitDistribution\(db, distributionPeriod\)/u);
+  assert.match(reportsApi, /readProfitDistributionAvailability\(db, distributionPeriod\)/u);
   assert.match(reportsApi, /parsePersistedFinancialPeriodSnapshot\(store\.financialSnapshot\)/u);
   assert.match(reportsApi, /allocateProfitSharingMembers\(store\.distributableProfit, memberPolicies\)/u);
   assert.match(reportsApi, /closeProfitDistribution\(db, \{/u);
@@ -172,7 +172,7 @@ test("reports compare periods and profit sharing reads and closes canonical lock
   assert.doesNotMatch(reportUi, /Phạm Thị Diễm Thúy \(40%\)|Trương Việt Vi \(60%\)/u);
   assert.match(reportUi, /profitChange/u);
   assert.match(portal, /const managerMenu = \[[^\]]*"Chia lợi nhuận"/u);
-  assert.match(portal, /view === "Chia lợi nhuận"[\s\S]*?<ManagerProfitSharingClosing\/>/u);
+  assert.match(portal, /view === "Chia lợi nhuận"[\s\S]*?<ManagerProfitSharingClosing initialPeriod=\{period\} onPeriodChange=\{onPeriodChange\}/u);
 });
 
 test("operating expenses are validated, persisted and included in store finance", async () => {
@@ -237,10 +237,10 @@ test("payroll and dividend ledgers can only advance through audited locking acti
     "PAYROLL_PERIOD_CLOSE",
   ]) assert.match(payrollApi, new RegExp(audit, "u"));
 
-  assert.match(recordsApi, /protectedCategories = new Set\(\["KPI_SUMMARY", "PAYROLL_CLOSING", "DIVIDEND"\]\)/u);
+  assert.match(recordsApi, /protectedCategories = new Set\(\["KPI_SUMMARY", "PAYROLL_CLOSING", "DIVIDEND", "STORE_MANAGER_SALARY"\]\)/u);
   assert.match(recordsApi, /protectedCategories\.has\(body\.category\)/u);
   assert.match(recordsApi, /String\(existing\.status\) === "LOCKED" \|\| protectedCategories\.has/u);
-  assert.match(recordsApi, /existing\.category === "KPI_SUMMARY".*existing\.category === "PAYROLL_CLOSING".*existing\.category === "DIVIDEND"/u);
+  assert.match(recordsApi, /protectedCategories\.has\(existing\.category\)/u);
 });
 
 test("attendance and employee payroll distinguish hourly rate from earned salary", async () => {
@@ -400,8 +400,8 @@ test("manager payroll uses only locked store ledgers and final profit includes e
   assert.match(payrollApi, /const kpiDistribution = calculateKpi\(\{[\s\S]*actualSeconds: item\.durationSeconds/u);
   assert.match(payrollApi, /const finance = calculateFinance\(\{[\s\S]*monthEndExpense: costBreakdown\.monthEndExpenses/u);
   assert.doesNotMatch(payrollApi, /loadPayrollPolicy|distributeStoreKpiByPolicy|settleStoreProfit/u);
-  assert.match(portal, /view === "Lương thưởng quản lý"[\s\S]*return <ManagerPayroll\/>/u);
-  assert.match(portal, /Chỉ ghi nhận số liệu thật từ các cửa hàng đã xác nhận chi và khóa kỳ/u);
+  assert.match(portal, /view === "Lương thưởng quản lý"[\s\S]*return <StoreManagerPayroll/u);
+
   assert.match(finance, /profitBeforePerformanceRewards - performanceRewards/u);
   assert.match(aggregation, /const managerSalary = lockedSnapshot[\s\S]*payrollPolicy\.managerMonthlySalaryVnd/u);
   assert.match(aggregation, /lockedSnapshot[\s\S]*provisionalKpi\?\.managerKpi/u);

@@ -291,8 +291,10 @@ function assertPayrollSummaryInvariants(summary: PayrollSummary) {
   assertPayrollEqual("lương quản lý/chính sách kỳ", summary.managerSalary, policySalary);
 }
 
-export default function StorePayrollClosing({ store, initialPeriod }: { store: Store; initialPeriod?: string }) {
-  const [period, setPeriod] = useState(initialPeriod ?? currentPeriod());
+export default function StorePayrollClosing({ store, initialPeriod, onPeriodChange }: { store: Store; initialPeriod?: string; onPeriodChange?: (period: string) => void }) {
+  const [localPeriod, setLocalPeriod] = useState(initialPeriod ?? currentPeriod());
+  const period = onPeriodChange ? initialPeriod ?? localPeriod : localPeriod;
+  const setPeriod = onPeriodChange ?? setLocalPeriod;
   const [data, setData] = useState<PayrollResponse>({});
   const [loadedScope, setLoadedScope] = useState<{ storeId: string; period: string } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -302,6 +304,7 @@ export default function StorePayrollClosing({ store, initialPeriod }: { store: S
   const loadRequest = useRef(0);
   const loadController = useRef<AbortController | null>(null);
   const actionInFlight = useRef(false);
+  const activeScope = useRef<string | null>(null);
   const readOnly = store.status === "INACTIVE";
 
   const load = useCallback(async () => {
@@ -346,9 +349,10 @@ export default function StorePayrollClosing({ store, initialPeriod }: { store: S
   }, [period, store.id]);
 
   useEffect(() => {
+    activeScope.current = `${store.id}:${period}`;
     void load();
-    return () => loadController.current?.abort();
-  }, [load]);
+    return () => { activeScope.current = null; loadController.current?.abort(); };
+  }, [load, period, store.id]);
   useEffect(() => { setMessage(""); }, [period, store.id]);
   useEffect(() => {
     const handlePayrollUpdate = (event: Event) => {
@@ -398,15 +402,19 @@ export default function StorePayrollClosing({ store, initialPeriod }: { store: S
         }),
       });
       const payload = await readFinancialResponse<PayrollResponse>(response);
-      setMessage(payload.message || "Đã cập nhật kỳ lương thưởng.");
-      await load();
       window.dispatchEvent(new CustomEvent(PAYROLL_UPDATED_EVENT, {
         detail: { storeId: actionScope.storeId, period: actionScope.period, source: "closing" },
       }));
+      if (activeScope.current !== `${actionScope.storeId}:${actionScope.period}`) return;
+      await load();
+      if (activeScope.current !== `${actionScope.storeId}:${actionScope.period}`) return;
+      setMessage(payload.message || "Đã cập nhật kỳ lương thưởng.");
     } catch (cause) {
       // The server may have committed before the connection was interrupted.
       // Refresh the authoritative state before offering another action.
+      if (activeScope.current !== `${actionScope.storeId}:${actionScope.period}`) return;
       await load();
+      if (activeScope.current !== `${actionScope.storeId}:${actionScope.period}`) return;
       setError(cause instanceof Error ? cause.message : "Không thể thực hiện thao tác.");
     } finally {
       actionInFlight.current = false;
@@ -414,7 +422,7 @@ export default function StorePayrollClosing({ store, initialPeriod }: { store: S
     }
   };
 
-  const summary = data.summary;
+  const summary = data.summary?.storeId === store.id && data.summary.period === period ? data.summary : undefined;
   const closing = data.closing;
   const previous = data.previousSummary;
   const dataIsCurrent = Boolean(

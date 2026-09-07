@@ -16,10 +16,11 @@ import {
   allocateProfitSharingMembers,
   closeProfitDistribution,
   listProfitDistributions,
-  previewProfitDistribution,
+  readProfitDistributionAvailability,
   ProfitDistributionError,
   readProfitDistribution,
   type ProfitDistributionPreview,
+  type PendingProfitDistributionStore,
   type ProfitDistributionRecord,
 } from "../../lib/profit-distributions";
 import { type SetupRepayment } from "../../lib/profit-sharing";
@@ -396,9 +397,11 @@ export async function GET(request: Request) {
   let profitSharingHistory: ProfitSharingHistory[] = [];
   let profitSharingReadiness: null | {
     ready: boolean;
-    status: "READY" | "LOCKED" | "UNAVAILABLE";
+    status: "READY" | "PARTIAL" | "LOCKED" | "UNAVAILABLE";
     code: string;
     message: string;
+    expectedStoreCount?: number;
+    pendingStores?: readonly PendingProfitDistributionStore[];
   } = null;
   if (globalStoreAccess) {
     try {
@@ -431,12 +434,20 @@ export async function GET(request: Request) {
         };
       } else {
         try {
-          previewDistribution = await previewProfitDistribution(db, distributionPeriod);
+          const availability = await readProfitDistributionAvailability(db, distributionPeriod);
+          previewDistribution = availability.preview;
+          const ready = Boolean(previewDistribution) && availability.pendingStores.length === 0;
           profitSharingReadiness = {
-            ready: true,
-            status: "READY",
-            code: "READY",
-            message: "Tất cả cửa hàng đã khóa kỳ; có thể xác nhận chia lợi nhuận.",
+            ready,
+            status: ready ? "READY" : previewDistribution ? "PARTIAL" : "UNAVAILABLE",
+            code: ready ? "READY" : availability.pendingStores.some((store) => store.status === "MISSING") ? "MISSING_PERIOD" : "PERIOD_NOT_LOCKED",
+            expectedStoreCount: availability.expectedStoreCount,
+            pendingStores: availability.pendingStores,
+            message: ready
+              ? "Tất cả cửa hàng đã khóa kỳ; có thể xác nhận chia lợi nhuận."
+              : previewDistribution
+                ? `${previewDistribution.stores.length}/${availability.expectedStoreCount} cửa hàng đã khóa kỳ. Có thể nhập hoàn trả setup và xem phân chia cho các cửa hàng này; khóa sổ khi các cửa hàng còn lại hoàn tất.`
+                : "Chưa có cửa hàng khóa kỳ trong tháng đã chọn. Hoàn tất lương thưởng và khóa kỳ tại cửa hàng để nhập hoàn trả setup.",
           };
         } catch (error) {
           if (!(error instanceof ProfitDistributionError)) throw error;

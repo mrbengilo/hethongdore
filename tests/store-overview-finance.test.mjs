@@ -428,7 +428,7 @@ test("financial report recognizes full fixed costs for every store and the compa
   assert.equal(body.profitSharingReadiness.ready, false);
   assert.equal(body.profitSharingReadiness.status, "UNAVAILABLE");
   assert.equal(body.profitSharingReadiness.code, "MISSING_PERIOD");
-  assert.match(body.profitSharingMessage, /Chưa đủ kỳ tài chính/u);
+  assert.match(body.profitSharingMessage, /Chưa có cửa hàng khóa kỳ/u);
   assert.deepEqual(body.profitSharingMembers, [], "open-period policy must not masquerade as an immutable distribution snapshot");
   assert.deepEqual(body.configuredProfitSharingMembers, [
     { id: "member-a", name: "Thành viên A", percentage: 40 },

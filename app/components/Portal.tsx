@@ -1,4 +1,5 @@
 "use client";
+import StoreManagerPayroll from "./StoreManagerPayroll";
 /* eslint-disable @next/next/no-img-element -- Logo thương hiệu tĩnh do người dùng cung cấp và dùng đồng nhất trong toàn hệ thống. */
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, BadgeDollarSign, Banknote, BarChart3, Bell, Calendar, CalendarDays, CalendarRange, CheckCircle2, ClipboardCheck, Clock3, DatabaseBackup, Download, Eye, Gift, History, Home, LayoutDashboard, LogOut, Menu, PackageOpen, Percent, PieChart, Plus, ReceiptText, RefreshCw, Settings, ShoppingBag, ShoppingCart, SlidersHorizontal, Store, Trash2, TrendingUp, UserRound, UsersRound, WalletCards, X, type LucideIcon } from "lucide-react";
@@ -140,14 +141,10 @@ const comparisonNote = (current: number, previous: number) => {
 const dateTime = (value: string) => new Intl.DateTimeFormat("vi-VN", { dateStyle: "short", timeStyle: "short", timeZone: "Asia/Ho_Chi_Minh", hourCycle: "h23" }).format(new Date(value));
 const localDate = (value: string) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh" }).format(new Date(value));
 const todayLocalDate = () => localDate(new Date().toISOString());
-function exportCsvFile(filename: string, rows: Array<Array<string | number | null>>) {
-    const cell = (value: string | number | null) => { const raw = String(value ?? ""); const safe = /^[=+\-@]/.test(raw) ? `'${raw}` : raw; return `"${safe.replaceAll('"', '""')}"`; };
-    const blob = new Blob(["\uFEFF" + rows.map(row => row.map(cell).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url);
-}
-const managerMenu = ["Tổng quan", "Cửa hàng", "Giao việc", "Dòng tiền", "Lương thưởng quản lý", "Báo cáo", "Chia lợi nhuận", "Điều chuyển nhân sự", "Cài đặt"];
+
+const managerMenu = ["Tổng quan", "Cửa hàng", "Giao việc", "Dòng tiền", "Báo cáo", "Chia lợi nhuận", "Điều chuyển nhân sự", "Cài đặt"];
 const superAdminManagerMenu = [...managerMenu.slice(0, -1), "Quản Lý Nhân Viên", "Cài Đặt Chính Sách", managerMenu.at(-1) ?? "Cài đặt"];
-const storeMenu = ["Tổng quan", "Lịch phân ca", "Nhân viên", "Nhập hàng", "Chi phí cố định", "Chấm công", "Lương thưởng", "Đơn hàng", "Dòng tiền", "Chi phí cuối kỳ", "Báo cáo", "Cài đặt"];
+const storeMenu = ["Tổng quan", "Lịch phân ca", "Nhân viên", "Nhập hàng", "Chi phí cố định", "Chấm công", "Lương thưởng", "Lương thưởng quản lý", "Đơn hàng", "Dòng tiền", "Chi phí cuối kỳ", "Báo cáo", "Cài đặt"];
 const superAdminStoreMenu = [...storeMenu.slice(0, -1), "Reset Dữ Liệu", storeMenu.at(-1) ?? "Cài đặt"];
 const employeeMenu = ["Trang chủ", "Đơn hàng", "Doanh thu", "Bảng lương", "Dòng tiền", "Lịch sử ca làm"];
 const navigationMenus = { manager: managerMenu, store: storeMenu, employee: employeeMenu };
@@ -379,8 +376,8 @@ function ManagerPortal({ user }: {
         return <div className="app-loading"><div className="pulse-logo"><img className="brand-logo-image" src="/logo.jpg" alt="Logo DORE Quản Lý" width={1254} height={1254}/></div><p>{storeLoadError}</p><button type="button" className="primary-button" onClick={() => void loadStores()}>Thử tải lại</button></div>;
     if (selectedStore)
         return <AppShell brand={selectedStore.name} subtitle={Number(user.isSuperAdmin) === 1 ? "Quản trị cấp cao" : "Quản lý cửa hàng"} menu={activeStoreMenu} active={storeView} onActive={(item) => { setStoreView(item); if (item !== "Đơn hàng") setFocusedOrderId(null); }} user={user} onBack={returnToSystemOverview} shellAction={notificationCenter} accent="light"><StoreWorkspace store={selectedStore} view={storeView} period={period} onPeriodChange={setPeriod} onReload={loadStores} focusedOrderId={focusedOrderId} focusedOrderRequest={focusedOrderRequest} isSuperAdmin={Number(user.isSuperAdmin) === 1}/></AppShell>;
-    const financeOwnsHeader = view === "Báo cáo" || view === "Dòng tiền" || view === "Quản Lý Nhân Viên" || view === "Cài Đặt Chính Sách";
-    return <AppShell brand="DORE" subtitle="Quản lý toàn hệ thống" menu={activeManagerMenu} active={view} onActive={setView} user={user} shellAction={notificationCenter}>{financeOwnsHeader ? null : <ManagerHeader view={view} period={period} onPeriodChange={setPeriod}/>}<ManagerView view={view} stores={stores} loading={loading} reload={loadStores} openStore={(store) => { setFocusedOrderId(null); setStoreView(storeMenu[0]); setSelectedStoreId(store.id); }} isSuperAdmin={Number(user.isSuperAdmin) === 1}/></AppShell>;
+    const financeOwnsHeader = view === "Chia lợi nhuận" || view === "Báo cáo" || view === "Dòng tiền" || view === "Quản Lý Nhân Viên" || view === "Cài Đặt Chính Sách";
+    return <AppShell brand="DORE" subtitle="Quản lý toàn hệ thống" menu={activeManagerMenu} active={view} onActive={setView} user={user} shellAction={notificationCenter}>{financeOwnsHeader ? null : <ManagerHeader view={view} period={period} onPeriodChange={setPeriod}/>}<ManagerView view={view} period={period} onPeriodChange={setPeriod} stores={stores} loading={loading} reload={loadStores} openStore={(store) => { setFocusedOrderId(null); setStoreView(storeMenu[0]); setSelectedStoreId(store.id); }} isSuperAdmin={Number(user.isSuperAdmin) === 1}/></AppShell>;
 }
 function ManagerNotificationCenter({ notifications, unreadCount, error, clearing, onClear, onRefresh, onOpen }: {
     notifications: ManagerNotification[];
@@ -484,8 +481,10 @@ function StatCard({ label, value, note, tone = "green", icon = "↗" }: {
     const Icon = statIcons[icon] ?? TrendingUp;
     return <article className={`stat-card ${tone}`}><div className="stat-icon"><Icon size={25} strokeWidth={1.9}/></div><div><span>{label}</span><strong>{value}</strong>{note && <small>{note}</small>}</div></article>;
 }
-function ManagerView({ view, stores, loading, reload, openStore, isSuperAdmin }: {
+function ManagerView({ view, stores, loading, reload, openStore, isSuperAdmin, period, onPeriodChange }: {
     view: string;
+    period: string;
+    onPeriodChange: (period: string) => void;
     stores: Store[];
     loading: boolean;
     reload: () => Promise<void>;
@@ -501,14 +500,12 @@ function ManagerView({ view, stores, loading, reload, openStore, isSuperAdmin }:
         return <FunctionalTaskManager stores={stores}/>;
     if (view === "Dòng tiền")
         return <ManagerCashflow/>;
-    if (view === "Lương thưởng quản lý")
-        return <ManagerPayroll/>;
     if (view === "Báo cáo")
         return <ManagerBusinessReport/>;
     if (view === "Điều chuyển nhân sự")
         return <ReferenceManagerTransfer stores={stores}/>;
     if (view === "Chia lợi nhuận")
-        return <ManagerProfitSharingClosing/>;
+        return <ManagerProfitSharingClosing initialPeriod={period} onPeriodChange={onPeriodChange}/>;
     if (view === "Quản Lý Nhân Viên" && isSuperAdmin)
         return <SuperAdminEmployeeDirectory/>;
     if (view === "Cài Đặt Chính Sách" && isSuperAdmin)
@@ -643,100 +640,6 @@ function StoresView({ stores, totals, reload, openStore, isSuperAdmin }: {
       {deleteCandidate ? <div className="modal-backdrop" ref={deleteRootRef}><form className="modal store-delete-modal" ref={deleteDialogRef} role="alertdialog" aria-modal="true" aria-labelledby="store-delete-title" aria-describedby="store-delete-description" tabIndex={-1} onSubmit={deleteStore}><div className="modal-title"><div><h2 id="store-delete-title">Xóa cửa hàng khỏi hệ thống?</h2><p>{deleteCandidate.name}</p></div><button type="button" aria-label="Đóng hộp thoại xóa cửa hàng" disabled={deletingStoreId !== null} onClick={closeDeleteDialog}>×</button></div><div className="store-delete-warning" id="store-delete-description"><b>Chỉ xóa được cửa hàng chưa từng phát sinh đơn hàng và không còn khoản ứng lương cần đối soát.</b><p>Cửa hàng sẽ biến mất khỏi danh sách và các tài khoản liên quan bị ngắt truy cập ngay. Dữ liệu phụ được giữ nội bộ để không làm mất lịch sử hoặc tạo bản ghi mồ côi.</p></div>{deleteMessage ? <div className="form-message" role="alert">{deleteMessage}</div> : null}<div className="modal-actions"><button ref={deleteCancelRef} type="button" disabled={deletingStoreId !== null} onClick={closeDeleteDialog}>Giữ lại cửa hàng</button><button type="submit" className="primary-button store-delete-confirm" disabled={deletingStoreId !== null}>{deletingStoreId ? "Đang xóa..." : "Xóa cửa hàng"}</button></div></form></div> : null}
     </div>;
 }
-type ManagerPayrollRow = {
-    period: string;
-    storeId: string;
-    storeName: string;
-    profitBeforePerformanceRewards: number;
-    employeeKpiBonus: number;
-    finalProfit: number;
-    managerHours?: number;
-    employeeEligibleHours?: number;
-    totalKpiHours?: number;
-    profitPerKpiHour?: number;
-    kpiRate?: number;
-    managerSalary: number;
-    managerBonus: number;
-    managerTotal: number;
-    paymentConfirmedAt: string | null;
-    closedAt: string | null;
-    status: "LOCKED";
-};
-type ManagerPayrollReport = {
-    period: string;
-    policy: {
-        salaryPerStore: number;
-        managerHoursPerStore?: number;
-        managerKpiRate: number | null;
-        tiers?: Array<{ minimumProfitPerHour: number; rate: number }>;
-    };
-    rows: ManagerPayrollRow[];
-    totals: { storeCount: number; totalSalary: number; totalBonus: number; totalPay: number };
-};
-function ManagerPayroll() {
-    const [period, setPeriod] = useState(() => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh", year: "numeric", month: "2-digit" }).format(new Date()));
-    const [report, setReport] = useState<ManagerPayrollReport | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState("");
-    const payrollRequest = useRef(0);
-    const payrollController = useRef<AbortController | null>(null);
-    const load = useCallback(async () => {
-        const requestedPeriod = period;
-        const requestId = ++payrollRequest.current;
-        payrollController.current?.abort();
-        const controller = new AbortController();
-        payrollController.current = controller;
-        setLoading(true);
-        setError("");
-        try {
-            const params = new URLSearchParams({ scope: "manager", period: requestedPeriod });
-            const response = await fetch(`/api/payroll?${params}`, { cache: "no-store", signal: controller.signal });
-            const payload = await response.json() as { managerPayroll?: ManagerPayrollReport; message?: string };
-            if (!response.ok || !payload.managerPayroll) throw new Error(payload.message || "Không thể tải lương thưởng quản lý.");
-            if (payload.managerPayroll.period !== requestedPeriod) throw new Error("Dữ liệu lương quản lý phản hồi không đúng kỳ đã chọn.");
-            if (requestId !== payrollRequest.current || controller.signal.aborted) return;
-            setReport(payload.managerPayroll);
-        } catch (cause) {
-            if (requestId !== payrollRequest.current || controller.signal.aborted) return;
-            setReport(null);
-            setError(cause instanceof Error ? cause.message : "Không thể tải lương thưởng quản lý.");
-        } finally {
-            if (requestId === payrollRequest.current) setLoading(false);
-            if (payrollController.current === controller) payrollController.current = null;
-        }
-    }, [period]);
-    useEffect(() => {
-        void load();
-        return () => payrollController.current?.abort();
-    }, [load]);
-
-    const exportReport = () => {
-        if (!report) return;
-        exportCsvFile(`luong-thuong-quan-ly-${report.period}.csv`, [
-            ["Cửa hàng", "Kỳ", "Lợi nhuận cơ sở", "Giờ KPI nhân viên chính", "Giờ quản lý", "Tổng giờ KPI", "Lợi nhuận/giờ", "Mức KPI", "Lương quản lý", "Thưởng KPI quản lý", "Tổng nhận", "Lợi nhuận sau cùng", "Đã chi lúc", "Khóa lúc"],
-            ...report.rows.map((row) => [row.storeName, row.period, row.profitBeforePerformanceRewards, row.employeeEligibleHours ?? 0, row.managerHours ?? report.policy.managerHoursPerStore ?? "", row.totalKpiHours ?? 0, row.profitPerKpiHour ?? 0, `${((row.kpiRate ?? 0) * 100).toFixed(0)}%`, row.managerSalary, row.managerBonus, row.managerTotal, row.finalProfit, row.paymentConfirmedAt, row.closedAt]),
-        ]);
-    };
-    const policy = report?.policy ?? null;
-    const employeeTierText = (policy?.tiers ?? [])
-        .map((tier) => `${(tier.rate * 100).toLocaleString("vi-VN", { maximumFractionDigits: 2 })}% khi lợi nhuận/giờ từ ${money(tier.minimumProfitPerHour)}`)
-        .join("; ");
-    const managerPolicyText = policy?.managerKpiRate == null
-        ? "Tỷ lệ KPI quản lý được đọc từ chính sách có phiên bản của kỳ; giao diện không tự gán giá trị thay thế."
-        : `KPI quản lý hiện hành là ${(policy.managerKpiRate * 100).toLocaleString("vi-VN", { maximumFractionDigits: 2 })}% lợi nhuận cơ sở.`;
-    const rowManagerHours = (row: ManagerPayrollRow) => row.managerHours ?? policy?.managerHoursPerStore ?? null;
-    const totals = report?.totals ?? { storeCount: 0, totalSalary: 0, totalBonus: 0, totalPay: 0 };
-    const rows = report?.rows ?? [];
-    return <div className="page-content manager-reference payroll-page">
-        <div className="ref-toolbar"><div><h2>LƯƠNG THƯỞNG QUẢN LÝ</h2><p>Chỉ ghi nhận số liệu thật từ các cửa hàng đã xác nhận chi và khóa kỳ.</p></div><div className="ref-toolbar-actions"><input aria-label="Kỳ lương quản lý" type="month" value={period} onChange={(event) => setPeriod(event.target.value)}/><button onClick={() => void load()} disabled={loading}><RefreshCw size={16}/> {loading ? "Đang tải…" : "Làm mới"}</button><button onClick={exportReport} disabled={!rows.length}><Download size={16}/> Xuất CSV</button></div></div>
-        <div className="notice-banner">ℹ {policy ? <>Chính sách phiên bản áp dụng cho kỳ: lương quản lý {money(policy.salaryPerStore)}/cửa hàng/kỳ. {managerPolicyText} Mức KPI nhân viên: {employeeTierText || "chưa cấu hình"}.</> : <>Chính sách lương và KPI được tải từ Finance Engine theo kỳ đã chọn; không có giá trị mặc định ở giao diện.</>} Các dòng đã khóa bên dưới giữ nguyên chính sách tại thời điểm chốt.</div>
-        {error && <div className="form-message">{error}</div>}
-        <div className="stats-grid four"><StatCard label="TỔNG LƯƠNG QUẢN LÝ" value={money(totals.totalSalary)} note={`${totals.storeCount} cửa hàng đã khóa kỳ`} icon="♕"/><StatCard label="TỔNG THƯỞNG KPI" value={money(totals.totalBonus)} note={policy?.managerKpiRate == null ? "Theo snapshot và chính sách của kỳ" : `Tỷ lệ hiện hành ${(policy.managerKpiRate * 100).toLocaleString("vi-VN", { maximumFractionDigits: 2 })}%`} tone="orange" icon="✦"/><StatCard label="TỔNG THỰC NHẬN" value={money(totals.totalPay)} note={`Kỳ ${period}`} tone="blue" icon="₫"/><StatCard label="CỬA HÀNG ĐÃ CHỐT" value={String(totals.storeCount)} note="Đã xác nhận chi và khóa" icon="✓"/></div>
-        <section className="table-card"><div className="table-head"><div><h2>Lương thưởng theo từng cửa hàng · {period}</h2><p>Số liệu được lấy từ bản chốt bất biến của mỗi cửa hàng.</p></div><span className="status-pill">{rows.length} kỳ cửa hàng đã khóa</span></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>Cửa hàng</th><th>Lợi nhuận cơ sở</th><th>Giờ xét KPI</th><th>Lợi nhuận/giờ</th><th>Mức KPI</th><th>Lương quản lý (snapshot)</th><th>Thưởng KPI quản lý</th><th>Tổng thực nhận</th><th>Lợi nhuận sau cùng</th><th>Đã chi lúc</th><th>Khóa kỳ lúc</th><th>Trạng thái</th></tr></thead><tbody>
-            {loading && !report ? <tr><td colSpan={12} className="empty-cell">Đang tải số liệu lương thưởng quản lý…</td></tr> : rows.length === 0 ? <tr><td colSpan={12} className="empty-cell">Chưa có cửa hàng nào hoàn tất xác nhận chi và khóa kỳ {period}.</td></tr> : rows.map((row) => { const managerHours = rowManagerHours(row); return <tr key={`${row.storeId}-${row.period}`}><td><b>{row.storeName}</b></td><td>{money(row.profitBeforePerformanceRewards)}</td><td><small>NV {Number(row.employeeEligibleHours ?? 0).toFixed(2)} giờ · QL {managerHours == null ? "chưa có snapshot" : `${Number(managerHours).toFixed(2)} giờ`}</small><br/><b>{Number(row.totalKpiHours ?? 0).toFixed(2)} giờ</b></td><td>{money(row.profitPerKpiHour ?? 0)}/giờ</td><td>{((row.kpiRate ?? 0) * 100).toFixed(0)}%</td><td>{money(row.managerSalary)}</td><td className="money-green">{money(row.managerBonus)}</td><td><b>{money(row.managerTotal)}</b></td><td>{money(row.finalProfit)}</td><td>{row.paymentConfirmedAt ? dateTime(row.paymentConfirmedAt) : "—"}</td><td>{row.closedAt ? dateTime(row.closedAt) : "—"}</td><td><span className="status-pill">Đã khóa</span></td></tr>; })}
-        </tbody><tfoot><tr><td>TỔNG CỘNG</td><td colSpan={4}/><td>{money(totals.totalSalary)}</td><td>{money(totals.totalBonus)}</td><td>{money(totals.totalPay)}</td><td colSpan={5}/></tr></tfoot></table></div></section>
-    </div>;
-}
 function StoreWorkspace({ store, view, period, onPeriodChange, onReload, focusedOrderId, focusedOrderRequest, isSuperAdmin }: {
     store: Store;
     view: string;
@@ -769,6 +672,7 @@ function StoreModule({ store, view, period, onPeriodChange, onChanged }: {
     onPeriodChange: (period: string) => void;
     onChanged: () => void | Promise<void>;
 }) {
+    if (view === "Lương thưởng quản lý") return <StoreManagerPayroll key={`${store.id}:${period}`} store={store} period={period} onChanged={onChanged}/>;
     if (view === "Cài đặt") return <FunctionalSettings name={`Quản lý ${store.name}`} email="quanly@dore.vn" storeId={store.id}/>;
     if (view === "Lịch phân ca") return <StoreScheduleManagement store={store}/>;
     if (view === "Nhân viên") return <StoreEmployeeManagement store={store}/>;
@@ -776,7 +680,7 @@ function StoreModule({ store, view, period, onPeriodChange, onChanged }: {
     if (view === "Dòng tiền") return <StoreCashflowView store={store} period={period} onPeriodChange={onPeriodChange}/>;
     if (view === "Chi phí cuối kỳ") return <MonthEndExpensePanel store={store} period={period} onChanged={onChanged}/>;
     if (view === "Báo cáo") return <StoreFinancialReport store={store} initialPeriod={period} onPeriodChange={onPeriodChange}/>;
-    return <ReferenceStoreModule store={store} view={view}/>;
+    return <ReferenceStoreModule store={store} view={view} period={period} onPeriodChange={onPeriodChange}/>;
 }
 function EmployeePortal({ user, onUser }: {
     user: User;

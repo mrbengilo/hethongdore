@@ -58,6 +58,28 @@ async function database(storeIds = ["store-a", "store-b", "store-c", "store-d"],
 
 
 
+test("partial preview calculates setup only for locked stores and keeps an open store pending", async () => {
+  const db = await database(["store-a", "store-b"]);
+  try {
+    await seedPolicy(db);
+    await seedPeriod(db, "store-a", 5_000_000);
+    await seedPeriod(db, "store-b", 8_000_000, { status: "CONFIRMED" });
+    const setupRepayments = [{ storeId: "store-a", amount: 2_000_000 }];
+    const result = await distributions.readProfitDistributionAvailability(db, "2026-08", setupRepayments);
+    assert.equal(result.expectedStoreCount, 2);
+    assert.deepEqual(result.pendingStores, [{ storeId: "store-b", storeName: "DORE STORE-B", status: "CONFIRMED" }]);
+    assert.equal(result.preview.totalFinalProfit, 5_000_000);
+    assert.equal(result.preview.totalDistributableProfit, 3_000_000);
+    assert.deepEqual(result.preview.members.map((member) => member.amount), [1_200_000, 1_800_000]);
+    await assert.rejects(distributions.closeProfitDistribution(db, {
+      period: "2026-08", actorId: "admin-a", reason: "Partial must not close", setupRepayments,
+    }), (error) => error.code === "PERIOD_NOT_LOCKED");
+    await assert.rejects(distributions.readProfitDistributionAvailability(db, "2026-08", [
+      { storeId: "store-b", amount: 2_000_000 },
+    ]), (error) => error.code === "INVALID_INPUT");
+  } finally { db.close?.(); }
+});
+
 test("setup repayment deducts after final payroll profit and freezes the requested 40/60 example", async () => {
   const db = await database(["store-a"]);
   try {

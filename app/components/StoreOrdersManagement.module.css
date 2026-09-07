@@ -157,11 +157,11 @@
 }
 
 .refresh {
-  height: 42px;
+  min-height: 44px;
   border: 1px solid #b7d5c2;
   border-radius: 10px;
   background: #f2fbf5;
-  padding: 0 14px;
+  padding: 8px 14px;
   color: #087333;
   font-weight: 750;
   white-space: nowrap;
