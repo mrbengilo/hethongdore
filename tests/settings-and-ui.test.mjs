@@ -48,7 +48,7 @@ test("fixed-cost rows and payroll actions stay compact, visible and accessible o
   assert.match(styles, /\.fixed-cost-entry-name input,\.fixed-cost-entry-amount input\{min-height:44px/u);
 
   for (const label of [
-    "Kiểm tra & xác nhận số liệu",
+    "Xác nhận & chốt lương",
     "Xác nhận đã chi",
     "Khóa kỳ",
   ]) assert.match(payroll, new RegExp(label, "u"));

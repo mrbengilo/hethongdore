@@ -134,7 +134,7 @@ test("implements non-stacking monthly KPI snapshots", async () => {
   assert.match(payrollApi, /LOCKED/u);
   assert.match(payrollApi, /calculateKpi/u);
   assert.match(payrollApi, /loadFinancialPolicyForPeriod/u);
-  assert.match(payrollApi, /actualSeconds: item\.durationSeconds/u);
+  assert.match(payrollApi, /actualSeconds: item\.kpiDurationSeconds/u);
   assert.match(payrollApi, /user\.employeeId/u);
   assert.match(payrollTests, /canonical KPI uses actual employee seconds/u);
   assert.match(payrollTests, /archived-after-period/u);

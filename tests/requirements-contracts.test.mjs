@@ -237,7 +237,7 @@ test("payroll and dividend ledgers can only advance through audited locking acti
     "PAYROLL_PERIOD_CLOSE",
   ]) assert.match(payrollApi, new RegExp(audit, "u"));
 
-  assert.match(recordsApi, /protectedCategories = new Set\(\["KPI_SUMMARY", "PAYROLL_CLOSING", "DIVIDEND", "STORE_MANAGER_SALARY"\]\)/u);
+  assert.match(recordsApi, /protectedCategories = new Set\(\["KPI_SUMMARY", "PAYROLL_CLOSING", "DIVIDEND", "STORE_MANAGER_SALARY", "PAYROLL_REVIEW"\]\)/u);
   assert.match(recordsApi, /protectedCategories\.has\(body\.category\)/u);
   assert.match(recordsApi, /String\(existing\.status\) === "LOCKED" \|\| protectedCategories\.has/u);
   assert.match(recordsApi, /protectedCategories\.has\(existing\.category\)/u);
@@ -257,7 +257,7 @@ test("attendance and employee payroll distinguish hourly rate from earned salary
   assert.doesNotMatch(attendanceUi, /const fallback: ShiftSession/u);
   assert.match(closingUi, /money\(item\.hourlyRate\)\}\/giờ/u);
   assert.match(closingUi, /money\(item\.baseSalary\)/u);
-  assert.match(closingUi, /Lương thực nhận = lương cứng theo giờ × giờ làm thực tế/u);
+  assert.match(closingUi, /Sửa giờ tính lương, giờ KPI, phụ cấp và thưởng/u);
 });
 
 test("store payroll keeps manager-set rates and synchronizes every manual adjustment", async () => {
@@ -303,7 +303,7 @@ test("store payroll binds requests and mutations to one verified period", async 
     closingUi,
     /body: JSON\.stringify\(\{[\s\S]*storeId: actionScope\.storeId,[\s\S]*period: actionScope\.period,[\s\S]*expectedRevision: data\.financialPeriod\?\.revision \?\? 0,[\s\S]*reason: payrollActionReason\(action, employee\)/u,
   );
-  assert.match(closingUi, /disabled=\{!dataIsCurrent\}/u);
+  assert.match(closingUi, /disabled=\{!dataIsCurrent \|\| Boolean\(currentEditor\)\}/u);
 });
 
 test("payroll management ignores out-of-order months and gates every action on the loaded scope", async () => {
@@ -396,8 +396,8 @@ test("manager payroll uses only locked store ledgers and final profit includes e
   assert.doesNotMatch(payrollApi, /MANAGER_FIXED_WORK_HOURS_PER_STORE|managerFixedHours/u);
   assert.match(payrollApi, /const policyVersion = await loadFinancialPolicyForPeriod\(db, period\)/u);
   assert.match(payrollApi, /managerMonthlySalaryVnd: version\.policy\.managerMonthlySalaryVnd/u);
-  assert.match(payrollApi, /storePeriodFinance\(db, storeId, period, financePolicy\)/u);
-  assert.match(payrollApi, /const kpiDistribution = calculateKpi\(\{[\s\S]*actualSeconds: item\.durationSeconds/u);
+  assert.match(payrollApi, /storePeriodFinance\(db, storeId, period, financePolicy, reviews\)/u);
+  assert.match(payrollApi, /const kpiDistribution = calculateKpi\(\{[\s\S]*actualSeconds: item\.kpiDurationSeconds/u);
   assert.match(payrollApi, /const finance = calculateFinance\(\{[\s\S]*monthEndExpense: costBreakdown\.monthEndExpenses/u);
   assert.doesNotMatch(payrollApi, /loadPayrollPolicy|distributeStoreKpiByPolicy|settleStoreProfit/u);
   assert.match(portal, /view === "Lương thưởng quản lý"[\s\S]*return <StoreManagerPayroll/u);

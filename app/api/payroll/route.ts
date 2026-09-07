@@ -1,3 +1,5 @@
+import { applyPayrollReview, payrollReviewSource, readPayrollReviews, reviewSourceMatches,
+  reviewedKpiAmount, savePayrollReview, PayrollReviewError, type PayrollReviewSource, type PayrollReviewState } from "../../lib/payroll-review";
 import { initDb } from "../../../db/runtime";
 import { readStoreManagerSalary, saveStoreManagerSalary, StoreManagerSalaryError } from "../../lib/store-manager-salary";
 import {
@@ -11,7 +13,7 @@ import {
 } from "../../lib/payroll";
 import { calculateFinance } from "../../lib/finance-engine";
 import { calculateKpi } from "../../lib/kpi-engine";
-import { getSessionUser, INACTIVE_STORE_MESSAGE, isStoreActive, json } from "../_lib/auth";
+import { getSessionUser, INACTIVE_STORE_MESSAGE, isStoreActive, json, sha256 } from "../_lib/auth";
 import {
   MANAGER_STORE_SCOPE_MESSAGE,
   managerCanAccessStore,
@@ -112,6 +114,8 @@ type PayrollItem = {
   manualAllowance: number;
   manualBonus: number;
   adjustments: PayrollAdjustmentDetail[];
+  reviewSource?: PayrollReviewSource;
+  review?: PayrollReviewState;
   kpiBonus: number;
   totalPay: number;
   salaryAdvancePending: number;
@@ -166,6 +170,7 @@ type PayrollSummary = {
   totalSalaryAdvanceOverpaymentDebt: number;
   totalAvailablePay: number;
   items: PayrollItem[];
+  reviewVersions?: Array<{ employeeId: string; version: number }>;
   status: "PREVIEW" | "LOCKED";
   finalizedAt?: string;
   finalizedBy?: string;
@@ -252,6 +257,7 @@ type PayrollCommand = {
   action: PayrollAction;
   employeeId?: string;
   expectedRevision?: number;
+  expectedReviewToken?: string;
   reason?: string;
 };
 
@@ -770,7 +776,8 @@ async function buildPreview(
   // Use the same immutable policy value for finance and payroll calculations.
   // A concurrent superadmin save can affect the next preview, but never split
   // one preview across two policy versions.
-  const store = await storePeriodFinance(db, storeId, period, financePolicy);
+  const reviews = await readPayrollReviews(db, storeId, period);
+  const store = await storePeriodFinance(db, storeId, period, financePolicy, reviews);
   if (!store) return null;
 
   const { startUtc, endUtc, localStart, localEnd } = periodBoundsUtc(period);
@@ -813,9 +820,9 @@ async function buildPreview(
       )
       OR EXISTS (
         SELECT 1 FROM business_records r
-        WHERE r.category = 'LUONG_THUONG' AND r.store_id = ? AND r.status != 'DELETED'
+        WHERE r.category IN ('LUONG_THUONG', 'PAYROLL_REVIEW') AND r.store_id = ? AND r.status != 'DELETED'
           AND json_extract(r.data_json, '$.employeeId') = e.id
-          AND substr(json_extract(r.data_json, '$.date'), 1, 7) = ?
+          AND COALESCE(json_extract(r.data_json, '$.period'), substr(json_extract(r.data_json, '$.date'), 1, 7)) = ?
       )
       OR EXISTS (
         SELECT 1 FROM employee_payroll_closings c
@@ -1023,14 +1030,23 @@ async function buildPreview(
       },
       kpiLocked: false,
     };
+  }).map(({ item, kpiLocked }, index) => {
+    const source = payrollReviewSource(calculatedItems[index]);
+    const review = reviews.get(item.employeeId);
+    return { kpiLocked: review ? false : kpiLocked, item: {
+      ...item,
+      ...(review ? applyPayrollReview(calculatedItems[index], review) : {}),
+      reviewSource: source,
+      ...(review ? { review: { ...review, stale: !reviewSourceMatches(review.source, source) } } : {}),
+    } };
   });
   const kpiDistribution = calculateKpi({
     operatingProfit: profit,
     employees: itemBases.map(({ item }) => ({
       employeeId: item.employeeId,
-      // KPI is based on all actual hours recorded at this store. Support work,
-      // archive status and a later employee transfer must not erase history.
-      actualSeconds: item.durationSeconds,
+      // Default to actual hours, then apply the approved KPI-hours review.
+      // Support work and employment changes must not erase period history.
+      actualSeconds: item.kpiDurationSeconds,
     })),
     config: {
       managerRateBps: financePolicy.managerKpiRateBasisPoints,
@@ -1053,11 +1069,12 @@ async function buildPreview(
       kpiEligible: allocation.actualSeconds > 0,
       availablePay: Math.max(0, item.totalPay - safePayrollVnd(item.salaryAdvanceReserved)),
     };
-    const totalPay = employeePayWithKpi(item, allocation.employeeKpi);
+    const kpiBonus = reviewedKpiAmount(item.employeeId, allocation.employeeKpi, reviews);
+    const totalPay = employeePayWithKpi(item, kpiBonus);
     return {
       ...item,
       kpiEligible: allocation.actualSeconds > 0,
-      kpiBonus: allocation.employeeKpi,
+      kpiBonus,
       totalPay,
       availablePay: Math.max(0, totalPay - safePayrollVnd(item.salaryAdvanceReserved)),
     };
@@ -1152,13 +1169,57 @@ async function buildPreview(
     totalSalaryAdvanceOverpaymentDebt: coverage.totalOverpaymentDebt,
     totalAvailablePay: sumVnd(items.map((item) => item.availablePay)),
     items,
+    reviewVersions: [...reviews.values()].map(({ employeeId, version }) => ({ employeeId, version })),
     status: "PREVIEW",
   };
   assertPayrollSummaryInvariants(summary);
   return summary;
 }
 
+async function payrollReviewToken(summary: PayrollSummary) {
+  return sha256(JSON.stringify({
+    storeId: summary.storeId, period: summary.period, revenue: summary.revenue,
+    costs: summary.costBreakdown, policy: summary.financialPolicyVersionId,
+    managerSalaryVersion: summary.managerSalaryVersion,
+    items: summary.items.map((item) => ({
+      employeeId: item.employeeId, source: item.reviewSource, reviewVersion: item.review?.version ?? 0,
+      durationSeconds: item.durationSeconds, kpiDurationSeconds: item.kpiDurationSeconds,
+      baseSalary: item.baseSalary, tiktokAllowance: item.tiktokAllowance, supportAllowance: item.supportAllowance,
+      manualAllowance: item.manualAllowance, manualBonus: item.manualBonus, kpiBonus: item.kpiBonus,
+      pending: item.salaryAdvancePending, paid: item.salaryAdvancePaid,
+    })),
+  }));
+}
+
+async function assertReviewedSummary(summary: PayrollSummary, expectedToken?: string) {
+  if (summary.items.some((item) => item.review?.stale)) {
+    throw new PayrollReviewError("Dữ liệu nguồn đã thay đổi. Cập nhật lại nhân viên được đánh dấu, xem lại bảng lương rồi mới chốt.");
+  }
+  if ((summary.reviewVersions?.length && !expectedToken)
+    || (expectedToken !== undefined && expectedToken !== await payrollReviewToken(summary))) {
+    throw new PayrollReviewError("Bảng lương vừa thay đổi. Tải lại và xem lại số liệu trước khi chốt.");
+  }
+}
+
+function closingAmounts(summary: PayrollSummary) {
+  const managerSalary = managerSalaryForNewClosing(summary);
+  const managerBonus = requireVnd(summary.managerBonus, "KPI quản lý");
+  const salaryAdvancePaidTotal = safePayrollVnd(summary.totalSalaryAdvancePaid);
+  const settlement = salaryAdvanceSettlementSplit({
+    employeeBaseSalary: summary.totalBaseSalary, employeeTotalPay: summary.totalPay,
+    managerSalary, managerBonus, advanceAmount: salaryAdvancePaidTotal,
+  });
+  return { employeeTotal: safePayrollVnd(settlement.employeeRemaining), employeeGrossTotal: summary.totalPay,
+    salaryAdvancePaidTotal, managerSalary, managerBonus, managerTotal: sumVnd([managerSalary, managerBonus]),
+    salaryTotal: settlement.salaryTotal, rewardAllowanceTotal: settlement.rewardAllowanceTotal,
+    grandTotal: settlement.grandTotal };
+}
+
 function payrollFailure(error: unknown) {
+  if (error instanceof PayrollReviewError) return json({ message: error.message }, error.status);
+  if (String(error).includes("payroll review changed during confirmation")) {
+    return json({ message: "Số liệu đối soát vừa thay đổi. Tải lại và xem lại bảng lương trước khi chốt." }, 409);
+  }
   if (error instanceof StoreManagerSalaryError) return json({ message: error.message }, error.status);
   if (String(error).includes("manager salary changed during calculation")) {
     return json({ message: "Lương quản lý vừa thay đổi trong lúc tính. Vui lòng tải lại và xác nhận kỳ." }, 409);
@@ -1375,6 +1436,7 @@ async function getPayroll(request: Request) {
       : legacySnapshot?.status === "LOCKED",
     financialPeriod: publicFinancialPeriod(storeId, period, financialPeriodRow),
     summary,
+    reviewToken: await payrollReviewToken(summary),
     employeeClosings: individualClosings,
     individualLockedCount: individualClosings.length,
     closing,
@@ -1406,11 +1468,15 @@ async function postPayroll(request: Request) {
     expectedRevision?: number;
     managerSalary?: number;
     expectedSalaryVersion?: number;
+    expectedReviewVersion?: number;
+    expectedReviewToken?: string;
+    values?: unknown;
     reason?: string;
   };
   if (typeof body.storeId !== "string" || typeof body.period !== "string"
     || (body.employeeId !== undefined && typeof body.employeeId !== "string")
-    || (body.reason !== undefined && typeof body.reason !== "string")) {
+    || (body.reason !== undefined && typeof body.reason !== "string")
+    || (body.expectedReviewToken !== undefined && typeof body.expectedReviewToken !== "string")) {
     return json({ message: "Dữ liệu chốt lương không hợp lệ." }, 400);
   }
   const storeId = body.storeId.trim();
@@ -1425,6 +1491,22 @@ async function postPayroll(request: Request) {
       storeId, period, amount: body.managerSalary, expectedVersion: body.expectedSalaryVersion, actorId: user.id,
     });
     return json({ message: "Đã lưu lương quản lý cho cửa hàng và kỳ đã chọn." });
+  }
+  if (requestedAction === "SAVE_EMPLOYEE_REVIEW") {
+    const current = await readFinancialPeriodLifecycleRow(db, storeId, period);
+    if (current && financialPeriodReached(current, "CONFIRMED")) {
+      return json({ message: "Kỳ đã chốt lương; không thể sửa số liệu." }, 409);
+    }
+    const summary = await buildPreview(db, storeId, period);
+    if (!summary) return json({ message: "Không tìm thấy cửa hàng." }, 404);
+    if (!body.expectedReviewToken || body.expectedReviewToken !== await payrollReviewToken(summary)) {
+      return json({ message: "Bảng lương đã thay đổi. Tải lại và kiểm tra trước khi cập nhật." }, 409);
+    }
+    const employee = summary.items.find((item) => item.employeeId === body.employeeId);
+    if (!employee?.reviewSource) return json({ message: "Nhân viên không thuộc bảng lương cửa hàng trong kỳ này." }, 404);
+    await savePayrollReview(db, { storeId, period, employeeId: employee.employeeId, actorId: user.id,
+      expectedVersion: body.expectedReviewVersion, values: body.values, source: employee.reviewSource, reason: body.reason ?? "" });
+    return json({ message: "Đã cập nhật số liệu. Hãy xem lại bảng lương trước khi chốt." });
   }
   if (!isPayrollAction(requestedAction)) return json({ message: "Thao tác chốt kỳ lương không hợp lệ." }, 400);
   return executePayrollAction(db, user, { ...body, storeId, period, action: requestedAction });
@@ -1462,6 +1544,9 @@ async function executePayrollAction(
     if (!canClosePayrollPeriod(period)) {
       return json({ message: "Chỉ được xác nhận kỳ lương từ ngày cuối tháng hoặc sau đó." }, 409);
     }
+    const reviewedSummary = await buildPreview(db, storeId, period);
+    if (!reviewedSummary) return json({ message: "Không tìm thấy cửa hàng." }, 404);
+    await assertReviewedSummary(reviewedSummary, body.expectedReviewToken);
     const rank = financialPeriodAtRequest ? financialPeriodStatusRank[financialPeriodAtRequest.status] : 0;
     const steps: Array<Pick<PayrollCommand, "action" | "employeeId">> = [];
     if (rank < financialPeriodStatusRank.CALCULATED) {
@@ -1734,40 +1819,11 @@ async function executePayrollAction(
           missingEmployeeIds: missingEmployees.map((item) => item.employeeId),
         }, 409);
       }
-      let managerSalary: number;
-      let managerBonus: number;
-      try {
-        managerSalary = managerSalaryForNewClosing(employeeSummary);
-        managerBonus = requireVnd(employeeSummary.managerBonus, "KPI quản lý");
-      } catch (error) {
-        return json({ message: error instanceof Error ? error.message : "Thiếu snapshot chính sách lương quản lý của kỳ." }, 409);
-      }
-      const managerTotal = sumVnd([managerSalary, managerBonus]);
-      const salaryAdvancePaidTotal = safePayrollVnd(employeeSummary.totalSalaryAdvancePaid);
-      const settlement = salaryAdvanceSettlementSplit({
-        employeeBaseSalary: employeeSummary.totalBaseSalary,
-        employeeTotalPay: employeeSummary.totalPay,
-        managerSalary,
-        managerBonus,
-        advanceAmount: salaryAdvancePaidTotal,
-      });
-      const employeeTotal = safePayrollVnd(settlement.employeeRemaining);
+      const amounts = closingAmounts(employeeSummary);
+      const { managerSalary, managerBonus, managerTotal } = amounts;
       const closing: PayrollClosing = {
-        period,
-        storeId,
-        storeName: employeeSummary.storeName,
-        employeeTotal,
-        employeeGrossTotal: employeeSummary.totalPay,
-        salaryAdvancePaidTotal,
-        managerSalary,
-        managerBonus,
-        managerTotal,
-        salaryTotal: settlement.salaryTotal,
-        rewardAllowanceTotal: settlement.rewardAllowanceTotal,
-        grandTotal: settlement.grandTotal,
-        status: "MANAGER_FINALIZED",
-        managerFinalizedAt: now,
-        managerFinalizedBy: user.id,
+        period, storeId, storeName: employeeSummary.storeName, ...amounts,
+        status: "MANAGER_FINALIZED", managerFinalizedAt: now, managerFinalizedBy: user.id,
       };
       const id = closingId(storeId, period);
       const transition = prepareFinancialPeriodTransitionPlan(db, {
@@ -1880,7 +1936,8 @@ async function executePayrollAction(
         return json({ message: "Kỳ tài chính chưa ở trạng thái đối soát." }, 409);
       }
       if (existing.status !== "SALARY_CONFIRMED") return json({ message: "Hãy xác nhận khoản chi lương trước." }, 409);
-      const closing: PayrollClosing = { ...existing, status: "REWARDS_CONFIRMED", rewardsConfirmedAt: now, rewardsConfirmedBy: user.id };
+      await assertReviewedSummary(employeeSummary, body.expectedReviewToken);
+      const closing: PayrollClosing = { ...existing, ...closingAmounts(employeeSummary), status: "REWARDS_CONFIRMED", rewardsConfirmedAt: now, rewardsConfirmedBy: user.id };
       const finalSummary: PayrollSummary = {
         ...employeeSummary,
         status: "LOCKED",

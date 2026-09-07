@@ -5,6 +5,8 @@ import { CheckCircle2, Download, LockKeyhole, RefreshCw, WalletCards } from "luc
 import { canClosePayrollPeriod, payrollPeriodClosingDate } from "../lib/finance";
 import { PAYROLL_UPDATED_EVENT } from "../lib/payroll";
 import { readFinancialResponse } from "../lib/financial-response";
+import PayrollReviewEditor from "./PayrollReviewEditor";
+import type { PayrollReviewState, PayrollReviewValues } from "../lib/payroll-review";
 import { DatePickerControl } from "./DatePickerControl";
 import styles from "./StorePayrollClosing.module.css";
 
@@ -19,9 +21,10 @@ type PayrollItem = {
   completedShiftCount?: number;
   kpiCompletedShiftCount?: number;
   kpiEligible?: boolean;
+  durationSeconds: number;
   durationMinutes: number;
   hours: number;
-  kpiDurationSeconds?: number;
+  kpiDurationSeconds: number;
   kpiHours?: number;
   hourlyRate: number;
   baseSalary: number;
@@ -30,6 +33,7 @@ type PayrollItem = {
   manualAllowance: number;
   manualBonus: number;
   kpiBonus: number;
+  review?: PayrollReviewState;
   totalPay: number;
   salaryAdvancePending: number;
   salaryAdvancePaid: number;
@@ -138,6 +142,7 @@ type FinancialPeriod = {
 type PayrollResponse = {
   period?: string;
   message?: string;
+  reviewToken?: string;
   locked?: boolean;
   summary?: PayrollSummary;
   employeeClosings?: EmployeePayrollClosing[];
@@ -300,6 +305,8 @@ export default function StorePayrollClosing({ store, initialPeriod, onPeriodChan
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const [editor, setEditor] = useState<{ scope: string; item: PayrollItem; token: string } | null>(null);
+  const currentEditor = editor?.scope === `${store.id}:${period}` ? editor : null;
   const [error, setError] = useState("");
   const loadRequest = useRef(0);
   const loadController = useRef<AbortController | null>(null);
@@ -366,7 +373,7 @@ export default function StorePayrollClosing({ store, initialPeriod, onPeriodChan
   }, [load, period, store.id]);
 
   const runAction = async (action: PayrollAction, employee?: PayrollItem) => {
-    if (actionInFlight.current) return;
+    if (actionInFlight.current || currentEditor) return;
     const actionScope = loadedScope;
     if (loading || !actionScope || actionScope.period !== period || actionScope.storeId !== store.id) {
       setError("Dữ liệu kỳ lương đang tải hoặc chưa khớp kỳ đã chọn. Vui lòng tải lại trước khi thao tác.");
@@ -398,6 +405,7 @@ export default function StorePayrollClosing({ store, initialPeriod, onPeriodChan
           action,
           employeeId: employee?.employeeId,
           expectedRevision: data.financialPeriod?.revision ?? 0,
+          expectedReviewToken: data.reviewToken,
           reason: payrollActionReason(action, employee),
         }),
       });
@@ -433,7 +441,8 @@ export default function StorePayrollClosing({ store, initialPeriod, onPeriodChan
     && summary.period === period
     && summary.storeId === store.id,
   );
-  const grandTotal = closing?.grandTotal ?? ((summary?.totalAvailablePay ?? summary?.totalPay ?? 0) + (summary?.managerTotal ?? 0));
+  const grandTotal = (data.financialPeriod && ["CONFIRMED", "PAID", "LOCKED"].includes(data.financialPeriod.status) ? closing?.grandTotal : undefined)
+    ?? ((summary?.totalAvailablePay ?? summary?.totalPay ?? 0) + (summary?.managerTotal ?? 0));
   const employeeKpiHours = summary?.kpiEligibleHours ?? summary?.totalHours ?? 0;
   const totalKpiHours = summary?.totalKpiHours ?? employeeKpiHours;
   const profitPerKpiHour = summary?.profitPerKpiHour ?? summary?.profitPerHour ?? 0;
@@ -467,6 +476,34 @@ export default function StorePayrollClosing({ store, initialPeriod, onPeriodChan
   const periodIsLocked = canonicalStatus ? canonicalStatus === "LOCKED" : Boolean(data.locked || closing?.status === "LOCKED");
   const individualCheckpointOpen = canonicalRank === null || canonicalRank < financialPeriodRank.CONFIRMED;
   const canLockIndividual = closingWindowOpen && individualCheckpointOpen;
+  const canEdit = !readOnly && workflowRank < financialPeriodRank.CONFIRMED && summary?.status !== "LOCKED";
+  const staleReview = Boolean(summary?.items.some((item) => item.review?.stale));
+  const openEditor = (item: PayrollItem) => {
+    if (!canEdit || saving || loading || currentEditor || !dataIsCurrent || !data.reviewToken) return;
+    setMessage(""); setError("");
+    setEditor({ scope: `${store.id}:${period}`, item, token: data.reviewToken });
+    requestAnimationFrame(() => document.getElementById("payroll-review-editor")?.scrollIntoView({ behavior: "smooth", block: "center" }));
+  };
+  const updateReview = async (values: PayrollReviewValues, reason: string) => {
+    if (!currentEditor || actionInFlight.current || !canEdit) return;
+    const editing = currentEditor;
+    actionInFlight.current = true; setSaving(true);
+    try {
+      const response = await fetch("/api/payroll", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "SAVE_EMPLOYEE_REVIEW", storeId: store.id, period,
+          employeeId: editing.item.employeeId, expectedReviewVersion: editing.item.review?.version ?? 0,
+          expectedReviewToken: editing.token, values, reason }),
+      });
+      const payload = await readFinancialResponse<PayrollResponse>(response);
+      window.dispatchEvent(new CustomEvent(PAYROLL_UPDATED_EVENT, { detail: { storeId: store.id, period, source: "closing" } }));
+      if (activeScope.current !== editing.scope) return;
+      setEditor(null);
+      await load();
+      if (activeScope.current !== editing.scope) return;
+      setMessage(payload.message ?? "Đã cập nhật số liệu. Xem lại bảng lương trước khi chốt.");
+      requestAnimationFrame(() => document.getElementById("payroll-employee-details")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    } finally { actionInFlight.current = false; setSaving(false); }
+  };
   const workflowActions = useMemo<PayrollWorkflowAction[]>(() => {
     const openingReason = `Mở từ ngày cuối tháng ${localDateLabel(closingWindowDate)} hoặc các ngày sau đó.`;
     const periodConfirmed = workflowRank >= financialPeriodRank.CONFIRMED;
@@ -474,15 +511,17 @@ export default function StorePayrollClosing({ store, initialPeriod, onPeriodChan
     const periodLocked = workflowRank >= financialPeriodRank.LOCKED;
     const confirmationReason = periodConfirmed
       ? "Đã chốt số liệu, bảng lương và chính sách áp dụng cho kỳ."
-      : !closingWindowOpen ? openingReason
+      : currentEditor ? "Cập nhật số liệu đang sửa và xem lại bảng lương trước khi chốt."
+        : staleReview ? "Dữ liệu nguồn đã thay đổi. Cập nhật lại nhân viên được đánh dấu trước khi chốt."
+        : !closingWindowOpen ? openingReason
         : pendingAdvanceAmount > 0 ? `Còn ${money(pendingAdvanceAmount)} ứng lương chờ xác nhận chi.`
           : "Kiểm tra bảng lương bên dưới. Khi xác nhận, hệ thống kiểm tra điều kiện và chốt số liệu toàn kỳ.";
     return [
-      { action: "CONFIRM_PERIOD", label: periodConfirmed ? "Đã xác nhận số liệu" : "Kiểm tra & xác nhận số liệu", completed: periodConfirmed, available: !periodConfirmed && closingWindowOpen && pendingAdvanceAmount === 0, reason: confirmationReason },
+      { action: "CONFIRM_PERIOD", label: periodConfirmed ? "Đã xác nhận số liệu" : "Xác nhận & chốt lương", completed: periodConfirmed, available: !periodConfirmed && !currentEditor && !staleReview && closingWindowOpen && pendingAdvanceAmount === 0, reason: confirmationReason },
       { action: "CONFIRM_PAYMENT", label: periodPaid ? "Đã xác nhận chi" : "Xác nhận đã chi", completed: periodPaid, available: workflowRank === financialPeriodRank.CONFIRMED, reason: periodPaid ? "Đã ghi nhận chi trả và dòng tiền của kỳ." : "Chỉ xác nhận sau khi đã thực tế trả lương, thưởng và phụ cấp." },
       { action: "CLOSE_PERIOD", label: periodLocked ? "Đã khóa kỳ" : "Khóa kỳ", completed: periodLocked, available: workflowRank === financialPeriodRank.PAID, reason: periodLocked ? "Số liệu kỳ đã khóa được giữ nguyên để tra cứu." : "Khóa sau khi đã chi; các điều chỉnh sau đó phải có lịch sử riêng." },
     ];
-  }, [closingWindowDate, closingWindowOpen, pendingAdvanceAmount, workflowRank]);
+  }, [closingWindowDate, closingWindowOpen, pendingAdvanceAmount, workflowRank, currentEditor, staleReview]);
 
   const exportReport = () => {
     if (!summary || !dataIsCurrent) return;
@@ -509,14 +548,14 @@ export default function StorePayrollClosing({ store, initialPeriod, onPeriodChan
     <div className="ref-toolbar">
       <div><h2>TỔNG KẾT LƯƠNG THƯỞNG</h2><p>Chốt lương nhân viên, quản lý và khóa kỳ của {store.name}</p></div>
       <div className="ref-toolbar-actions">
-        <DatePickerControl className="payroll-period-picker" ariaLabel="Kỳ lương" hint="Kỳ lương" type="month" value={period} onChange={setPeriod} disabled={saving}/>
-        <button onClick={() => void load()} disabled={loading || saving}><RefreshCw size={16}/> Làm mới</button>
-        <button onClick={exportReport} disabled={!dataIsCurrent}><Download size={16}/> Xuất báo cáo</button>
+        <DatePickerControl className="payroll-period-picker" ariaLabel="Kỳ lương" hint="Kỳ lương" type="month" value={period} onChange={setPeriod} disabled={saving || Boolean(currentEditor)}/>
+        <button onClick={() => void load()} disabled={loading || saving || Boolean(currentEditor)}><RefreshCw size={16}/> Làm mới</button>
+        <button onClick={exportReport} disabled={!dataIsCurrent || Boolean(currentEditor)}><Download size={16}/> Xuất báo cáo</button>
       </div>
     </div>
 
     {error && <div className="form-message">{error}</div>}
-    {message && <div className="success-banner">{message}</div>}
+    {message && <div className="success-banner" role="status">{message}</div>}
     {loading && <div className="report-profit-note"><RefreshCw size={17}/> Đang tải dữ liệu kỳ lương…</div>}
 
     {summary && <>
@@ -555,15 +594,17 @@ export default function StorePayrollClosing({ store, initialPeriod, onPeriodChan
         {periodIsLocked && <div className="report-profit-note"><CheckCircle2 size={18}/> Kỳ {period} đã được xác nhận, chi trả và khóa bằng snapshot bất biến.</div>}
       </section>
 
-      <section className="manager-panel table-panel">
-        <div className="panel-title"><div><h2>CHI TIẾT LƯƠNG THƯỞNG NHÂN VIÊN</h2><p>Lương thực nhận = lương cứng theo giờ × giờ làm thực tế. Chốt cá nhân tạo bản đối soát cho kỳ; nhân viên ngưng làm việc được ưu tiên chốt ngay khi không còn ca mở.</p></div><span>{employeeClosingById.size}/{summary.items.length} đã chốt</span></div>
-        <div className={`data-table-wrap ${styles.desktopTableWrap}`} role="region" aria-label="Bảng chi tiết lương thưởng nhân viên, cuộn ngang để xem đầy đủ"><table className="data-table employee-closing-table"><caption className="sr-only">Chi tiết lương thưởng nhân viên kỳ {period}</caption><thead><tr><th>Mã NV</th><th>Nhân viên</th><th>Trạng thái làm việc</th><th>Lương cứng</th><th>Giờ làm thực tế</th><th>Giờ tính KPI</th><th>Lương thực nhận</th><th>Phụ cấp TikTok</th><th>Phụ cấp hỗ trợ</th><th>Phụ cấp khác</th><th>Thưởng khác</th><th>Thưởng KPI</th><th>Tổng nhận</th><th>Đã ứng</th><th>Còn trả</th><th>Chốt cá nhân</th></tr></thead><tbody>
+      {currentEditor && canEdit && <PayrollReviewEditor key={`${currentEditor.scope}:${currentEditor.item.employeeId}:${currentEditor.item.review?.version ?? 0}`}
+        item={currentEditor.item} busy={saving} onUpdate={updateReview} onCancel={() => setEditor(null)}/>}
+      <section className="manager-panel table-panel" id="payroll-employee-details">
+        <div className="panel-title"><div><h2>CHI TIẾT LƯƠNG THƯỞNG NHÂN VIÊN</h2><p>Sửa giờ tính lương, giờ KPI, phụ cấp và thưởng → Cập nhật số liệu → xem lại → Xác nhận & chốt lương. Chốt cá nhân vẫn được đối soát trước khi xác nhận toàn kỳ.</p></div><span>{employeeClosingById.size}/{summary.items.length} đã chốt</span></div>
+        <div className={`data-table-wrap ${styles.desktopTableWrap}`} role="region" aria-label="Bảng chi tiết lương thưởng nhân viên, cuộn ngang để xem đầy đủ"><table className="data-table employee-closing-table"><caption className="sr-only">Chi tiết lương thưởng nhân viên kỳ {period}</caption><thead><tr><th>Mã NV</th><th>Nhân viên</th><th>Trạng thái làm việc</th><th>Lương cứng</th><th>Giờ tính lương</th><th>Giờ tính KPI</th><th>Lương thực nhận</th><th>Phụ cấp TikTok</th><th>Phụ cấp hỗ trợ</th><th>Phụ cấp khác</th><th>Thưởng khác</th><th>Thưởng KPI</th><th>Tổng nhận</th><th>Đã ứng</th><th>Còn trả</th><th>Chốt cá nhân</th></tr></thead><tbody>
           {summary.items.length === 0 ? <tr><td colSpan={16} className="empty-cell">Chưa có dữ liệu chấm công trong kỳ.</td></tr> : summary.items.map((item) => {
             const employeeClosing = employeeClosingById.get(item.employeeId);
             const isInactive = item.employmentStatus === "INACTIVE";
             const mayLockNow = individualCheckpointOpen && (canLockIndividual || isInactive);
             const itemKpiHours = Number(item.kpiHours ?? item.hours);
-            return <tr key={item.employeeId} className={isInactive ? "inactive-employee-payroll" : ""}><td><b>{item.employeeCode}</b></td><td><b>{item.employeeName}</b><br/><small>{item.position}</small></td><td><div className="employee-kpi-status"><span className={`status-pill ${isInactive ? "inactive" : ""}`}>{isInactive ? "Ngưng làm việc" : "Đang làm việc"}</span>{isInactive ? <><small>{item.hours.toFixed(2)} giờ thực tế trong kỳ</small><span className={`status-pill ${itemKpiHours > 0 ? "" : "inactive"}`}>{itemKpiHours > 0 ? "Có phân bổ KPI" : "Không có giờ KPI"}</span></> : null}</div></td><td>{money(item.hourlyRate)}/giờ</td><td>{item.hours.toFixed(2)} giờ</td><td>{itemKpiHours.toFixed(2)} giờ</td><td><b>{money(item.baseSalary)}</b></td><td>{money(item.tiktokAllowance)}</td><td>{money(item.supportAllowance)}</td><td>{money(item.manualAllowance)}</td><td>{money(item.manualBonus)}</td><td className="money-green">{money(item.kpiBonus)}</td><td><b>{money(item.totalPay)}</b></td><td>{money(item.salaryAdvanceReserved ?? 0)}</td><td className="money-green"><b>{money(item.availablePay ?? item.totalPay)}</b></td><td>{employeeClosing ? <div className="employee-closing-state"><span className="status-pill"><LockKeyhole size={12}/> {employeeClosing.kpiDeferred && workflowRank < financialPeriodRank.CONFIRMED ? "Đã chốt lương" : "Đã xác nhận kỳ"}</span><small>{employeeClosing.kpiDeferred && workflowRank < financialPeriodRank.CONFIRMED ? "KPI chờ xác nhận kỳ · " : ""}{dateTime24(employeeClosing.lockedAt)}</small></div> : <button type="button" className="employee-lock-button" disabled={readOnly || saving || loading || !dataIsCurrent || !mayLockNow || pendingAdvanceAmount > 0} onClick={() => void runAction("FINALIZE_SINGLE_EMPLOYEE", item)}><LockKeyhole size={14}/> {pendingAdvanceAmount > 0 ? "Chờ xác nhận ứng" : !individualCheckpointOpen ? "Kỳ đã xác nhận" : isInactive ? "Chốt bắt buộc" : mayLockNow ? "Chốt lương" : "Chờ hết tháng"}</button>}</td></tr>;
+            return <tr key={item.employeeId} className={isInactive ? "inactive-employee-payroll" : ""}><td><b>{item.employeeCode}</b></td><td><b>{item.employeeName}</b><br/><small>{item.position}</small>{item.review && <small className={styles.reviewStatus}>{item.review.stale ? "Cần cập nhật lại" : `Đã cập nhật · ${dateTime24(item.review.updatedAt)}`}</small>}{canEdit && <button type="button" className={styles.editButton} disabled={saving || loading || Boolean(currentEditor)} onClick={() => openEditor(item)}>Sửa số liệu</button>}</td><td><div className="employee-kpi-status"><span className={`status-pill ${isInactive ? "inactive" : ""}`}>{isInactive ? "Ngưng làm việc" : "Đang làm việc"}</span>{isInactive ? <><small>{item.hours.toFixed(2)} giờ thực tế trong kỳ</small><span className={`status-pill ${itemKpiHours > 0 ? "" : "inactive"}`}>{itemKpiHours > 0 ? "Có phân bổ KPI" : "Không có giờ KPI"}</span></> : null}</div></td><td>{money(item.hourlyRate)}/giờ</td><td>{item.hours.toFixed(2)} giờ</td><td>{itemKpiHours.toFixed(2)} giờ</td><td><b>{money(item.baseSalary)}</b></td><td>{money(item.tiktokAllowance)}</td><td>{money(item.supportAllowance)}</td><td>{money(item.manualAllowance)}</td><td>{money(item.manualBonus)}</td><td className="money-green">{money(item.kpiBonus)}</td><td><b>{money(item.totalPay)}</b></td><td>{money(item.salaryAdvanceReserved ?? 0)}</td><td className="money-green"><b>{money(item.availablePay ?? item.totalPay)}</b></td><td>{employeeClosing ? <div className="employee-closing-state"><span className="status-pill"><LockKeyhole size={12}/> {employeeClosing.kpiDeferred && workflowRank < financialPeriodRank.CONFIRMED ? "Đã chốt lương" : "Đã xác nhận kỳ"}</span><small>{employeeClosing.kpiDeferred && workflowRank < financialPeriodRank.CONFIRMED ? "KPI chờ xác nhận kỳ · " : ""}{dateTime24(employeeClosing.lockedAt)}</small></div> : <button type="button" className="employee-lock-button" disabled={readOnly || saving || loading || Boolean(currentEditor) || !dataIsCurrent || !mayLockNow || pendingAdvanceAmount > 0} onClick={() => void runAction("FINALIZE_SINGLE_EMPLOYEE", item)}><LockKeyhole size={14}/> {pendingAdvanceAmount > 0 ? "Chờ xác nhận ứng" : !individualCheckpointOpen ? "Kỳ đã xác nhận" : isInactive ? "Chốt bắt buộc" : mayLockNow ? "Chốt lương" : "Chờ hết tháng"}</button>}</td></tr>;
           })}
         </tbody><tfoot><tr><td colSpan={4}>TỔNG CỘNG</td><td>{summary.totalHours.toFixed(2)} giờ</td><td>{employeeKpiHours.toFixed(2)} giờ</td><td>{money(summary.totalBaseSalary)}</td><td>{money(summary.totalTikTokAllowance)}</td><td>{money(summary.totalSupportAllowance)}</td><td>{money(summary.totalManualAllowance)}</td><td>{money(summary.totalManualBonus)}</td><td>{money(summary.totalKpiBonus)}</td><td>{money(summary.totalPay)}</td><td>{money(summary.totalSalaryAdvanceReserved ?? 0)}</td><td>{money(summary.totalAvailablePay ?? summary.totalPay)}</td><td>{employeeClosingById.size}/{summary.items.length}</td></tr></tfoot></table></div>
 
@@ -590,7 +631,7 @@ export default function StorePayrollClosing({ store, initialPeriod, onPeriodChan
               </header>
 
               <dl className={styles.mobilePayrollSummary}>
-                <div><dt>Giờ thực tế</dt><dd>{item.hours.toFixed(2)} giờ</dd></div>
+                <div><dt>Giờ tính lương</dt><dd>{item.hours.toFixed(2)} giờ</dd></div>
                 <div><dt>Lương thực nhận</dt><dd>{money(item.baseSalary)}</dd></div>
                 <div><dt>Tổng nhận</dt><dd>{money(item.totalPay)}</dd></div>
                 <div className={styles.mobileAvailablePay}><dt>Còn trả</dt><dd>{money(item.availablePay ?? item.totalPay)}</dd></div>
@@ -611,12 +652,14 @@ export default function StorePayrollClosing({ store, initialPeriod, onPeriodChan
               </details>
 
               <footer className={styles.mobilePayrollAction}>
+                {item.review && <small className={styles.reviewStatus}>{item.review.stale ? "Cần cập nhật lại" : `Đã cập nhật · ${dateTime24(item.review.updatedAt)}`}</small>}
+                {canEdit && <button type="button" disabled={saving || loading || Boolean(currentEditor)} onClick={() => openEditor(item)}>Sửa số liệu</button>}
                 {employeeClosing ? <div className={styles.mobileClosingState}>
                   <span className="status-pill"><LockKeyhole size={13}/> {employeeClosing.kpiDeferred && workflowRank < financialPeriodRank.CONFIRMED ? "Đã chốt lương" : "Đã xác nhận kỳ"}</span>
                   <small>{employeeClosing.kpiDeferred && workflowRank < financialPeriodRank.CONFIRMED ? "KPI chờ xác nhận kỳ · " : ""}{dateTime24(employeeClosing.lockedAt)}</small>
                 </div> : <button
                   type="button"
-                  disabled={readOnly || saving || loading || !dataIsCurrent || !mayLockNow || pendingAdvanceAmount > 0}
+                  disabled={readOnly || saving || loading || Boolean(currentEditor) || !dataIsCurrent || !mayLockNow || pendingAdvanceAmount > 0}
                   aria-label={`${actionLabel} cho ${item.employeeName}`}
                   onClick={() => void runAction("FINALIZE_SINGLE_EMPLOYEE", item)}
                 >
