@@ -39,6 +39,8 @@ Các trường hợp nghiệp vụ được kiểm thử trực tiếp qua API v
 
 Trình duyệt kiểm thử trong phiên làm việc bị timeout khi kết nối CDP/navigate. Build và kiểm thử mã nguồn không thay thế kiểm tra bố cục thực tế. Không merge hoặc triển khai VPS trước khi hoàn tất các mục sau:
 
+Đã bổ sung [bản kiểm thử riêng qua SSH](vps-preview.md) để người vận hành kiểm tra bằng trình duyệt trên máy mình khi kết nối trình duyệt từ xa không hoạt động. Script dùng database mới và dữ liệu mẫu, không thay đổi production.
+
 - [ ] Desktop 1280, 1440, 1920 px: tổng quan, cửa hàng, dòng tiền, báo cáo, chia lợi nhuận, nhân viên, chính sách và cài đặt.
 - [ ] Mobile 360, 390, 430 px: các trang cửa hàng, lương nhân viên, lương quản lý, lịch phân ca, chấm công, đơn hàng và trang nhân viên.
 - [ ] Tên cửa hàng/nhân viên dài và số tiền nhiều chữ số không tràn hoặc bị cắt; không xuất hiện cuộn ngang toàn trang.
