@@ -16,6 +16,7 @@ import {
 
 import { calculateProfitSharing } from "../lib/profit-sharing";
 import { readFinancialResponse } from "../lib/financial-response";
+import ScrollableTable from "./ScrollableTable";
 
 type ExpenseBreakdown = {
   fixedCosts: number;
@@ -779,15 +780,15 @@ export function ManagerProfitSharingClosing({ initialPeriod, onPeriodChange }: {
         <p><span>Tổng phân bổ cho thành viên</span><b>{money(allocatedTotal)}</b><em>Đối chiếu với lợi nhuận được chia</em></p>
         <p><span>Trạng thái và nguồn</span><b>{currentStatus}</b><em>{currentSourceDescription}</em></p>
       </section></div>
-      <section className="manager-panel table-panel"><div className="panel-title"><div><h2>THỐNG KÊ PHÂN CHIA THEO TỪNG CỬA HÀNG</h2><p>Lợi nhuận sau lương thưởng − hoàn trả setup; chia từng cửa hàng rồi cộng cho mỗi thành viên</p></div><span>{storeAllocations.length} cửa hàng</span></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>Cửa hàng</th><th>Trạng thái số liệu</th><th>Doanh thu</th><th>Tổng chi phí</th><th>Lợi nhuận sau cùng</th><th>Hoàn trả setup</th><th>Lợi nhuận được chia</th>{currentMembers.map((member) => <th key={memberKey(member)}>{memberColumnLabel(member)}</th>)}</tr></thead><tbody>
+      <section className="manager-panel table-panel"><div className="panel-title"><div><h2>THỐNG KÊ PHÂN CHIA THEO TỪNG CỬA HÀNG</h2><p>Lợi nhuận sau lương thưởng − hoàn trả setup; chia từng cửa hàng rồi cộng cho mỗi thành viên</p></div><span>{storeAllocations.length} cửa hàng</span></div><p className="table-scroll-hint">Cuộn ngang bảng để xem đủ số tiền của từng thành viên.</p><ScrollableTable label="Phân chia theo cửa hàng"><table className="data-table"><thead><tr><th>Cửa hàng</th><th>Trạng thái số liệu</th><th>Doanh thu</th><th>Tổng chi phí</th><th>Lợi nhuận sau cùng</th><th>Hoàn trả setup</th><th>Lợi nhuận được chia</th>{currentMembers.map((member) => <th key={memberKey(member)}>{memberColumnLabel(member)}</th>)}</tr></thead><tbody>
         {storeAllocations.length === 0
           ? <tr><td colSpan={7 + currentMembers.length} className="empty-cell">{currentHistory?.legacy ? "Lịch sử cũ chưa lưu chi tiết theo cửa hàng; tổng phân chia vẫn được bảo toàn ở chế độ chỉ đọc." : "Chưa có số liệu cửa hàng trong kỳ."}</td></tr>
           : storeAllocations.map((store) => <tr key={store.storeId}><td><b>{store.storeName}</b></td><td><span className="status-pill">{settlementStatusLabel(store.settlementStatus)}</span></td><td>{money(store.revenue)}</td><td>{money(store.expense)}</td><td className={store.finalProfit >= 0 ? "money-green" : "money-orange"}><b>{money(store.finalProfit)}</b></td><td>{money(store.setupRepayment ?? 0)}</td><td>{money(store.distributableProfit)}</td>{currentMembers.map((member) => {
             const allocation = memberAllocation(store.memberAllocations, member);
             return <td key={memberKey(member)}><b>{money(allocation?.amount ?? 0)}</b><br/><small>{allocationPercentage(allocation, member)}</small></td>;
           })}</tr>)}
-      </tbody><tfoot><tr><td colSpan={2}>TỔNG CỬA HÀNG ĐÃ KHÓA KỲ</td><td>{money(currentRevenue)}</td><td>{money(currentExpense)}</td><td>{money(finalProfit)}</td><td>{money(setupRepayment)}</td><td>{money(distributableProfit)}</td>{currentMembers.map((member) => <td key={memberKey(member)}>{money(memberAllocation(allocations, member)?.amount ?? 0)}</td>)}</tr></tfoot></table></div></section>
-      <section className="manager-panel table-panel"><div className="panel-title"><div><h2>LỊCH SỬ CHIA LỢI NHUẬN</h2><p>Snapshot LOCKED bất biến; lịch sử cũ được giữ ở chế độ chỉ đọc</p></div><span>{history.length} kỳ</span></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>Kỳ</th><th>Doanh thu</th><th>Tổng chi phí</th><th>Lợi nhuận sau cùng</th><th>Hoàn trả setup</th><th>Lợi nhuận được chia</th>{historyMembers.map((member) => <th key={memberKey(member)}>{memberColumnLabel(member)}</th>)}<th>Trạng thái</th><th>Ngày giờ khóa</th><th>Người khóa</th><th>Nguồn dữ liệu</th></tr></thead><tbody>
+      </tbody><tfoot><tr><td colSpan={2}>TỔNG CỬA HÀNG ĐÃ KHÓA KỲ</td><td>{money(currentRevenue)}</td><td>{money(currentExpense)}</td><td>{money(finalProfit)}</td><td>{money(setupRepayment)}</td><td>{money(distributableProfit)}</td>{currentMembers.map((member) => <td key={memberKey(member)}>{money(memberAllocation(allocations, member)?.amount ?? 0)}</td>)}</tr></tfoot></table></ScrollableTable></section>
+      <section className="manager-panel table-panel"><div className="panel-title"><div><h2>LỊCH SỬ CHIA LỢI NHUẬN</h2><p>Snapshot LOCKED bất biến; lịch sử cũ được giữ ở chế độ chỉ đọc</p></div><span>{history.length} kỳ</span></div><p className="table-scroll-hint">Cuộn ngang bảng để xem đủ lịch sử phân chia.</p><ScrollableTable label="Lịch sử chia lợi nhuận"><table className="data-table"><thead><tr><th>Kỳ</th><th>Doanh thu</th><th>Tổng chi phí</th><th>Lợi nhuận sau cùng</th><th>Hoàn trả setup</th><th>Lợi nhuận được chia</th>{historyMembers.map((member) => <th key={memberKey(member)}>{memberColumnLabel(member)}</th>)}<th>Trạng thái</th><th>Ngày giờ khóa</th><th>Người khóa</th><th>Nguồn dữ liệu</th></tr></thead><tbody>
         {history.length === 0
           ? <tr><td colSpan={10 + historyMembers.length} className="empty-cell">Chưa có lịch sử chia lợi nhuận đã khóa.</td></tr>
           : history.map((item) => {
@@ -797,7 +798,7 @@ export function ManagerProfitSharingClosing({ initialPeriod, onPeriodChange }: {
               return <td key={memberKey(member)}><b>{money(allocation?.amount ?? 0)}</b><br/><small>{allocation ? allocationPercentage(allocation, member) : "—"}</small></td>;
             })}<td><span className="status-pill">{profitSharingStatusLabel(item)}</span></td><td>{dateTime(item.closedAt)}</td><td>{item.closedBy || "—"}</td><td>{item.legacy ? "Lịch sử cũ · chỉ đọc" : "Snapshot khóa sổ"}</td></tr>;
           })}
-      </tbody></table></div></section>
+      </tbody></table></ScrollableTable></section>
     </>}
   </div>;
 }

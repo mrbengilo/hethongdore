@@ -697,7 +697,7 @@ input[type="date"],input[type="month"]{min-height:44px;cursor:pointer;font-varia
 
 @media(max-width:720px){
   .main-area,.page-header,.page-content,.reference-module,.stats-grid,.ref-metrics{min-width:0;max-width:100%}
-  .main-area{overflow-x:clip}
+  .main-area{min-width:0}
   .sidebar{overflow-y:auto;overscroll-behavior:contain;max-height:100vh;max-height:100dvh;padding-bottom:max(16px,env(safe-area-inset-bottom))}
   .mobile-header>b{min-width:0;max-width:calc(100vw - 124px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center}
   .store-header-overview{grid-template-columns:minmax(0,1fr);gap:11px}
