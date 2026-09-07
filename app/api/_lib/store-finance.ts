@@ -975,9 +975,7 @@ export async function storeDateRangeFinance(
   if (activeDayCount === 0) return null;
   const periodStatuses: StoreDateRangeFinance["periodStatuses"] = [];
   const reviewedPeriods = new Set<string>();
-  if (options.payrollRecognition === "PREVIEW") {
-    for (const period of periods) if ((await readPayrollReviews(db, storeId, period)).size) reviewedPeriods.add(period);
-  }
+  for (const period of periods) if ((await readPayrollReviews(db, storeId, period)).size) reviewedPeriods.add(period);
   monthlyFinances.forEach((finance, index) => {
     if (!finance) return;
     const period = periods[index];
@@ -991,17 +989,18 @@ export async function storeDateRangeFinance(
       .filter((date) => storeIsActiveOnDate(createdDate, transitions, date));
     allocateMonthlyExpense(finance.expenseBreakdown.fixedCosts, "fixedCosts", eligibleDates, days);
     allocateMonthlyExpense(finance.expenseBreakdown.supportAllowance, "supportAllowance", eligibleDates, days);
+    if (reviewedPeriods.has(period)) {
+      // Monthly corrections also own the accounting comparison in cash-flow
+      // views. Actual cash movement continues to come from payment entries.
+      for (const field of ["employeeBaseSalary", "tiktokAllowance", "manualAllowance", "manualBonus"] as const) {
+        for (const day of timeline) if (day.date.slice(0, 7) === period) day.expenseBreakdown[field] = 0;
+        allocateMonthlyExpense(finance.expenseBreakdown[field], field, eligibleDates, days);
+      }
+    }
     if (options.payrollRecognition === "PREVIEW") {
       // Financial reports and store overviews mirror the current payroll
       // preview for open periods. Locked periods still carry their immutable
       // snapshot values from storePeriodFinance.
-      if (reviewedPeriods.has(period)) {
-        // Corrections are monthly accruals, leaving original shift records intact.
-        for (const field of ["employeeBaseSalary", "tiktokAllowance", "manualAllowance", "manualBonus"] as const) {
-          for (const day of timeline) if (day.date.slice(0, 7) === period) day.expenseBreakdown[field] = 0;
-          allocateMonthlyExpense(finance.expenseBreakdown[field], field, eligibleDates, days);
-        }
-      }
       allocateMonthlyExpense(finance.expenseBreakdown.managerSalary, "managerSalary", eligibleDates, days);
       allocateMonthlyExpense(finance.expenseBreakdown.employeeKpiBonus, "employeeKpiBonus", eligibleDates, days);
       allocateMonthlyExpense(finance.expenseBreakdown.managerBonus, "managerBonus", eligibleDates, days);

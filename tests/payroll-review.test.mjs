@@ -48,6 +48,11 @@ async function matched(data) {
   const report = await finance.storeDateRangeFinance(db, storeId, { from: "2026-08-01", to: "2026-08-31" }, { payrollRecognition: "PREVIEW" });
   assert.deepEqual(report.expenseBreakdown, financial.expenseBreakdown);
   assert.equal(report.finalProfit, financial.finalProfit);
+  const accounting = await finance.storeDateRangeFinance(db, storeId, { from: "2026-08-01", to: "2026-08-31" });
+  for (const field of ["employeeBaseSalary","tiktokAllowance","supportAllowance","manualAllowance","manualBonus"]) {
+    assert.equal(accounting.expenseBreakdown[field],financial.expenseBreakdown[field],`cash-flow accounting ${field}`);
+  }
+  if (data.financialPeriod.status === "LOCKED") assert.deepEqual(accounting.expenseBreakdown,financial.expenseBreakdown);
 }
 
 before(async () => {
