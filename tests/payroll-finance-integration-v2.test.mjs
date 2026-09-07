@@ -123,6 +123,7 @@ after(async () => {
   await rm(directory, { recursive: true, force: true });
 });
 
+
 test("payroll preview uses the effective immutable policy and exactly matches store finance", async () => {
   for (const [period, expectedPolicy, version] of [
     ["2026-05", mayPolicy, 1],
@@ -230,4 +231,115 @@ test("locked manager rows retain snapshot amounts while metadata stays period-ef
   assert.equal(body.managerPayroll.policy.managerKpiRate, 0.02);
   assert.equal(body.managerPayroll.rows[0].managerSalary, 333_333);
   assert.equal(body.managerPayroll.rows[0].managerBonus, 77_777);
+});
+
+async function command(period, action, revision, extra = {}) {
+  const result = await payrollRoute.POST(new Request("http://localhost/api/payroll", {
+    method: "POST",
+    headers: { cookie: `dore_session=${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ storeId, period, action, employeeId, expectedRevision: revision, ...extra }),
+  }));
+  const body = await result.json();
+  return { status: result.status, ok: result.ok, body };
+}
+
+test("payment uses confirmed amounts after policy changes, rolls back failures and deduplicates concurrent retries", async (t) => {
+  const period = "2026-07";
+  let state = await payroll(period);
+  for (const action of ["FINALIZE_SINGLE_EMPLOYEE", "FINALIZE_EMPLOYEE", "FINALIZE_MANAGER", "CONFIRM_SALARY", "CONFIRM_REWARDS"]) {
+    const result = await command(period, action, state.financialPeriod?.revision ?? 0);
+    assert.ok(result.ok, `${action}: ${result.status} ${result.body.message}`);
+    state = await payroll(period);
+  }
+  await db.prepare(`INSERT INTO financial_policy_versions
+    (id, version, effective_from_period, policy_json, created_by, created_at)
+    VALUES ('payroll-policy-after-confirmation', 3, '2026-07', ?, 'payroll-finance-v2-manager', ?)`)
+    .bind(financialPolicy.serializeFinancialPolicy(policy(5_000_000, 400, 500)), new Date().toISOString()).run();
+  const confirmedRevision = state.financialPeriod.revision;
+  const sourceId = `payroll-closing:${storeId}:${period}`;
+  const countEntries = () => db.prepare("SELECT COUNT(*) AS count FROM cashflow_entries WHERE source_type = 'PAYROLL_PAYMENT' AND source_id = ?").bind(sourceId).first("count");
+  await db.exec(`CREATE TRIGGER test_payroll_payment_failure BEFORE INSERT ON audit_logs
+    WHEN NEW.action = 'PAYROLL_PAYMENT_CONFIRM'
+    BEGIN SELECT RAISE(ABORT, 'injected payment audit failure'); END`);
+  const logging = t.mock.method(console, "error", () => {});
+  try {
+    const failed = await command(period, "CONFIRM_PAYMENT", confirmedRevision);
+    assert.equal(failed.status, 500);
+    assert.equal(failed.body.code, "PAYROLL_OPERATION_FAILED");
+    assert.ok(failed.body.requestId);
+    assert.equal(logging.mock.calls.length, 1);
+    assert.equal((await payroll(period)).financialPeriod.status, "CONFIRMED");
+    assert.equal((await payroll(period)).closing.status, "REWARDS_CONFIRMED");
+    assert.equal(await countEntries(), 0);
+  } finally {
+    await db.exec("DROP TRIGGER test_payroll_payment_failure");
+    logging.mock.restore();
+  }
+  const paid = await Promise.all([
+    command(period, "CONFIRM_PAYMENT", confirmedRevision),
+    command(period, "CONFIRM_PAYMENT", confirmedRevision),
+  ]);
+  for (const result of paid) assert.ok(result.ok, result.body.message);
+  const replay = await command(period, "CONFIRM_PAYMENT", confirmedRevision);
+  assert.ok(replay.ok, replay.body.message);
+  state = await payroll(period);
+  assert.equal(state.financialPeriod.status, "PAID");
+  assert.equal(state.closing.grandTotal, 2_000_000);
+  assert.equal(state.summary.managerSalary, 2_000_000);
+  assert.equal(await countEntries(), 1);
+  assert.equal(await db.prepare("SELECT COUNT(*) FROM audit_logs WHERE action = 'PAYROLL_PAYMENT_CONFIRM' AND entity_id = ?").bind(sourceId).first("COUNT(*)"), 1);
+  const closed = await command(period, "CLOSE_PERIOD", state.financialPeriod.revision);
+  assert.ok(closed.ok, closed.body.message);
+  assert.equal((await payroll(period)).financialPeriod.status, "LOCKED");
+  assert.ok((await command(period, "CLOSE_PERIOD", state.financialPeriod.revision)).ok);
+  assert.ok((await command(period, "CONFIRM_PAYMENT", confirmedRevision)).ok);
+  assert.equal(await countEntries(), 1);
+});
+
+test("one confirmation performs preparation checkpoints, remains unpaid, and is safe to resume", async (t) => {
+  const period = "2026-08";
+  const stale = await command(period, "CONFIRM_PERIOD", 99);
+  assert.equal(stale.status, 409);
+  await db.exec(`CREATE TRIGGER test_confirmation_failure BEFORE INSERT ON audit_logs
+    WHEN NEW.action = 'FINANCIAL_PERIOD_CONFIRMED'
+    BEGIN SELECT RAISE(ABORT, 'injected confirmation failure'); END`);
+  const logging = t.mock.method(console, "error", () => {});
+  try {
+    const failed = await command(period, "CONFIRM_PERIOD", 0);
+    assert.equal(failed.status, 500);
+    assert.equal(failed.body.code, "PAYROLL_OPERATION_FAILED");
+    const partial = await payroll(period);
+    assert.equal(partial.financialPeriod.status, "RECONCILING");
+    assert.equal(partial.closing.status, "SALARY_CONFIRMED");
+  } finally {
+    await db.exec("DROP TRIGGER test_confirmation_failure");
+    logging.mock.restore();
+  }
+  const partial = await payroll(period);
+  const result = await command(period, "CONFIRM_PERIOD", partial.financialPeriod.revision);
+  assert.ok(result.ok, result.body.message);
+  const state = await payroll(period);
+  assert.equal(state.financialPeriod.status, "CONFIRMED");
+  assert.equal(state.closing.status, "REWARDS_CONFIRMED");
+  assert.equal(state.individualLockedCount, state.summary.items.length);
+  assert.equal(state.summary.managerSalary, 5_000_000);
+  assert.equal(await db.prepare("SELECT COUNT(*) FROM cashflow_entries WHERE source_id = ?").bind(`payroll-closing:${storeId}:${period}`).first("COUNT(*)"), 0);
+  const audits = await db.prepare("SELECT action FROM audit_logs WHERE entity_id = ? ORDER BY created_at, rowid").bind(state.financialPeriod.id).all();
+  assert.deepEqual(audits.results.map((row) => row.action), ["FINANCIAL_PERIOD_CREATE", "FINANCIAL_PERIOD_CALCULATED", "FINANCIAL_PERIOD_RECONCILING", "FINANCIAL_PERIOD_CONFIRMED"]);
+  const repeated = await command(period, "CONFIRM_PERIOD", 0);
+  assert.ok(repeated.ok);
+  assert.equal((await payroll(period)).financialPeriod.revision, state.financialPeriod.revision);
+  assert.equal((await command(period, "CLOSE_PERIOD", state.financialPeriod.revision)).status, 409);
+  assert.equal((await command("2099-01", "CONFIRM_PERIOD", 0)).status, 409);
+});
+
+
+test("compact confirmation keeps authentication, store scope, and payment-order guards", async () => {
+  const anonymous = await payrollRoute.POST(new Request("http://localhost/api/payroll", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ storeId, period: "2026-05", action: "CONFIRM_PERIOD", expectedRevision: 0 }),
+  }));
+  assert.equal(anonymous.status, 403);
+  assert.equal((await command("2026-05", "CONFIRM_PERIOD", 0, { storeId: "another-store" })).status, 403);
+  assert.equal((await command("2026-05", "CONFIRM_PAYMENT", 0)).status, 409);
 });

@@ -424,6 +424,7 @@ export const financialPeriods = sqliteTable("financial_periods", {
 
 /** Immutable, period-wide profit-sharing close sourced only from LOCKED store periods. */
 export const profitDistributions = sqliteTable("profit_distributions", {
+  allocationMethod: text("allocation_method").notNull().default("AGGREGATE"),
   id: text("id").primaryKey(),
   period: text("period").notNull(),
   status: text("status").notNull().default("LOCKED"),
@@ -445,6 +446,7 @@ export const profitDistributions = sqliteTable("profit_distributions", {
     sql`${table.period} GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]'
       AND CAST(substr(${table.period}, 6, 2) AS integer) BETWEEN 1 AND 12`,
   ),
+  check("profit_distributions_allocation_method", sql`${table.allocationMethod} IN ('AGGREGATE', 'PER_STORE')`),
   check("profit_distributions_status", sql`${table.status} = 'LOCKED'`),
   check("profit_distributions_config_version", sql`${table.configVersion} > 0`),
   check(
@@ -470,6 +472,7 @@ export const profitDistributions = sqliteTable("profit_distributions", {
 
 /** Per-store provenance; negative stores retain their loss but distribute zero. */
 export const profitDistributionStores = sqliteTable("profit_distribution_stores", {
+  setupRepayment: integer("setup_repayment").notNull().default(0),
   id: text("id").primaryKey(),
   distributionId: text("distribution_id").notNull()
     .references(() => profitDistributions.id, { onDelete: "restrict", onUpdate: "restrict" }),
@@ -487,6 +490,7 @@ export const profitDistributionStores = sqliteTable("profit_distribution_stores"
   financialSnapshotJson: text("financial_snapshot_json").notNull(),
   ordinal: integer("ordinal").notNull(),
 }, (table) => [
+  check("profit_distribution_stores_setup_repayment", sql`typeof(${table.setupRepayment}) = 'integer' AND ${table.setupRepayment} BETWEEN 0 AND 9007199254740991`),
   check("profit_distribution_stores_name", sql`length(trim(${table.storeNameSnapshot})) > 0`),
   check("profit_distribution_stores_revision", sql`${table.financialPeriodRevision} >= 0`),
   check("profit_distribution_stores_config_version", sql`${table.configVersion} > 0`),

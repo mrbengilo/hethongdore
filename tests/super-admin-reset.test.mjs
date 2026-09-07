@@ -21,7 +21,11 @@ let db;
 const superToken = "super-admin-session-token";
 const normalToken = "normal-manager-session-token";
 
-before(async () => { db = await initDb(); });
+before(async () => {
+  db = await initDb();
+  // This fixture contains August activity, so its store must already exist then.
+  await db.prepare("UPDATE stores SET created_at = '2026-08-01T00:00:00.000Z' WHERE id = 'st-can-tho'").run();
+});
 after(async () => {
   db?.close?.();
   await rm(directory, { recursive: true, force: true });

@@ -456,9 +456,9 @@
 /* Payroll closing actions stay visible so managers can see every required step. */
 .payroll-workflow-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:16px}
 .payroll-workflow-action{display:flex;min-width:0;flex-direction:column;gap:6px;border:1px solid #dfe7e2;border-radius:10px;padding:9px;background:#f9fbfa}
-.payroll-workflow-button{display:flex;align-items:center;justify-content:flex-start;gap:7px;width:100%;min-height:44px;border:1px solid #dce5df;border-radius:8px;padding:8px 10px;background:#fff;color:#475467;font-size:11px;font-weight:800;line-height:1.35;text-align:left;touch-action:manipulation}
+.payroll-workflow-button{display:flex;align-items:center;justify-content:flex-start;gap:7px;width:100%;min-height:44px;border:1px solid #dce5df;border-radius:8px;padding:8px 10px;background:#fff;color:#475467;font-size:14px;font-weight:700;line-height:1.4;text-align:left;touch-action:manipulation}
 .payroll-workflow-button svg{flex:none}.payroll-workflow-button span{min-width:0;overflow-wrap:anywhere}
-.payroll-workflow-action>small{display:block;min-height:28px;color:#667085;font-size:9px;line-height:1.45;overflow-wrap:anywhere}
+.payroll-workflow-action>small{display:block;color:#667085;font-size:13px;line-height:1.45;overflow-wrap:anywhere}
 .payroll-workflow-action.ready{border-color:#9fd2ad;background:#eff9f2}.payroll-workflow-action.ready .payroll-workflow-button{border-color:#087d36;background:linear-gradient(135deg,#0b913f,#00662f);color:#fff;box-shadow:0 6px 14px rgba(0,104,46,.14)}
 .payroll-workflow-action.completed{border-color:#b9dfc3;background:#f2faf4}.payroll-workflow-action.completed .payroll-workflow-button{border-color:#c7e4cf;background:#e5f5e9;color:#087d36}
 .payroll-workflow-action.waiting .payroll-workflow-button:disabled{opacity:1;background:#f4f6f5;color:#7d8a82}
@@ -478,7 +478,7 @@
   .payroll-page .ref-toolbar-actions,.payroll-compact-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;width:100%}
   .payroll-page .ref-toolbar-actions>input,.payroll-page .ref-toolbar-actions>select,.payroll-compact-actions>input,.payroll-compact-actions>select{grid-column:1/-1;width:100%;max-width:none;min-height:44px}
   .payroll-page .ref-toolbar-actions>button,.payroll-compact-actions>button{flex:none;width:100%;min-width:0;min-height:44px;padding:7px 9px;font-size:10px;line-height:1.25;white-space:normal}
-  .payroll-workflow-actions{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.payroll-workflow-action{padding:7px}.payroll-workflow-action>small{font-size:8.5px}
+  .payroll-workflow-actions{grid-template-columns:minmax(0,1fr);gap:8px}.payroll-workflow-action{padding:8px}
 }
 @media(max-width:360px){
   .fixed-cost-entry-row,.fixed-cost-entry-row.is-default{grid-template-columns:22px minmax(72px,1fr) minmax(88px,42%);gap:4px;padding-right:6px;padding-left:6px}
@@ -718,3 +718,8 @@ input[type="date"],input[type="month"]{min-height:44px;cursor:pointer;font-varia
 @media(max-width:350px){
   .stats-grid.three,.stats-grid.four,.ref-metrics.four,.ref-metrics.five,.ref-metrics.six{grid-template-columns:minmax(0,1fr)}
 }
+.setup-repayment-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin:16px 0}
+.setup-repayment-fields label{display:flex;flex-direction:column;gap:8px;font-weight:600;min-width:0}
+.setup-repayment-fields input,.setup-repayment-fields select{width:100%;min-height:44px;padding:10px 12px;border:1px solid #cbd5d1;border-radius:10px;background:#fff;color:#172b23;font-size:16px}
+.setup-repayment-panel p{display:block;font-size:14px;line-height:1.6}
+@media(max-width:720px){.setup-repayment-fields{grid-template-columns:1fr}}

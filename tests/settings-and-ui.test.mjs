@@ -48,10 +48,7 @@ test("fixed-cost rows and payroll actions stay compact, visible and accessible o
   assert.match(styles, /\.fixed-cost-entry-name input,\.fixed-cost-entry-amount input\{min-height:44px/u);
 
   for (const label of [
-    "Tính bảng lương kỳ",
-    "Bắt đầu đối soát",
-    "Xác nhận đối soát lương",
-    "Xác nhận số liệu toàn kỳ",
+    "Kiểm tra & xác nhận số liệu",
     "Xác nhận đã chi",
     "Khóa kỳ",
   ]) assert.match(payroll, new RegExp(label, "u"));
@@ -66,7 +63,7 @@ test("fixed-cost rows and payroll actions stay compact, visible and accessible o
   assert.match(payrollManagement, /ref-toolbar-actions payroll-compact-actions/u);
   assert.match(styles, /\.payroll-workflow-button\{[^}]*min-height:44px/u);
   assert.match(styles, /\.payroll-page \.ref-toolbar-actions>button,\.payroll-compact-actions>button\{[^}]*min-height:44px;[^}]*font-size:10px/u);
-  assert.match(styles, /\.payroll-workflow-actions\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/u);
+  assert.match(styles, /\.payroll-workflow-actions\{grid-template-columns:minmax\(0,1fr\)/u);
 });
 
 test("employee save action and current-shift summary remain legible", async () => {

@@ -1,5 +1,6 @@
 import { parsePersistedFinancialPeriodSnapshot } from "../api/_lib/financial-period";
-import { multiplyRatioVnd, requireVnd } from "./finance";
+import { requireVnd } from "./finance";
+import { allocateProfitShares, calculateProfitSharing, type SetupRepayment } from "./profit-sharing";
 
 export type ProfitDistributionErrorCode =
   | "INVALID_INPUT"
@@ -38,6 +39,8 @@ export type ProfitDistributionStore = Readonly<{
   policyVersionId: string;
   configVersion: number;
   finalProfit: number;
+  setupRepayment: number;
+  profitAfterSetup: number;
   distributableProfit: number;
   financialSnapshot: DistributionJsonObject;
   ordinal: number;
@@ -53,6 +56,8 @@ export type ProfitDistributionMember = Readonly<{
 }>;
 
 export type ProfitDistributionPreview = Readonly<{
+  allocationMethod: "AGGREGATE" | "PER_STORE";
+  totalSetupRepayment: number;
   period: string;
   policyVersionId: string;
   configVersion: number;
@@ -111,6 +116,7 @@ type RawPolicyRow = {
 };
 
 type RawDistributionHeader = {
+  allocationMethod: unknown;
   id: unknown;
   period: unknown;
   status: unknown;
@@ -253,17 +259,8 @@ export function allocateProfitSharingMembers(
   totalDistributableProfit: number,
   members: readonly Omit<ProfitDistributionMember, "amount">[],
 ): readonly ProfitDistributionMember[] {
-  const total = requireVnd(totalDistributableProfit, "totalDistributableProfit");
-  if (members.length === 0) fail("POLICY_NOT_CONFIGURED", "At least one profit-sharing member is required");
-  let cumulativeRate = 0;
-  let allocated = 0;
-  return Object.freeze(members.map((member) => {
-    cumulativeRate += member.rateBasisPoints;
-    const target = multiplyRatioVnd(total, cumulativeRate, BASIS_POINT_DENOMINATOR);
-    const amount = target - allocated;
-    allocated = target;
-    return Object.freeze({ ...member, amount });
-  }));
+  return Object.freeze(allocateProfitShares(totalDistributableProfit, members)
+    .map((member) => Object.freeze(member)));
 }
 
 function lockedStoreFromRow(row: RawLockedPeriodRow, expectedPeriod: string): ProfitDistributionStore {
@@ -308,6 +305,8 @@ function lockedStoreFromRow(row: RawLockedPeriodRow, expectedPeriod: string): Pr
     policyVersionId,
     configVersion,
     finalProfit,
+    setupRepayment: 0,
+    profitAfterSetup: finalProfit,
     distributableProfit,
     financialSnapshot,
     ordinal: -1,
@@ -343,6 +342,7 @@ async function loadPolicy(
 export async function previewProfitDistribution(
   db: D1Database,
   periodInput: string,
+  setupRepayments: readonly SetupRepayment[] = [],
 ): Promise<ProfitDistributionPreview> {
   const period = requiredPeriod(periodInput);
   const [periodResult, expectedStoreResult] = await Promise.all([
@@ -377,27 +377,38 @@ export async function previewProfitDistribution(
   }
   const { policySnapshot, members: policyMembers } = await loadPolicy(db, policyVersionId, configVersion, period);
   const totalFinalProfit = safeSignedSum(stores.map((store) => store.finalProfit), "totalFinalProfit");
-  const totalDistributableProfit = safeSignedSum(
-    stores.map((store) => store.distributableProfit),
-    "totalDistributableProfit",
-  );
-  const members = allocateProfitSharingMembers(totalDistributableProfit, policyMembers);
+  let calculation;
+  try {
+    calculation = calculateProfitSharing(stores, policyMembers, setupRepayments);
+  } catch (error) {
+    return fail("INVALID_INPUT", error instanceof Error ? error.message : "Invalid setup repayment", error);
+  }
   return Object.freeze({
+    allocationMethod: "PER_STORE",
     period,
     policyVersionId,
     configVersion,
     policySnapshot,
     totalFinalProfit,
-    totalDistributableProfit,
-    stores: Object.freeze(stores),
-    members,
+    totalSetupRepayment: calculation.totalSetupRepayment,
+    totalDistributableProfit: calculation.totalDistributableProfit,
+    stores: Object.freeze(calculation.stores.map((store, index) => Object.freeze({
+      ...stores[index], setupRepayment: store.setupRepayment,
+      profitAfterSetup: store.profitAfterSetup, distributableProfit: store.distributableProfit,
+    }))),
+    members: Object.freeze(calculation.members.map((member) => Object.freeze(member))),
   });
 }
 
 function headerFromRow(row: RawDistributionHeader) {
+  const allocationMethod = row.allocationMethod;
+  if (allocationMethod !== "AGGREGATE" && allocationMethod !== "PER_STORE") {
+    fail("INTEGRITY_ERROR", "Unknown profit allocation method");
+  }
   const status = row.status;
   if (status !== "LOCKED") fail("INTEGRITY_ERROR", "Persisted profit distribution status must be LOCKED");
   return Object.freeze({
+    allocationMethod,
     id: requiredString(row.id, "profit_distributions.id"),
     period: requiredPeriod(row.period),
     status,
@@ -421,7 +432,7 @@ export async function readProfitDistribution(
   periodInput: string,
 ): Promise<ProfitDistributionRecord | null> {
   const period = requiredPeriod(periodInput);
-  const headerRow = await db.prepare(`SELECT id, period, status,
+  const headerRow = await db.prepare(`SELECT id, period, status, allocation_method AS allocationMethod,
       policy_version_id AS policyVersionId, config_version AS configVersion,
       policy_snapshot_json AS policySnapshotJson, total_final_profit AS totalFinalProfit,
       total_distributable_profit AS totalDistributableProfit, store_count AS storeCount,
@@ -438,7 +449,7 @@ export async function readProfitDistribution(
         financial_period_revision AS financialPeriodRevision,
         policy_version_id AS policyVersionId, config_version AS configVersion,
         final_profit AS finalProfit, distributable_profit AS distributableProfit,
-        financial_snapshot_json AS financialSnapshotJson, ordinal
+        setup_repayment AS setupRepayment, financial_snapshot_json AS financialSnapshotJson, ordinal
       FROM profit_distribution_stores WHERE distribution_id = ? ORDER BY ordinal`)
       .bind(header.id)
       .all<Record<string, unknown>>(),
@@ -462,6 +473,11 @@ export async function readProfitDistribution(
     );
     const finalProfit = safeInteger(row.finalProfit, `profit_distribution_stores[${ordinal}].final_profit`, { negative: true });
     const distributableProfit = safeInteger(row.distributableProfit, `profit_distribution_stores[${ordinal}].distributable_profit`);
+    const setupRepayment = safeInteger(row.setupRepayment, `profit_distribution_stores[${ordinal}].setup_repayment`);
+    const profitAfterSetup = safeInteger(finalProfit - setupRepayment, "profitAfterSetup", { negative: true });
+    if (header.allocationMethod === "AGGREGATE" && setupRepayment !== 0) {
+      fail("INTEGRITY_ERROR", "Legacy distributions cannot contain setup repayments");
+    }
     const configVersion = safeInteger(row.configVersion, `profit_distribution_stores[${ordinal}].config_version`, { positive: true });
     const policyVersionId = requiredString(row.policyVersionId, `profit_distribution_stores[${ordinal}].policy_version_id`);
     let parsed;
@@ -486,14 +502,20 @@ export async function readProfitDistribution(
       policyVersionId,
       configVersion,
       finalProfit,
-      distributableProfit,
+      setupRepayment,
+      profitAfterSetup,
+      distributableProfit: Math.max(0, profitAfterSetup),
       financialSnapshot,
       ordinal,
     });
   });
 
   const policyMembers = membersFromPolicy(header.policySnapshot);
-  const expectedMembers = allocateProfitSharingMembers(header.totalDistributableProfit, policyMembers);
+  const expectedMembers = header.allocationMethod === "AGGREGATE"
+    ? allocateProfitSharingMembers(header.totalDistributableProfit, policyMembers)
+    : calculateProfitSharing(stores, policyMembers, stores.map((store) => ({
+        storeId: store.storeId, amount: store.setupRepayment,
+      }))).members;
   const members = memberResult.results.map((row, ordinal) => {
     if (row.ordinal !== ordinal) fail("INTEGRITY_ERROR", "Profit distribution member ordinals are not contiguous");
     const snapshot = parseJsonObject(row.memberSnapshotJson, `profit_distribution_members[${ordinal}].member_snapshot_json`);
@@ -502,7 +524,8 @@ export async function readProfitDistribution(
     const amount = safeInteger(row.amount, `profit_distribution_members[${ordinal}].amount`);
     if (!expected || normalized.memberId !== row.memberId || normalized.name !== row.memberName
       || normalized.rateBasisPoints !== row.rateBasisPoints
-      || expected.memberId !== normalized.memberId || expected.amount !== amount) {
+      || expected.memberId !== normalized.memberId || expected.name !== normalized.name
+      || expected.rateBasisPoints !== normalized.rateBasisPoints || expected.amount !== amount) {
       fail("INTEGRITY_ERROR", `Profit distribution member ${ordinal} does not match its policy snapshot`);
     }
     return Object.freeze({ ...normalized, amount });
@@ -514,6 +537,8 @@ export async function readProfitDistribution(
     fail("INTEGRITY_ERROR", "Profit distribution totals do not reconcile");
   }
   return Object.freeze({
+    allocationMethod: header.allocationMethod,
+    totalSetupRepayment: safeSignedSum(stores.map((store) => store.setupRepayment), "totalSetupRepayment"),
     id: header.id,
     period: header.period,
     status: "LOCKED",
@@ -577,6 +602,7 @@ export async function closeProfitDistribution(
     period: string;
     actorId: string;
     reason: string;
+    setupRepayments?: readonly SetupRepayment[];
     now?: Date | string;
     id?: string;
     auditId?: string;
@@ -589,15 +615,15 @@ export async function closeProfitDistribution(
   const now = canonicalTimestamp(nowValue, "now");
   const existing = await readProfitDistribution(db, period);
   if (existing) fail("ALREADY_CLOSED", `Profit distribution ${period} is already closed`);
-  const preview = await previewProfitDistribution(db, period);
+  const preview = await previewProfitDistribution(db, period, input.setupRepayments);
   const id = input.id ? requiredString(input.id, "id") : generatedId(`profit-distribution:${period}`);
   const auditId = input.auditId ? requiredString(input.auditId, "auditId") : generatedId("audit:profit-distribution");
   const statements: D1PreparedStatement[] = [
     db.prepare(`INSERT INTO profit_distributions
       (id, period, status, policy_version_id, config_version, policy_snapshot_json,
        total_final_profit, total_distributable_profit, store_count, member_count,
-       closed_by, closed_at, reason, created_at)
-      VALUES (?, ?, 'LOCKED', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+       closed_by, closed_at, reason, created_at, allocation_method)
+      VALUES (?, ?, 'LOCKED', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PER_STORE')`)
       .bind(
         id,
         period,
@@ -618,8 +644,8 @@ export async function closeProfitDistribution(
     statements.push(db.prepare(`INSERT INTO profit_distribution_stores
       (id, distribution_id, store_id, store_name_snapshot, financial_period_id,
        financial_period_revision, policy_version_id, config_version, final_profit,
-       distributable_profit, financial_snapshot_json, ordinal)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+       distributable_profit, financial_snapshot_json, ordinal, setup_repayment)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .bind(
         `${id}:store:${store.ordinal}`,
         id,
@@ -630,9 +656,10 @@ export async function closeProfitDistribution(
         store.policyVersionId,
         store.configVersion,
         store.finalProfit,
-        store.distributableProfit,
+        Math.max(0, store.finalProfit),
         JSON.stringify(store.financialSnapshot),
         store.ordinal,
+        store.setupRepayment,
       ));
   }
   for (const member of preview.members) {
@@ -658,12 +685,16 @@ export async function closeProfitDistribution(
     policyVersionId: preview.policyVersionId,
     configVersion: preview.configVersion,
     totalFinalProfit: preview.totalFinalProfit,
+    allocationMethod: preview.allocationMethod,
+    totalSetupRepayment: preview.totalSetupRepayment,
     totalDistributableProfit: preview.totalDistributableProfit,
     stores: preview.stores.map((store) => ({
       storeId: store.storeId,
       financialPeriodId: store.financialPeriodId,
       financialPeriodRevision: store.financialPeriodRevision,
       finalProfit: store.finalProfit,
+      setupRepayment: store.setupRepayment,
+      profitAfterSetup: store.profitAfterSetup,
       distributableProfit: store.distributableProfit,
     })),
     members: preview.members.map((member) => ({
