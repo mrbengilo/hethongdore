@@ -33,6 +33,8 @@ export default function StoreManagerPayroll({ store, period, onChanged }: {
   const request = useRef(0);
   const controller = useRef<AbortController | null>(null);
   const inFlight = useRef(false);
+  const activeScope = useRef<string | null>(null);
+  const scope = `${store.id}:${period}`;
   const load = useCallback(async () => {
     const id = ++request.current;
     controller.current?.abort();
@@ -57,7 +59,11 @@ export default function StoreManagerPayroll({ store, period, onChanged }: {
       if (request.current === id && !abort.signal.aborted) setLoading(false);
     }
   }, [period, store.id]);
-  useEffect(() => { void load(); return () => controller.current?.abort(); }, [load]);
+  useEffect(() => {
+    activeScope.current = scope;
+    void load();
+    return () => { activeScope.current = null; controller.current?.abort(); };
+  }, [load, scope]);
   const summary = data?.summary;
   const editable = Boolean(summary) && !loading && !saving && store.status !== "INACTIVE"
     && (!data?.financialPeriod || data.financialPeriod.status === "DRAFT") && !data?.closing && summary?.status !== "LOCKED";
@@ -87,11 +93,15 @@ export default function StoreManagerPayroll({ store, period, onChanged }: {
           managerSalary: Number(amount), expectedSalaryVersion: summary.managerSalaryVersion ?? 0 }),
       });
       const payload = await readFinancialResponse<{ message: string }>(response);
+      if (activeScope.current !== scope) return;
       await load();
+      if (activeScope.current !== scope) return;
       setMessage(payload.message);
       await onChanged();
     } catch (cause) {
+      if (activeScope.current !== scope) return;
       await load();
+      if (activeScope.current !== scope) return;
       setError(cause instanceof Error ? cause.message : "Không thể lưu lương quản lý.");
     } finally { inFlight.current = false; setSaving(false); }
   };
