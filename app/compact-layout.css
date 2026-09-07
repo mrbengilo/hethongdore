@@ -217,3 +217,20 @@
   .compact-data-list > div { grid-template-columns: minmax(0, 1fr); }
   .compact-data-list dd { text-align: left; }
 }
+
+/* Shared action feedback without changing button labels or layout widths. */
+button { transition: background-color .15s ease, box-shadow .15s ease, transform .1s ease; }
+button:not(:disabled):active { transform: translateY(1px); filter: brightness(.93); }
+button[aria-busy="true"] { cursor: progress; }
+.action-spinner { display: inline-block; width: 1em; height: 1em; flex: 0 0 1em; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: dore-action-spin .7s linear infinite; vertical-align: -.15em; margin-inline-end: .35em; }
+@keyframes dore-action-spin { to { transform: rotate(360deg); } }
+.action-notifications { position: fixed; right: max(16px, env(safe-area-inset-right)); bottom: max(16px, env(safe-area-inset-bottom)); z-index: 10000; width: min(440px, calc(100vw - 32px)); pointer-events: none; }
+.action-notice { display: flex; align-items: flex-start; gap: 12px; padding: 12px 16px; border: 1px solid #89c8a4; border-radius: 12px; background: #edf9f1; color: #14532d; box-shadow: 0 4px 20px #003c2826; pointer-events: auto; font-size: 14px; line-height: 1.5; }
+.action-notice.error { background: #fff1f2; border-color: #fda4af; color: #9f1239; }
+.action-notice span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.action-notice button { flex: none; border: 0; background: transparent; color: inherit; font-size: 22px; padding: 0 4px; }
+@media (prefers-reduced-motion: reduce) { button { transition: none; } .action-spinner { animation: none; border-style: dotted; } }
+
+/* Support identity stays below the name and wraps inside its own cell/card. */
+.support-employee-tag { display: flex !important; flex-direction: column; align-items: center; width: fit-content; max-width: 100%; margin: 4px auto !important; padding: 3px 7px; border: 1px solid #a5b4fc; border-radius: 7px; background: #eef2ff; color: #3730a3 !important; font-size: 11px !important; line-height: 1.4 !important; font-weight: 600; text-align: center; white-space: normal !important; overflow-wrap: anywhere; }
+.support-employee-tag > span { display: block !important; color: inherit !important; font-size: inherit !important; line-height: inherit !important; font-weight: 400; white-space: normal !important; }

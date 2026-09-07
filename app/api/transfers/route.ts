@@ -59,16 +59,19 @@ function parseTransfer(row: TransferRow) {
   return { ...row, shifts };
 }
 
+const noOpenTransferShift = `NOT EXISTS (SELECT 1 FROM shift_sessions open_shift
+  WHERE open_shift.transfer_id = employee_transfers.id AND open_shift.status = 'ACTIVE')`;
+
 async function reconcileStatuses() {
   const db = await initDb();
   const day = localDate();
   const now = new Date().toISOString();
-  const expiring = await db.prepare("SELECT id FROM employee_transfers WHERE status IN ('SCHEDULED', 'ACTIVE') AND end_date < ?").bind(day).all<{ id: string }>();
+  const expiring = await db.prepare(`SELECT id FROM employee_transfers WHERE status IN ('SCHEDULED', 'ACTIVE') AND end_date < ? AND ${noOpenTransferShift}`).bind(day).all<{ id: string }>();
   const activating = await db.prepare(`SELECT t.id FROM employee_transfers t
     JOIN employees e ON e.id = t.employee_id AND e.status = 'ACTIVE'
     WHERE t.status = 'SCHEDULED' AND t.start_date <= ? AND t.end_date >= ?`).bind(day, day).all<{ id: string }>();
   if (expiring.results.length) {
-    await db.prepare("UPDATE employee_transfers SET status = 'COMPLETED', ended_at = COALESCE(ended_at, ?), updated_at = ? WHERE status IN ('SCHEDULED', 'ACTIVE') AND end_date < ?").bind(now, now, day).run();
+    await db.prepare(`UPDATE employee_transfers SET status = 'COMPLETED', ended_at = COALESCE(ended_at, ?), updated_at = ? WHERE status IN ('SCHEDULED', 'ACTIVE') AND end_date < ? AND ${noOpenTransferShift}`).bind(now, now, day).run();
   }
   if (activating.results.length) {
     await db.prepare(`UPDATE employee_transfers SET status = 'ACTIVE', updated_at = ?
@@ -88,7 +91,8 @@ export async function GET(request: Request) {
     SELECT t.*,
       e.code AS employee_code, e.name AS employee_name, e.position AS employee_position,
       source.name AS source_store_name, target.name AS target_store_name,
-      creator.name AS created_by_name
+      creator.name AS created_by_name,
+      EXISTS(SELECT 1 FROM shift_sessions open_shift WHERE open_shift.transfer_id = t.id AND open_shift.status = 'ACTIVE') AS has_open_shift
     FROM employee_transfers t
     JOIN employees e ON e.id = t.employee_id
     JOIN stores source ON source.id = t.source_store_id
@@ -205,8 +209,9 @@ export async function PATCH(request: Request) {
   if (["COMPLETED", "CANCELLED"].includes(transfer.status)) return json({ message: "Lịch điều chuyển đã kết thúc và không thể thay đổi." }, 409);
   const nextStatus = body.action === "CANCEL" ? "CANCELLED" : "COMPLETED";
   const now = new Date().toISOString();
-  await db.prepare("UPDATE employee_transfers SET status = ?, ended_at = ?, updated_at = ? WHERE id = ? AND source_store_id = ? AND target_store_id = ? AND status IN ('SCHEDULED', 'ACTIVE')")
+  const updated = await db.prepare(`UPDATE employee_transfers SET status = ?, ended_at = ?, updated_at = ? WHERE id = ? AND source_store_id = ? AND target_store_id = ? AND status IN ('SCHEDULED', 'ACTIVE') AND ${noOpenTransferShift}`)
     .bind(nextStatus, now, now, body.id, transfer.sourceStoreId, transfer.targetStoreId).run();
+  if (affectedRows(updated) === 0) return json({ message: "Nhân viên còn ca đang mở tại cửa hàng hỗ trợ hoặc lịch vừa thay đổi. Nhân viên phải kết ca trước khi kết thúc điều chuyển." }, 409);
   await writeAudit(user.id, body.action === "CANCEL" ? "TRANSFER_CANCEL" : "TRANSFER_END", "EMPLOYEE_TRANSFER", body.id, `from=${transfer.status};to=${nextStatus}`);
   return json({ ok: true, status: nextStatus });
 }

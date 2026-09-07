@@ -1,3 +1,4 @@
+import { readStoreSupportIdentities } from "../_lib/support-identity";
 import { applyPayrollReview, payrollReviewSource, readPayrollReviews, reviewSourceMatches,
   reviewedKpiAmount, savePayrollReview, PayrollReviewError, type PayrollReviewSource, type PayrollReviewState } from "../../lib/payroll-review";
 import { initDb } from "../../../db/runtime";
@@ -1420,6 +1421,7 @@ async function getPayroll(request: Request) {
     ? canonicalSnapshot ?? legacySnapshot
     : await buildPreview(db, storeId, period);
   if (!summary) return json({ message: "Không tìm thấy cửa hàng" }, 404);
+  const supportIdentities = await readStoreSupportIdentities(db, storeId, `${period}-01`, `${period}-31`);
   const individualClosings = await employeePayrollClosings(db, storeId, period);
   const closing = await payrollClosing(db, storeId, period);
   const previous = await lockedSummary(db, storeId, previousPeriod(period));
@@ -1435,7 +1437,7 @@ async function getPayroll(request: Request) {
       ? financialPeriodRow.status === "LOCKED"
       : legacySnapshot?.status === "LOCKED",
     financialPeriod: publicFinancialPeriod(storeId, period, financialPeriodRow),
-    summary,
+    summary: { ...summary, items: summary.items.map((item) => ({ ...item, ...supportIdentities.get(item.employeeId) })) },
     reviewToken: await payrollReviewToken(summary),
     employeeClosings: individualClosings,
     individualLockedCount: individualClosings.length,

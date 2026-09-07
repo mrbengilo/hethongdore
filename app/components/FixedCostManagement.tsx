@@ -1,5 +1,8 @@
 "use client";
 
+import { ActionButton, ActionForm } from "./ActionFeedback";
+import { actionFetch as fetch } from "../lib/action-feedback";
+
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { BarChart3, Ban, Building2, Download, Plus, ReceiptText, Save, Trash2, TrendingDown, TrendingUp, WalletCards } from "lucide-react";
 import { formatVnd, isVnd, localPeriod, sumVnd } from "../lib/finance";
@@ -390,14 +393,14 @@ export function FixedCostManagement({ store, onSaved }: { store: StoreRef; onSav
       <div><h2>Chi phí cố định</h2><p>Mỗi lần lưu là một lần nhập độc lập trong tháng của {store.name}</p></div>
       <div>
         <input aria-label="Kỳ xem chi phí" type="month" value={period} onChange={(event) => setPeriod(event.target.value)}/>
-        <button type="button" disabled={exporting} onClick={() => void exportCsv()}><Download size={16}/> {exporting ? "Đang xuất..." : "Xuất CSV"}</button>
-        <button type="button" className="primary-button" disabled={inactive || saving || items.length >= 100} onClick={addItem}><Plus size={17}/> Thêm chi phí</button>
-        <button type="submit" form="fixed-cost-entry-form" className="primary-button fixed-cost-toolbar-save" disabled={inactive || saving}><Save size={17}/> {saving ? "ĐANG LƯU..." : "Lưu chi phí"}</button>
+        <ActionButton type="button" disabled={exporting} onClick={() => exportCsv()}><Download size={16}/> {exporting ? "Đang xuất..." : "Xuất CSV"}</ActionButton>
+        <ActionButton type="button" className="primary-button" disabled={inactive || saving || items.length >= 100} onClick={addItem}><Plus size={17}/> Thêm chi phí</ActionButton>
+        <ActionButton type="submit" form="fixed-cost-entry-form" busy={saving} className="primary-button fixed-cost-toolbar-save" disabled={inactive || saving}><Save size={17}/> {saving ? "ĐANG LƯU..." : "Lưu chi phí"}</ActionButton>
       </div>
     </div>
     {inactive && <div className="inactive-store-banner">Cửa hàng đang ngưng hoạt động. Bạn vẫn xem và xuất được lịch sử, nhưng không thể thêm hoặc hủy chi phí.</div>}
 
-    <form id="fixed-cost-entry-form" className="fixed-cost-panel fixed-cost-draft" onSubmit={save}>
+    <ActionForm id="fixed-cost-entry-form" className="fixed-cost-panel fixed-cost-draft" onSubmit={save}>
       <div className="panel-title">
         <div><h3>Danh sách chi phí cần nhập</h3><p>8 khoản mặc định luôn sẵn sàng. Sau khi lưu, danh sách trở về 0 và lịch sử cũ không thể ghi đè.</p></div>
         <label>Kỳ chi phí<input aria-label="Kỳ nhập chi phí" type="month" required disabled={inactive || saving} value={formPeriod} onChange={(event) => { setFormPeriod(event.target.value); markDraftChanged(); }}/></label>
@@ -414,7 +417,7 @@ export function FixedCostManagement({ store, onSaved }: { store: StoreRef; onSav
               : <input aria-label={`Tên chi phí dòng ${index + 1}`} required value={item.name} onChange={(event) => updateItem(item.id, "name", event.target.value)} placeholder="Tên khoản chi phí"/>}</div>
             <label className="fixed-cost-entry-amount" role="cell"><span>Số tiền</span><input aria-label={`Số tiền dòng ${index + 1}`} inputMode="numeric" pattern="[0-9,]*" required value={formatMoneyInput(item.amount)} onChange={(event) => updateItem(item.id, "amount", event.target.value)} placeholder="0"/></label>
             <div className={`fixed-cost-entry-action ${item.key ? "is-default" : "is-custom"}`} role="cell">{item.key === null
-              ? <button type="button" onClick={() => removeItem(item.id)} aria-label={`Xóa chi phí dòng ${index + 1}`}><Trash2 size={16}/></button>
+              ? <ActionButton type="button" onClick={() => removeItem(item.id)} aria-label={`Xóa chi phí dòng ${index + 1}`}><Trash2 size={16}/></ActionButton>
               : <span className="fixed-cost-default-label">Mặc định</span>}</div>
           </div>)}
           <div className="fixed-cost-entry-total" role="row"><b role="cell">Tổng cộng · {items.length} khoản</b><strong role="cell">{formatVnd(draftTotal)}</strong></div>
@@ -424,9 +427,9 @@ export function FixedCostManagement({ store, onSaved }: { store: StoreRef; onSav
       {message && <div className="form-message fixed-cost-feedback" role="alert">{message}</div>}
       {success && <div className="success-banner fixed-cost-feedback" role="status">{success}</div>}
       <div className="fixed-cost-save-actions">
-        <button className="primary-button" disabled={inactive || saving}><Save size={17}/> {saving ? "ĐANG LƯU..." : "Lưu chi phí"}</button>
+        <ActionButton className="primary-button" disabled={inactive || saving}><Save size={17}/> {saving ? "ĐANG LƯU..." : "Lưu chi phí"}</ActionButton>
       </div>
-    </form>
+    </ActionForm>
 
     <div className="fixed-cost-metrics"><Metric icon={WalletCards} label="Tổng chi phí tháng" value={formatVnd(currentTotal)} note={`${formatPeriod(period)} · ${selectedSummary?.entryCount ?? 0} lần lưu đang tính`}/><Metric icon={previousTotal && change <= 0 ? TrendingDown : TrendingUp} label="So với tháng trước" value={`${change > 0 ? "+" : ""}${change.toFixed(2)}%`} note={`${formatVnd(previousTotal)} kỳ trước`} tone={change > 0 ? "orange" : "blue"}/><Metric icon={Building2} label="Khoản chi lớn nhất" value={formatVnd(largest?.amount ?? 0)} note={largest?.name ?? "Chưa có dữ liệu"}/><Metric icon={ReceiptText} label="Số kỳ đã nhập" value={`${periodSummaries.length} kỳ`} note={`${historyTotal} phiếu gồm cả phiếu đã hủy`} tone="purple"/></div>
     <div className="fixed-cost-grid">
@@ -435,8 +438,8 @@ export function FixedCostManagement({ store, onSaved }: { store: StoreRef; onSav
     </div>
     <section className="fixed-cost-panel history">
       <div className="panel-title"><div><h3>Lịch sử nhập chi phí cố định</h3><p>Mỗi dòng là một phiếu bất biến; phiếu đã hủy vẫn được giữ để đối soát nhưng không tính vào tổng</p></div></div>
-      <div className="data-table-wrap fixed-cost-history-scroll"><table className="data-table fixed-cost-history-table"><thead><tr><th>Mã lần lưu</th><th>Kỳ</th><th>Chi tiết khoản chi</th><th>Tổng</th><th>Ghi chú</th><th>Lưu lúc</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>{records.length ? records.map((record) => <tr className={record.status === "VOID" ? "fixed-cost-void-row" : ""} key={record.id}><td><b>{record.data.entryNo}</b></td><td>{formatPeriod(record.data.period)}</td><td><div className="fixed-cost-history-items">{record.data.items.map((item, index) => <span key={`${record.id}-${item.key ?? "custom"}-${index}`}>{item.name}: <b>{formatVnd(item.amount)}</b></span>)}</div></td><td className="money-orange"><b>{formatVnd(record.data.total)}</b></td><td>{record.data.note || "—"}</td><td><b>{dateTime24(record.data.savedAt)}</b></td><td><span className={`fixed-cost-immutable-label ${record.status === "VOID" ? "void" : ""}`}>{record.status === "VOID" ? "Đã hủy · Không tính" : "Đã lưu · Không ghi đè"}</span></td><td>{record.status === "VOID" ? "—" : <button type="button" className="fixed-cost-void-button" disabled={inactive || Boolean(voidingId)} onClick={() => void voidRecord(record)}><Ban size={14}/>{voidingId === record.id ? "Đang hủy..." : "Hủy phiếu"}</button>}</td></tr>) : <tr><td colSpan={8} className="empty-cell">Chưa có lịch sử chi phí cố định.</td></tr>}</tbody></table></div>
-      <div className="fixed-cost-history-pagination"><span>Đã hiển thị {records.length}/{historyTotal} phiếu</span>{nextCursor ? <button type="button" disabled={loadingMore} onClick={() => void loadMore()}>{loadingMore ? "Đang tải..." : "Tải thêm lịch sử"}</button> : <b>Đã tải hết lịch sử</b>}</div>
+      <div className="data-table-wrap fixed-cost-history-scroll"><table className="data-table fixed-cost-history-table"><thead><tr><th>Mã lần lưu</th><th>Kỳ</th><th>Chi tiết khoản chi</th><th>Tổng</th><th>Ghi chú</th><th>Lưu lúc</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>{records.length ? records.map((record) => <tr className={record.status === "VOID" ? "fixed-cost-void-row" : ""} key={record.id}><td><b>{record.data.entryNo}</b></td><td>{formatPeriod(record.data.period)}</td><td><div className="fixed-cost-history-items">{record.data.items.map((item, index) => <span key={`${record.id}-${item.key ?? "custom"}-${index}`}>{item.name}: <b>{formatVnd(item.amount)}</b></span>)}</div></td><td className="money-orange"><b>{formatVnd(record.data.total)}</b></td><td>{record.data.note || "—"}</td><td><b>{dateTime24(record.data.savedAt)}</b></td><td><span className={`fixed-cost-immutable-label ${record.status === "VOID" ? "void" : ""}`}>{record.status === "VOID" ? "Đã hủy · Không tính" : "Đã lưu · Không ghi đè"}</span></td><td>{record.status === "VOID" ? "—" : <ActionButton type="button" className="fixed-cost-void-button" disabled={inactive || Boolean(voidingId)} onClick={() => voidRecord(record)}><Ban size={14}/>{voidingId === record.id ? "Đang hủy..." : "Hủy phiếu"}</ActionButton>}</td></tr>) : <tr><td colSpan={8} className="empty-cell">Chưa có lịch sử chi phí cố định.</td></tr>}</tbody></table></div>
+      <div className="fixed-cost-history-pagination"><span>Đã hiển thị {records.length}/{historyTotal} phiếu</span>{nextCursor ? <ActionButton type="button" disabled={loadingMore} onClick={() => loadMore()}>{loadingMore ? "Đang tải..." : "Tải thêm lịch sử"}</ActionButton> : <b>Đã tải hết lịch sử</b>}</div>
     </section>
   </div>;
 }

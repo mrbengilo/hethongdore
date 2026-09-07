@@ -1,4 +1,9 @@
 "use client";
+
+import SupportTag from "./SupportTag";
+
+import { ActionButton, ActionForm } from "./ActionFeedback";
+import { actionFetch as fetch } from "../lib/action-feedback";
 import StoreManagerPayroll from "./StoreManagerPayroll";
 /* eslint-disable @next/next/no-img-element -- Logo thương hiệu tĩnh do người dùng cung cấp và dùng đồng nhất trong toàn hệ thống. */
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -185,14 +190,14 @@ function AppShell({ brand, subtitle, menu, active, onActive, user, children, onB
     async function logout() { await fetch("/api/auth/logout", { method: "POST" }); window.location.href = "/"; }
     return <div className={`app-shell ${accent}`}>
     <aside id="app-navigation-sidebar" className={`sidebar ${open ? "open" : ""}`}>
-      <div className="sidebar-brand"><div className="mini-mark"><img className="brand-logo-image" src="/logo.jpg" alt="Logo DORE Quản Lý" width={1254} height={1254}/></div><div><strong>{brand}</strong><span>{subtitle}</span></div><button className="close-menu" onClick={() => setOpen(false)} aria-label="Đóng menu"><X size={21}/></button></div>
-      {onBack && <button className="back-system" onClick={onBack}><ArrowLeft size={17}/> Quay về trang quản lý chính</button>}
-      <nav>{menu.map((item) => { const Icon = menuIcons[item] ?? LayoutDashboard; return <button key={item} className={active === item ? "active" : ""} onClick={() => { onActive(item); setOpen(false); window.scrollTo({ top: 0, behavior: "smooth" }); }}><i><Icon size={19} strokeWidth={1.8}/></i>{item}</button>; })}</nav>
-      <div className="sidebar-user"><div className="avatar"><UserRound size={20}/></div><div><b>{user.name}</b><span>{user.role === "MANAGER" ? Number(user.isSuperAdmin) === 1 ? "Quản trị cấp cao" : "Quản lý hệ thống" : `${user.employeeCode ?? "NV"} · ${user.employeePosition ?? "Nhân viên"}`}</span></div></div>
-      <button className="logout-button" onClick={logout}><LogOut size={18}/> Đăng xuất</button>
+      <div className="sidebar-brand"><div className="mini-mark"><img className="brand-logo-image" src="/logo.jpg" alt="Logo DORE Quản Lý" width={1254} height={1254}/></div><div><strong>{brand}</strong><span>{subtitle}</span></div><ActionButton className="close-menu" onClick={() => setOpen(false)} aria-label="Đóng menu"><X size={21}/></ActionButton></div>
+      {onBack && <ActionButton className="back-system" onClick={onBack}><ArrowLeft size={17}/> Quay về trang quản lý chính</ActionButton>}
+      <nav>{menu.map((item) => { const Icon = menuIcons[item] ?? LayoutDashboard; return <ActionButton key={item} className={active === item ? "active" : ""} onClick={() => { onActive(item); setOpen(false); window.scrollTo({ top: 0, behavior: "smooth" }); }}><i><Icon size={19} strokeWidth={1.8}/></i>{item}</ActionButton>; })}</nav>
+      <div className="sidebar-user"><div className="avatar"><UserRound size={20}/></div><div><b>{user.name}</b><SupportTag supporting={user.isSupporting} sourceStoreName={user.homeStoreName}/><span>{user.role === "MANAGER" ? Number(user.isSuperAdmin) === 1 ? "Quản trị cấp cao" : "Quản lý hệ thống" : `${user.employeeCode ?? "NV"} · ${user.employeePosition ?? "Nhân viên"}`}</span></div></div>
+      <ActionButton className="logout-button" onClick={logout}><LogOut size={18}/> Đăng xuất</ActionButton>
     </aside>
-    <section className={`main-area ${shellAction ? "has-shell-action" : ""}`}><header className="mobile-header"><button onClick={() => setOpen(true)} aria-label="Mở menu" aria-controls="app-navigation-sidebar" aria-expanded={open}><Menu size={23}/></button><b>{brand}</b>{shellAction ? <span className="mobile-action-placeholder" aria-hidden="true"/> : <Bell size={19}/>}</header>{shellAction && <div className="shell-notification-action">{shellAction}</div>}{children}</section>
-    {open && <button className="menu-overlay" aria-label="Đóng menu" onClick={() => setOpen(false)}/>} 
+    <section className={`main-area ${shellAction ? "has-shell-action" : ""}`}><header className="mobile-header"><ActionButton onClick={() => setOpen(true)} aria-label="Mở menu" aria-controls="app-navigation-sidebar" aria-expanded={open}><Menu size={23}/></ActionButton><b>{brand}</b>{shellAction ? <span className="mobile-action-placeholder" aria-hidden="true"/> : <Bell size={19}/>}</header>{shellAction && <div className="shell-notification-action">{shellAction}</div>}{children}</section>
+    {open && <ActionButton className="menu-overlay" aria-label="Đóng menu" onClick={() => setOpen(false)}/>}
   </div>;
 }
 function ManagerPortal({ user }: {
@@ -373,7 +378,7 @@ function ManagerPortal({ user }: {
     if (!navigationReady || (selectedStoreId && loading && !selectedStore))
         return <div className="app-loading"><div className="pulse-logo"><img className="brand-logo-image" src="/logo.jpg" alt="Logo DORE Quản Lý" width={1254} height={1254}/></div><p>Đang mở lại màn hình gần nhất...</p></div>;
     if (selectedStoreId && !selectedStore && storeLoadError)
-        return <div className="app-loading"><div className="pulse-logo"><img className="brand-logo-image" src="/logo.jpg" alt="Logo DORE Quản Lý" width={1254} height={1254}/></div><p>{storeLoadError}</p><button type="button" className="primary-button" onClick={() => void loadStores()}>Thử tải lại</button></div>;
+        return <div className="app-loading"><div className="pulse-logo"><img className="brand-logo-image" src="/logo.jpg" alt="Logo DORE Quản Lý" width={1254} height={1254}/></div><p>{storeLoadError}</p><ActionButton type="button" className="primary-button" onClick={() => loadStores()}>Thử tải lại</ActionButton></div>;
     if (selectedStore)
         return <AppShell brand={selectedStore.name} subtitle={Number(user.isSuperAdmin) === 1 ? "Quản trị cấp cao" : "Quản lý cửa hàng"} menu={activeStoreMenu} active={storeView} onActive={(item) => { setStoreView(item); if (item !== "Đơn hàng") setFocusedOrderId(null); }} user={user} onBack={returnToSystemOverview} shellAction={notificationCenter} accent="light"><StoreWorkspace store={selectedStore} view={storeView} period={period} onPeriodChange={setPeriod} onReload={loadStores} focusedOrderId={focusedOrderId} focusedOrderRequest={focusedOrderRequest} isSuperAdmin={Number(user.isSuperAdmin) === 1}/></AppShell>;
     const financeOwnsHeader = view === "Chia lợi nhuận" || view === "Báo cáo" || view === "Dòng tiền" || view === "Quản Lý Nhân Viên" || view === "Cài Đặt Chính Sách";
@@ -404,15 +409,15 @@ function ManagerNotificationCenter({ notifications, unreadCount, error, clearing
         };
     }, [open]);
     return <div className="manager-notification-center" ref={centerRef}>
-        <button type="button" className="bell manager-notification-button" aria-label={`Thông báo đơn hàng${unreadCount ? `, ${unreadCount} chưa đọc` : ""}`} aria-expanded={open} aria-controls="manager-notification-panel" onClick={() => setOpen((current) => !current)}>
+        <ActionButton type="button" className="bell manager-notification-button" aria-label={`Thông báo đơn hàng${unreadCount ? `, ${unreadCount} chưa đọc` : ""}`} aria-expanded={open} aria-controls="manager-notification-panel" onClick={() => setOpen((current) => !current)}>
             <Bell size={20}/>{unreadCount > 0 && <span className="notification-count">{unreadCount > 99 ? "99+" : unreadCount}</span>}
-        </button>
+        </ActionButton>
         {open && <section className="manager-notification-panel" id="manager-notification-panel" aria-label="Thông báo mới">
-            <div className="notification-panel-head"><div><h2>Thông báo</h2><p>{unreadCount ? `${unreadCount} thông báo chưa đọc` : "Đã đọc tất cả thông báo"}</p></div><div className="notification-panel-actions"><button type="button" className="notification-clear-button" aria-label="Xóa tất cả thông báo chưa đọc" title="Xóa tất cả thông báo" disabled={clearing || unreadCount === 0} onClick={() => void onClear()}>{clearing ? <RefreshCw className="notification-spin" size={17}/> : <Trash2 size={17}/>}</button><button type="button" aria-label="Tải lại thông báo" title="Tải lại thông báo" disabled={clearing} onClick={() => void onRefresh()}><RefreshCw size={17}/></button></div></div>
-            {error && <div className="notification-error" role="status">{error}<button type="button" onClick={() => void onRefresh()}>Thử lại</button></div>}
-            <div className="notification-list" aria-busy={clearing}>{notifications.length === 0 && !error ? <p className="notification-empty">{clearing ? "Đang xóa thông báo…" : "Không còn thông báo chưa đọc."}</p> : notifications.map((notification) => <button type="button" key={notification.id} className={`notification-item ${notification.readAt ? "" : "unread"}`} onClick={() => { setOpen(false); onOpen(notification); }}>
+            <div className="notification-panel-head"><div><h2>Thông báo</h2><p>{unreadCount ? `${unreadCount} thông báo chưa đọc` : "Đã đọc tất cả thông báo"}</p></div><div className="notification-panel-actions"><ActionButton type="button" className="notification-clear-button" aria-label="Xóa tất cả thông báo chưa đọc" title="Xóa tất cả thông báo" disabled={clearing || unreadCount === 0} onClick={() => onClear()}>{clearing ? <RefreshCw className="notification-spin" size={17}/> : <Trash2 size={17}/>}</ActionButton><ActionButton type="button" aria-label="Tải lại thông báo" title="Tải lại thông báo" disabled={clearing} onClick={() => onRefresh()}><RefreshCw size={17}/></ActionButton></div></div>
+            {error && <div className="notification-error" role="status">{error}<ActionButton type="button" onClick={() => onRefresh()}>Thử lại</ActionButton></div>}
+            <div className="notification-list" aria-busy={clearing}>{notifications.length === 0 && !error ? <p className="notification-empty">{clearing ? "Đang xóa thông báo…" : "Không còn thông báo chưa đọc."}</p> : notifications.map((notification) => <ActionButton type="button" key={notification.id} className={`notification-item ${notification.readAt ? "" : "unread"}`} onClick={() => { setOpen(false); onOpen(notification); }}>
                 <span className="notification-item-icon"><ShoppingCart size={17}/></span><span><b>{notification.title}</b><small>{notification.storeName ?? "Cửa hàng"} · {dateTime(notification.createdAt)}</small><em>{notification.message}</em></span>{!notification.readAt && <i aria-label="Chưa đọc"/>}
-            </button>)}</div>
+            </ActionButton>)}</div>
         </section>}
     </div>;
 }
@@ -535,7 +540,7 @@ function DashboardOverview({ stores, totals, loading, openStore }: {
     return <div className="page-content">
     <div className="stats-grid three"><StatCard label="TỔNG DOANH THU" value={money(totals.revenue)} note={note("revenue")} icon="₫"/><StatCard label="TỔNG CHI PHÍ" value={money(totals.expense)} note={note("expense")} tone="orange" icon="▤"/><StatCard label="TỔNG LỢI NHUẬN" value={money(totals.profit)} note={note("profit")} tone="blue" icon="▥"/></div>
     <div className="section-title"><div><h2>Quản lý cửa hàng</h2><p>Chọn cửa hàng để xem và quản lý chi tiết.</p></div><span>{stores.filter((store) => store.status === "ACTIVE").length} cửa hàng đang hoạt động</span></div>
-    <div className="store-grid">{loading ? Array.from({ length: 5 }, (_, i) => <div className="store-card loading-card" key={i}/>) : stores.map((store, index) => <article className={`store-card ${store.status === "INACTIVE" ? "inactive" : ""}`} key={store.id}><div className={`store-cover cover-${index % 5}`}><div className="shop-sign"><img className="store-logo-image" src="/logo.jpg" alt={`Logo ${store.name}`} width={1254} height={1254}/><span>{store.name}</span></div><div className="shop-front"><i /><i /><i /></div></div><div className="store-card-body"><div className={`store-status ${store.status === "INACTIVE" ? "inactive" : ""}`}>● {store.status === "INACTIVE" ? "Ngưng hoạt động" : "Đang hoạt động"}</div><h3 className="store-card-title">{store.name}</h3><p>⌖ {store.address}</p><div className="store-numbers"><span>Doanh thu tháng <b>{money(store.revenue)}</b></span><span>Lợi nhuận <b>{money(store.profit)}</b></span></div><button className="store-open" onClick={() => openStore(store)}>Xem cửa hàng <span>→</span></button></div></article>)}</div>
+    <div className="store-grid">{loading ? Array.from({ length: 5 }, (_, i) => <div className="store-card loading-card" key={i}/>) : stores.map((store, index) => <article className={`store-card ${store.status === "INACTIVE" ? "inactive" : ""}`} key={store.id}><div className={`store-cover cover-${index % 5}`}><div className="shop-sign"><img className="store-logo-image" src="/logo.jpg" alt={`Logo ${store.name}`} width={1254} height={1254}/><span>{store.name}</span></div><div className="shop-front"><i /><i /><i /></div></div><div className="store-card-body"><div className={`store-status ${store.status === "INACTIVE" ? "inactive" : ""}`}>● {store.status === "INACTIVE" ? "Ngưng hoạt động" : "Đang hoạt động"}</div><h3 className="store-card-title">{store.name}</h3><p>⌖ {store.address}</p><div className="store-numbers"><span>Doanh thu tháng <b>{money(store.revenue)}</b></span><span>Lợi nhuận <b>{money(store.profit)}</b></span></div><ActionButton className="store-open" onClick={() => openStore(store)}>Xem cửa hàng <span>→</span></ActionButton></div></article>)}</div>
   </div>;
 }
 function StoresView({ stores, totals, reload, openStore, isSuperAdmin }: {
@@ -623,7 +628,7 @@ function StoresView({ stores, totals, reload, openStore, isSuperAdmin }: {
     const totalEmployees = stores.reduce((sum, store) => sum + Number(store.employeeCount ?? 0), 0);
     return <div className="page-content">
       <div className="store-admin-metrics"><StatCard label="TỔNG SỐ CỬA HÀNG" value={String(stores.length)} note={`${activeCount} đang hoạt động`} icon="▧"/><StatCard label="TỔNG NHÂN VIÊN" value={String(totalEmployees)} note="toàn hệ thống" icon="✓"/><StatCard label="TỔNG DOANH THU" value={money(totals.revenue)} note="trong khoảng thời gian chọn" icon="↗"/><StatCard label="TỔNG CHI PHÍ" value={money(totals.expense)} note="trong khoảng thời gian chọn" tone="orange" icon="▤"/><StatCard label="TỔNG LỢI NHUẬN" value={money(totals.profit)} note="trong khoảng thời gian chọn" tone="blue" icon="▥"/></div>
-      <div className="toolbar"><div className="stats-inline"><b>{stores.length}</b> cửa hàng · <b>{money(totals.revenue)}</b> doanh thu</div><div className="store-toolbar-actions"><input aria-label="Tìm kiếm cửa hàng" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm kiếm cửa hàng..."/><button className="primary-button" onClick={() => beginEdit()}>＋ Thêm cửa hàng</button></div></div>
+      <div className="toolbar"><div className="stats-inline"><b>{stores.length}</b> cửa hàng · <b>{money(totals.revenue)}</b> doanh thu</div><div className="store-toolbar-actions"><input aria-label="Tìm kiếm cửa hàng" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm kiếm cửa hàng..."/><ActionButton className="primary-button" onClick={() => beginEdit()}>＋ Thêm cửa hàng</ActionButton></div></div>
       {/* eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Keyboard focus lets users scroll the wide store table. */}
       <div className="table-card"><div className="table-head"><h2>Danh sách cửa hàng</h2></div><div className="data-table-wrap" role="region" tabIndex={0} aria-label="Danh sách cửa hàng, cuộn ngang để xem đầy đủ"><table className="data-table"><thead><tr><th>#</th><th>Cửa hàng</th><th>Địa chỉ</th><th>Nhân viên</th><th>Doanh thu</th><th>Chi phí</th><th>Lợi nhuận</th>{isSuperAdmin ? <th>Đơn hàng đã phát sinh</th> : null}<th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>{filteredStores.map((store, index) => {
         const hasOrders = Number(store.lifetimeOrderCount ?? 0) > 0;
@@ -634,10 +639,10 @@ function StoresView({ stores, totals, reload, openStore, isSuperAdmin }: {
           : hasSalaryAdvances
             ? "Không thể xóa vì cửa hàng còn lịch sử ứng lương cần đối soát"
             : `Xóa ${store.name}`;
-        return <tr key={store.id}><td>{index + 1}</td><td><button className="table-link" onClick={() => openStore(store)}>{store.name}</button></td><td>{store.address}</td><td><b>{store.employeeCount ?? 0}</b> nhân viên</td><td className="money-green">{money(store.revenue)}</td><td className="money-orange">{money(store.expense)}</td><td className="money-blue">{money(store.profit)}</td>{isSuperAdmin ? <td><b>{Number(store.lifetimeOrderCount ?? 0)}</b> đơn</td> : null}<td><span className={`status-pill ${store.status === "INACTIVE" ? "inactive" : ""}`}>{store.status === "INACTIVE" ? "Ngưng hoạt động" : "Đang hoạt động"}</span></td><td><div className="row-actions"><button onClick={() => beginEdit(store)}>Sửa</button><button className={store.status === "ACTIVE" ? "danger" : ""} onClick={() => toggleStatus(store)}>{store.status === "ACTIVE" ? "Ngưng hoạt động" : "Kích hoạt lại"}</button>{isSuperAdmin ? <button className="danger store-delete-button" disabled={cannotDelete} title={deleteReason} onClick={(event) => beginDelete(store, event.currentTarget)}>Xóa</button> : null}</div></td></tr>;
+        return <tr key={store.id}><td>{index + 1}</td><td><ActionButton className="table-link" onClick={() => openStore(store)}>{store.name}</ActionButton></td><td>{store.address}</td><td><b>{store.employeeCount ?? 0}</b> nhân viên</td><td className="money-green">{money(store.revenue)}</td><td className="money-orange">{money(store.expense)}</td><td className="money-blue">{money(store.profit)}</td>{isSuperAdmin ? <td><b>{Number(store.lifetimeOrderCount ?? 0)}</b> đơn</td> : null}<td><span className={`status-pill ${store.status === "INACTIVE" ? "inactive" : ""}`}>{store.status === "INACTIVE" ? "Ngưng hoạt động" : "Đang hoạt động"}</span></td><td><div className="row-actions"><ActionButton onClick={() => beginEdit(store)}>Sửa</ActionButton><ActionButton className={store.status === "ACTIVE" ? "danger" : ""} onClick={() => toggleStatus(store)}>{store.status === "ACTIVE" ? "Ngưng hoạt động" : "Kích hoạt lại"}</ActionButton>{isSuperAdmin ? <ActionButton className="danger store-delete-button" disabled={cannotDelete} title={deleteReason} onClick={(event) => beginDelete(store, event.currentTarget)}>Xóa</ActionButton> : null}</div></td></tr>;
       })}</tbody></table></div></div>
-      {showForm ? <div className="modal-backdrop"><form className="modal" onSubmit={save}><div className="modal-title"><h2>{editing ? "Cập nhật cửa hàng" : "Thêm cửa hàng mới"}</h2><button type="button" aria-label="Đóng" onClick={() => setShowForm(false)}>×</button></div><label>Tên cửa hàng<input value={name} onChange={e => setName(e.target.value)} required/></label><label>Địa chỉ<input value={address} onChange={e => setAddress(e.target.value)} required/></label>{editing ? <label>Trạng thái<select value={status} onChange={(event) => setStatus(event.target.value as "ACTIVE" | "INACTIVE")}><option value="ACTIVE">Đang hoạt động</option><option value="INACTIVE">Ngưng hoạt động</option></select></label> : null}<div className="info-box">{editing ? "Khi ngưng hoạt động, cửa hàng chỉ được xem dữ liệu lịch sử và không thể phát sinh thao tác mới." : "Hệ thống sẽ tự tạo ca làm, danh mục chi phí, lương thưởng, nhân viên, đơn hàng, dòng tiền và báo cáo cho cửa hàng mới."}</div>{message ? <div className="form-message">{message}</div> : null}<div className="modal-actions"><button type="button" onClick={() => setShowForm(false)}>Hủy</button><button type="submit" className="primary-button">{editing ? "Lưu thay đổi" : "Tạo cửa hàng"}</button></div></form></div> : null}
-      {deleteCandidate ? <div className="modal-backdrop" ref={deleteRootRef}><form className="modal store-delete-modal" ref={deleteDialogRef} role="alertdialog" aria-modal="true" aria-labelledby="store-delete-title" aria-describedby="store-delete-description" tabIndex={-1} onSubmit={deleteStore}><div className="modal-title"><div><h2 id="store-delete-title">Xóa cửa hàng khỏi hệ thống?</h2><p>{deleteCandidate.name}</p></div><button type="button" aria-label="Đóng hộp thoại xóa cửa hàng" disabled={deletingStoreId !== null} onClick={closeDeleteDialog}>×</button></div><div className="store-delete-warning" id="store-delete-description"><b>Chỉ xóa được cửa hàng chưa từng phát sinh đơn hàng và không còn khoản ứng lương cần đối soát.</b><p>Cửa hàng sẽ biến mất khỏi danh sách và các tài khoản liên quan bị ngắt truy cập ngay. Dữ liệu phụ được giữ nội bộ để không làm mất lịch sử hoặc tạo bản ghi mồ côi.</p></div>{deleteMessage ? <div className="form-message" role="alert">{deleteMessage}</div> : null}<div className="modal-actions"><button ref={deleteCancelRef} type="button" disabled={deletingStoreId !== null} onClick={closeDeleteDialog}>Giữ lại cửa hàng</button><button type="submit" className="primary-button store-delete-confirm" disabled={deletingStoreId !== null}>{deletingStoreId ? "Đang xóa..." : "Xóa cửa hàng"}</button></div></form></div> : null}
+      {showForm ? <div className="modal-backdrop"><ActionForm className="modal" onSubmit={save}><div className="modal-title"><h2>{editing ? "Cập nhật cửa hàng" : "Thêm cửa hàng mới"}</h2><ActionButton type="button" aria-label="Đóng" onClick={() => setShowForm(false)}>×</ActionButton></div><label>Tên cửa hàng<input value={name} onChange={e => setName(e.target.value)} required/></label><label>Địa chỉ<input value={address} onChange={e => setAddress(e.target.value)} required/></label>{editing ? <label>Trạng thái<select value={status} onChange={(event) => setStatus(event.target.value as "ACTIVE" | "INACTIVE")}><option value="ACTIVE">Đang hoạt động</option><option value="INACTIVE">Ngưng hoạt động</option></select></label> : null}<div className="info-box">{editing ? "Khi ngưng hoạt động, cửa hàng chỉ được xem dữ liệu lịch sử và không thể phát sinh thao tác mới." : "Hệ thống sẽ tự tạo ca làm, danh mục chi phí, lương thưởng, nhân viên, đơn hàng, dòng tiền và báo cáo cho cửa hàng mới."}</div>{message ? <div className="form-message">{message}</div> : null}<div className="modal-actions"><ActionButton type="button" onClick={() => setShowForm(false)}>Hủy</ActionButton><ActionButton type="submit" className="primary-button">{editing ? "Lưu thay đổi" : "Tạo cửa hàng"}</ActionButton></div></ActionForm></div> : null}
+      {deleteCandidate ? <div className="modal-backdrop" ref={deleteRootRef}><ActionForm className="modal store-delete-modal" ref={deleteDialogRef} role="alertdialog" aria-modal="true" aria-labelledby="store-delete-title" aria-describedby="store-delete-description" tabIndex={-1} onSubmit={deleteStore}><div className="modal-title"><div><h2 id="store-delete-title">Xóa cửa hàng khỏi hệ thống?</h2><p>{deleteCandidate.name}</p></div><ActionButton type="button" aria-label="Đóng hộp thoại xóa cửa hàng" disabled={deletingStoreId !== null} onClick={closeDeleteDialog}>×</ActionButton></div><div className="store-delete-warning" id="store-delete-description"><b>Chỉ xóa được cửa hàng chưa từng phát sinh đơn hàng và không còn khoản ứng lương cần đối soát.</b><p>Cửa hàng sẽ biến mất khỏi danh sách và các tài khoản liên quan bị ngắt truy cập ngay. Dữ liệu phụ được giữ nội bộ để không làm mất lịch sử hoặc tạo bản ghi mồ côi.</p></div>{deleteMessage ? <div className="form-message" role="alert">{deleteMessage}</div> : null}<div className="modal-actions"><ActionButton ref={deleteCancelRef} type="button" disabled={deletingStoreId !== null} onClick={closeDeleteDialog}>Giữ lại cửa hàng</ActionButton><ActionButton type="submit" className="primary-button store-delete-confirm" disabled={deletingStoreId !== null}>{deletingStoreId ? "Đang xóa..." : "Xóa cửa hàng"}</ActionButton></div></ActionForm></div> : null}
     </div>;
 }
 function StoreWorkspace({ store, view, period, onPeriodChange, onReload, focusedOrderId, focusedOrderRequest, isSuperAdmin }: {
@@ -714,20 +719,27 @@ function EmployeePortal({ user, onUser }: {
             managerPeriod: null,
         });
     }, [navigationIdentity, navigationReady, view]);
+    const shiftSyncSequence = useRef(0);
+    const shiftMutationPending = useRef(false);
     const loadOrders = useCallback(() => fetch("/api/orders").then(response => response.json()).then(data => setOrders(data.orders ?? [])), []);
     const syncShift = useCallback(async () => {
+        if (shiftMutationPending.current) return;
+        const sequence = ++shiftSyncSequence.current;
         const response = await fetch("/api/shift", { cache: "no-store" });
         if (!response.ok)
             return;
         const data = await response.json();
+        if (sequence !== shiftSyncSequence.current || shiftMutationPending.current) return;
         const nextShiftCode = data.active ? data.shiftCode : null;
         const changedShift = Boolean(shift.shiftCode && nextShiftCode && shift.shiftCode !== nextShiftCode);
         const storeContextChanged = (typeof data.storeId === "string" || data.storeId === null) && data.storeId !== user.storeId;
+        if (storeContextChanged) setView("Trang chủ");
         if (changedShift) {
             setTiktok(false);
             setClosingDraft(EMPTY_EMPLOYEE_CLOSING_DRAFT);
             await loadOrders();
         }
+        if (sequence !== shiftSyncSequence.current || shiftMutationPending.current) return;
         setShift({
             active: Boolean(data.active),
             shiftCode: nextShiftCode,
@@ -773,6 +785,10 @@ function EmployeePortal({ user, onUser }: {
         };
     }, [syncShift]);
     async function shiftAction(action: "start" | "end", payload?: ShiftActionPayload): Promise<ShiftActionResult> {
+        if (shiftMutationPending.current) return { ok: false, message: "Đang cập nhật ca làm việc." };
+        shiftMutationPending.current = true;
+        ++shiftSyncSequence.current;
+        try {
         const response = await fetch("/api/shift", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, tiktok, ...payload }) });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) return {
@@ -787,7 +803,7 @@ function EmployeePortal({ user, onUser }: {
             storeId: typeof data.storeId === "string" || data.storeId === null ? data.storeId : user.storeId,
             storeName: typeof data.storeName === "string" || data.storeName === null ? data.storeName : user.storeName,
             isSupporting: typeof data.isSupporting === "boolean" ? data.isSupporting : user.isSupporting,
-            activeTransferId: data.returnedToHomeStore ? null : user.activeTransferId,
+            activeTransferId: typeof data.activeTransferId === "string" ? data.activeTransferId : null,
             employeeTiktokAllowance: resolveEmployeeTiktokAllowanceSnapshot(action, data, user.employeeTiktokAllowance),
             shiftActive: data.active ? 1 : 0,
             currentShift: data.active ? data.shiftCode : null,
@@ -796,6 +812,7 @@ function EmployeePortal({ user, onUser }: {
             scheduledStart: data.active ? data.scheduledStart : null,
             scheduledEnd: data.active ? data.scheduledEnd : null,
         };
+        if (next.storeId !== user.storeId) setView("Trang chủ");
         onUser(next);
         setShift({
             active: data.active,
@@ -823,6 +840,7 @@ function EmployeePortal({ user, onUser }: {
                 ? data.attendanceStatus : null,
             attendanceDeltaMinutes: Number.isInteger(data.attendanceDeltaMinutes) ? data.attendanceDeltaMinutes : null,
         };
+        } finally { shiftMutationPending.current = false; }
     }
     if (!navigationReady)
         return <div className="app-loading"><div className="pulse-logo"><img className="brand-logo-image" src="/logo.jpg" alt="Logo DORE Quản Lý" width={1254} height={1254}/></div><p>Đang mở lại màn hình gần nhất...</p></div>;
@@ -830,7 +848,7 @@ function EmployeePortal({ user, onUser }: {
     return <AppShell brand={employeeStoreName} subtitle={user.isSupporting ? "Đang hỗ trợ tạm thời" : "Hệ thống làm việc nhân viên"} menu={employeeMenu} active={view} onActive={setView} user={user} accent="employee">
         <div className="page-header employee-header employee-brand-header">
             <div><div className="employee-brand-title"><strong>{employeeStoreName}</strong><span>{user.isSupporting ? `ĐANG HỖ TRỢ · CỬA HÀNG CHÍNH: ${user.homeStoreName ?? "DORE"}` : `${view.toLocaleUpperCase("vi-VN")} · HỆ THỐNG LÀM VIỆC NHÂN VIÊN`}</span></div></div>
-            <div className="header-user"><button className="bell" aria-label="Thông báo"><Bell size={20}/><span>2</span></button><div className="avatar"><UserRound size={20}/></div><span><b>{user.name}</b><small>{user.employeeCode ?? "NV"}</small></span></div>
+            <div className="header-user"><ActionButton className="bell" aria-label="Thông báo"><Bell size={20}/><span>2</span></ActionButton><div className="avatar"><UserRound size={20}/></div><span><b>{user.name}</b><SupportTag supporting={user.isSupporting} sourceStoreName={user.homeStoreName}/><small>{user.employeeCode ?? "NV"}</small></span></div>
         </div>
         <div className="page-content"><EmployeeView user={user} view={view} shift={shift} orders={orders} onShift={shiftAction} tiktok={tiktok} setTiktok={setTiktok} closingDraft={closingDraft} onClosingDraftChange={setClosingDraft} reloadOrders={loadOrders}/></div>
     </AppShell>;
@@ -968,7 +986,7 @@ function EmployeeOrders({ user, shift, orders, reload }: {
         <div className="orders-panel">
             <div className="orders-panel-head">
                 <div className="orders-heading"><span className="orders-heading-icon"><ShoppingCart size={23}/></span><div><h2>ĐƠN HÀNG</h2><p>Tạo đơn mới và xem lịch sử đã ghi nhận</p><small className="orders-readonly-note">Đơn đã lưu chỉ được xem; chỉnh sửa hoặc hủy do quản lý thực hiện.</small></div></div>
-                <div className="orders-actions"><button className="secondary-button" onClick={exportCsv} disabled={filtered.length === 0}><Download size={17}/> Xuất Excel</button><button className="primary-button" disabled={!shift.active} onClick={beginAdd}><Plus size={18}/> Thêm đơn hàng</button></div>
+                <div className="orders-actions"><ActionButton className="secondary-button" onClick={exportCsv} disabled={filtered.length === 0}><Download size={17}/> Xuất Excel</ActionButton><ActionButton className="primary-button" disabled={!shift.active} onClick={beginAdd}><Plus size={18}/> Thêm đơn hàng</ActionButton></div>
             </div>
             <div className="order-stats">
                 <div className="order-stat-card order-stat-orders"><i><ShoppingBag size={26}/></i><span>Tổng số đơn<strong>{completed.length}</strong></span></div>
@@ -981,18 +999,18 @@ function EmployeeOrders({ user, shift, orders, reload }: {
                 <label><span className="order-filter-label">Từ ngày</span><input type="date" aria-label="Từ ngày" value={fromDate} onChange={event => { setFromDate(event.target.value); setPage(1); }}/></label>
                 <label><span className="order-filter-label">Đến ngày</span><input type="date" aria-label="Đến ngày" value={toDate} onChange={event => { setToDate(event.target.value); setPage(1); }}/></label>
                 <label><span>Hình thức thanh toán</span><select value={payment} onChange={event => { setPayment(event.target.value); setPage(1); }}><option value="ALL">Tất cả</option><option value="CASH">Tiền mặt</option><option value="BANK_TRANSFER">Chuyển khoản</option></select></label>
-                <button className="refresh-button" onClick={resetFilters}><RefreshCw size={17}/> Làm mới</button>
+                <ActionButton className="refresh-button" onClick={resetFilters}><RefreshCw size={17}/> Làm mới</ActionButton>
             </div>
             <div className="data-table-wrap">
                 <table className="order-table"><thead><tr><th>STT</th><th>Mã đơn hàng</th><th>Tên khách hàng</th><th>SĐT</th><th>Tuổi</th><th>NV bán hàng</th><th>Giá trị đơn hàng</th><th>Hình thức thanh toán</th><th>Thời gian tạo</th><th>Chi tiết</th></tr></thead>
-                    <tbody>{paged.length === 0 ? <tr><td colSpan={10} className="empty-cell">{shift.active ? "Chưa có đơn hàng phù hợp trong ca hiện tại." : "Bạn chưa bắt đầu ca làm việc"}</td></tr> : paged.map((order, index) => <tr key={order.id} className={order.status === "VOID" ? "void-order" : ""}><td data-label="STT">{(Math.min(page, pages) - 1) * pageSize + index + 1}</td><td data-label="Mã đơn"><b className="order-code">{order.code}</b></td><td data-label="Khách hàng">{order.customer_name || "—"}</td><td data-label="SĐT">{order.phone || "—"}</td><td data-label="Tuổi">{order.age ?? "—"}</td><td data-label="Nhân viên / ca"><b>{order.employeeName}</b><small>{shift.shiftCode ? `(${shift.shiftCode})` : ""}</small></td><td data-label="Giá trị"><b>{money(order.amount)}</b></td><td data-label="Thanh toán"><span className={`order-payment ${order.payment_method === "CASH" ? "cash" : "bank"}`}>{order.payment_method === "CASH" ? "Tiền mặt" : "Chuyển khoản"}</span></td><td data-label="Tạo lúc">{dateTime(order.created_at)}</td><td data-label="Chi tiết"><div className="order-row-actions"><button type="button" aria-label={`Xem chi tiết đơn ${order.code}`} title="Xem chi tiết" onClick={() => setDetail(order)}><Eye size={15}/></button></div></td></tr>)}</tbody>
+                    <tbody>{paged.length === 0 ? <tr><td colSpan={10} className="empty-cell">{shift.active ? "Chưa có đơn hàng phù hợp trong ca hiện tại." : "Bạn chưa bắt đầu ca làm việc"}</td></tr> : paged.map((order, index) => <tr key={order.id} className={order.status === "VOID" ? "void-order" : ""}><td data-label="STT">{(Math.min(page, pages) - 1) * pageSize + index + 1}</td><td data-label="Mã đơn"><b className="order-code">{order.code}</b></td><td data-label="Khách hàng">{order.customer_name || "—"}</td><td data-label="SĐT">{order.phone || "—"}</td><td data-label="Tuổi">{order.age ?? "—"}</td><td data-label="Nhân viên / ca"><b>{order.employeeName}</b><small>{shift.shiftCode ? `(${shift.shiftCode})` : ""}</small></td><td data-label="Giá trị"><b>{money(order.amount)}</b></td><td data-label="Thanh toán"><span className={`order-payment ${order.payment_method === "CASH" ? "cash" : "bank"}`}>{order.payment_method === "CASH" ? "Tiền mặt" : "Chuyển khoản"}</span></td><td data-label="Tạo lúc">{dateTime(order.created_at)}</td><td data-label="Chi tiết"><div className="order-row-actions"><ActionButton type="button" aria-label={`Xem chi tiết đơn ${order.code}`} title="Xem chi tiết" onClick={() => setDetail(order)}><Eye size={15}/></ActionButton></div></td></tr>)}</tbody>
                 </table>
             </div>
-            <div className="order-pagination"><span>Hiển thị {filtered.length === 0 ? 0 : (Math.min(page, pages) - 1) * pageSize + 1} - {Math.min(Math.min(page, pages) * pageSize, filtered.length)} của {filtered.length} đơn hàng</span><div><button disabled={page <= 1} onClick={() => setPage(current => Math.max(1, current - 1))}>‹</button>{Array.from({ length: pages }, (_, index) => index + 1).slice(0, 5).map(number => <button key={number} className={Math.min(page, pages) === number ? "active" : ""} onClick={() => setPage(number)}>{number}</button>)}<button disabled={page >= pages} onClick={() => setPage(current => Math.min(pages, current + 1))}>›</button></div></div>
+            <div className="order-pagination"><span>Hiển thị {filtered.length === 0 ? 0 : (Math.min(page, pages) - 1) * pageSize + 1} - {Math.min(Math.min(page, pages) * pageSize, filtered.length)} của {filtered.length} đơn hàng</span><div><ActionButton disabled={page <= 1} onClick={() => setPage(current => Math.max(1, current - 1))}>‹</ActionButton>{Array.from({ length: pages }, (_, index) => index + 1).slice(0, 5).map(number => <ActionButton key={number} className={Math.min(page, pages) === number ? "active" : ""} onClick={() => setPage(number)}>{number}</ActionButton>)}<ActionButton disabled={page >= pages} onClick={() => setPage(current => Math.min(pages, current + 1))}>›</ActionButton></div></div>
         </div>
         <div className="order-form-card" ref={formRef}>
             <div className="order-form-title"><ShoppingCart size={21}/><h2>THÊM ĐƠN HÀNG MỚI</h2></div>
-            <form onSubmit={save}>
+            <ActionForm onSubmit={save}>
                 <fieldset disabled={!shift.active}>
                     <div className="order-form-grid">
                         <label>Mã đơn hàng<input value="Tự động khi lưu" disabled/><small>Mã đơn hàng được tạo tự động</small></label>
@@ -1006,10 +1024,10 @@ function EmployeeOrders({ user, shift, orders, reload }: {
                 </fieldset>
                 {message && <div className="form-message">{message}</div>}
                 {success && <div className="order-success">✓ {success}</div>}
-                <div className="order-form-actions"><button type="button" className="secondary-button" onClick={resetForm} disabled={saving}>Hủy</button><button className="primary-button" disabled={!shift.active || saving}>{saving ? "Đang lưu..." : "Lưu đơn hàng"}</button></div>
-            </form>
+                <div className="order-form-actions"><ActionButton type="button" className="secondary-button" onClick={resetForm} disabled={saving}>Hủy</ActionButton><ActionButton className="primary-button" disabled={!shift.active || saving}>{saving ? "Đang lưu..." : "Lưu đơn hàng"}</ActionButton></div>
+            </ActionForm>
         </div>
-        {detail && <div className="modal-backdrop"><div className="modal order-detail-modal"><div className="modal-title"><h2>Chi tiết đơn {detail.code}</h2><button onClick={() => setDetail(null)}>×</button></div><dl><div><dt>Khách hàng</dt><dd>{detail.customer_name || "Khách lẻ"}</dd></div><div><dt>Số điện thoại</dt><dd>{detail.phone || "Không cung cấp"}</dd></div><div><dt>Tuổi</dt><dd>{detail.age ?? "Không cung cấp"}</dd></div><div><dt>Nhân viên / ca</dt><dd>{detail.employeeName} · {shift.shiftCode}</dd></div><div><dt>Thanh toán</dt><dd>{detail.payment_method === "CASH" ? "Tiền mặt" : "Chuyển khoản"}</dd></div><div><dt>Giá trị</dt><dd>{money(detail.amount)}</dd></div><div><dt>Thời gian tạo</dt><dd>{dateTime(detail.created_at)}</dd></div><div><dt>Trạng thái</dt><dd>{detail.status === "COMPLETED" ? "Hoàn tất" : "Đã hủy"}</dd></div></dl></div></div>}
+        {detail && <div className="modal-backdrop"><div className="modal order-detail-modal"><div className="modal-title"><h2>Chi tiết đơn {detail.code}</h2><ActionButton onClick={() => setDetail(null)}>×</ActionButton></div><dl><div><dt>Khách hàng</dt><dd>{detail.customer_name || "Khách lẻ"}</dd></div><div><dt>Số điện thoại</dt><dd>{detail.phone || "Không cung cấp"}</dd></div><div><dt>Tuổi</dt><dd>{detail.age ?? "Không cung cấp"}</dd></div><div><dt>Nhân viên / ca</dt><dd>{detail.employeeName} · {shift.shiftCode}</dd></div><div><dt>Thanh toán</dt><dd>{detail.payment_method === "CASH" ? "Tiền mặt" : "Chuyển khoản"}</dd></div><div><dt>Giá trị</dt><dd>{money(detail.amount)}</dd></div><div><dt>Thời gian tạo</dt><dd>{dateTime(detail.created_at)}</dd></div><div><dt>Trạng thái</dt><dd>{detail.status === "COMPLETED" ? "Hoàn tất" : "Đã hủy"}</dd></div></dl></div></div>}
     </section>;
 }
 // End of the employee order module.

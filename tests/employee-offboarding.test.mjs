@@ -199,7 +199,7 @@ test("employee form and payroll controls remain visible", async () => {
   assert.match(css, /employee-drawer \.drawer-actions \.primary-button\{display:inline-flex!important/u);
   assert.match(css, /@media\(min-width:1001px\).*employee-drawer\{position:fixed.*bottom:16px/su);
   assert.match(payrollUi, /Chốt cá nhân/u);
-  assert.match(payrollUi, /onClick=\{\(\) => void runAction\("FINALIZE_SINGLE_EMPLOYEE", item\)\}/u);
+  assert.match(payrollUi, /onClick=\{\(\) => runAction\("FINALIZE_SINGLE_EMPLOYEE", item\)\}/u);
   assert.match(payrollUi, /aria-label=\{`\$\{actionLabel\} cho \$\{item\.employeeName\}`\}/u);
   assert.match(payrollUi, /employeeClosingById/u);
   assert.match(payrollUi, /giờ thực tế trong kỳ/u);

@@ -1,5 +1,8 @@
 "use client";
 
+import { ActionButton, ActionForm } from "./ActionFeedback";
+import { actionFetch as fetch } from "../lib/action-feedback";
+
 import { FormEvent, Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Banknote, ChevronDown, ChevronRight, Download, PackageOpen, Plus, ReceiptText, Save, Trash2, Truck } from "lucide-react";
 import { formatDateVn } from "../lib/format";
@@ -457,7 +460,7 @@ export function StoreInventoryManagement({ store }: { store: InventoryStore }) {
       <InventoryMetric icon={ReceiptText} label="Tổng cộng đã nhập" value={loadingHistory ? "Đang tải..." : formatMoney(historySummary.amount)} tone="orange"/>
     </div>
 
-    <form className="table-card inventory-receipt-form" onSubmit={saveReceipt}>
+    <ActionForm className="table-card inventory-receipt-form" onSubmit={saveReceipt}>
       <div className="table-head">
         <div>
           <h2>Phiếu nhập hàng mới</h2>
@@ -487,7 +490,7 @@ export function StoreInventoryManagement({ store }: { store: InventoryStore }) {
               <td><input aria-label={`Đơn giá dòng ${index + 1}`} inputMode="numeric" pattern="[0-9,]*" required value={formatMoneyInput(item.unitPrice)} onChange={(event) => updateItem(item.id, "unitPrice", event.target.value)} placeholder="0"/></td>
               <td><input aria-label={`Phí vận chuyển dòng ${index + 1}`} inputMode="numeric" pattern="[0-9,]*" required value={formatMoneyInput(item.shipping)} onChange={(event) => updateItem(item.id, "shipping", event.target.value)} placeholder="0"/></td>
               <td><b>{formatMoney(calculateDraftAmount(item))}</b></td>
-              <td><button type="button" disabled={items.length === 1} onClick={() => removeItem(item.id)} aria-label={`Xóa dòng ${index + 1}`}><Trash2 size={16}/></button></td>
+              <td><ActionButton type="button" disabled={items.length === 1} onClick={() => removeItem(item.id)} aria-label={`Xóa dòng ${index + 1}`}><Trash2 size={16}/></ActionButton></td>
             </tr>)}</tbody>
             <tfoot><tr>
               <td colSpan={2}><b>Tổng phiếu · {items.length} mặt hàng</b></td>
@@ -500,9 +503,9 @@ export function StoreInventoryManagement({ store }: { store: InventoryStore }) {
           </table>
         </div>
         <div className="inventory-add-item-actions">
-          <button type="button" disabled={inactive || saving || items.length >= 100} onClick={addItem}>
+          <ActionButton type="button" disabled={inactive || saving || items.length >= 100} onClick={addItem}>
             <Plus size={17}/> Thêm hàng hóa
-          </button>
+          </ActionButton>
         </div>
         <div className="inventory-note-field">
           <label>Ghi chú<textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Ghi chú chung cho phiếu nhập"/></label>
@@ -512,11 +515,11 @@ export function StoreInventoryManagement({ store }: { store: InventoryStore }) {
       {formError && <div className="form-message inventory-form-feedback">{formError}</div>}
       {success && <div className="success-banner inventory-form-feedback">{success}</div>}
       <div className="inventory-save-actions">
-        <button className="primary-button" disabled={inactive || saving}>
+        <ActionButton className="primary-button" disabled={inactive || saving}>
           <Save size={17}/> {saving ? "ĐANG LƯU..." : "LƯU PHIẾU"}
-        </button>
+        </ActionButton>
       </div>
-    </form>
+    </ActionForm>
 
     <section className="table-card inventory-history-card">
       <div className="table-head">
@@ -526,9 +529,9 @@ export function StoreInventoryManagement({ store }: { store: InventoryStore }) {
             ? `${receipts.length} phiếu gần nhất · ${historySummary.receiptCount} phiếu đã ghi nhận`
             : `${historySummary.receiptCount} phiếu đã ghi nhận`}</p>
         </div>
-        <button type="button" disabled={historySummary.receiptCount === 0 || exporting} onClick={() => void exportAllHistory()}>
+        <ActionButton type="button" disabled={historySummary.receiptCount === 0 || exporting} onClick={() => exportAllHistory()}>
           <Download size={16}/> {exporting ? "Đang chuẩn bị..." : "Xuất CSV"}
-        </button>
+        </ActionButton>
       </div>
       {historyError && <div className="form-message" style={{ margin: 20 }}>{historyError}</div>}
       <p id="inventory-history-scroll-hint" className="inventory-scroll-hint">Vuốt ngang bảng để xem đầy đủ lịch sử phiếu.</p>
@@ -554,7 +557,7 @@ export function StoreInventoryManagement({ store }: { store: InventoryStore }) {
                   <td>{formatMoney(totals.shipping)}</td>
                   <td className="money-green"><b>{formatMoney(totals.amount)}</b></td>
                   <td>{receipt.note || "—"}</td>
-                  <td><button type="button" aria-expanded={expanded} onClick={() => setExpandedId(expanded ? null : receipt.id)}>{expanded ? <ChevronDown size={16}/> : <ChevronRight size={16}/>} {expanded ? "Thu gọn" : "Xem"}</button></td>
+                  <td><ActionButton type="button" aria-expanded={expanded} onClick={() => setExpandedId(expanded ? null : receipt.id)}>{expanded ? <ChevronDown size={16}/> : <ChevronRight size={16}/>} {expanded ? "Thu gọn" : "Xem"}</ActionButton></td>
                 </tr>
                 {expanded && <tr>
                   <td colSpan={10} style={{ padding: 0, background: "#f8faf8" }}>

@@ -1,5 +1,8 @@
 "use client";
 
+import { ActionButton } from "./ActionFeedback";
+import { actionFetch as fetch } from "../lib/action-feedback";
+
 import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, RefreshCw, ShieldAlert, Trash2 } from "lucide-react";
 import { formatDateTime24, formatDateVn } from "../lib/format";
@@ -44,7 +47,7 @@ type Preview = {
 
 const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh" }).format(new Date());
 const currentPeriod = () => today().slice(0, 7);
-const money = (value: number) => `${new Intl.NumberFormat("vi-VN").format(Math.round(value))} đồng`;
+const money = (value: number) => `${new Intl.NumberFormat("en-US").format(Math.round(value))} đồng`;
 const dateTime = (value?: string | null) => formatDateTime24(value);
 const employeeStatusSuffix = (status: string) => status === "SUSPENDED"
   ? " · Tạm ngưng" : status === "TERMINATED" || status === "INACTIVE" ? " · Đã nghỉ việc" : "";
@@ -185,7 +188,7 @@ export function SuperAdminReset({ store, onReset }: { store: Store; onReset?: ()
         <label>Nhân viên<select value={employeeId} onChange={(event) => changeFilter(() => setEmployeeId(event.target.value))}><option value="">Tất cả nhân viên</option>{employees.map((employee) => <option value={employee.id} key={employee.id}>{employee.code} · {employee.name}{employeeStatusSuffix(employee.status)}</option>)}</select></label>
         <label>Ca làm việc<select value={shiftCode} onChange={(event) => changeFilter(() => setShiftCode(event.target.value))}><option value="">Tất cả ca</option>{shiftOptions.map((shift) => <option value={shift.code} key={shift.code}>{shift.name} · {shift.code}</option>)}</select></label>
       </div>
-      <div className={styles.actions}><button type="button" className={styles.previewButton} disabled={loading} onClick={() => void loadPreview()}>{loading ? <RefreshCw size={17} className="spin"/> : <RefreshCw size={17}/>} Xem trước dữ liệu</button></div>
+      <div className={styles.actions}><ActionButton type="button" className={styles.previewButton} disabled={loading} onClick={() => loadPreview()}>{loading ? <RefreshCw size={17} className="spin"/> : <RefreshCw size={17}/>} Xem trước dữ liệu</ActionButton></div>
       {error ? <div className={`${styles.feedback} ${styles.error}`} role="alert">{error}</div> : null}
       {message ? <div className={styles.feedback} role="status">{message}</div> : null}
       {preview ? <>
@@ -200,7 +203,7 @@ export function SuperAdminReset({ store, onReset }: { store: Store; onReset?: ()
           <td>{kind === "ORDERS" ? dateTime(row.createdAt) : dateTime(row.endedAt)}</td>
           <td>{kind === "ATTENDANCE" ? <span className={`attendance-status ${row.attendanceStatus === "EARLY" ? "attendance-early" : row.attendanceStatus === "LATE" ? "attendance-late" : row.attendanceStatus === "ON_TIME" ? "attendance-on-time" : "attendance-unknown"}`}>{attendanceLabel(row)}</span> : row.status}</td>
         </tr>)}</tbody></table>{preview.truncated ? <p>Đang hiển thị 100 bản ghi đầu; toàn bộ số liệu phù hợp vẫn được tính trong tổng.</p> : null}</div> : <div className={styles.empty}>Không có dữ liệu phù hợp.</div>}
-        {preview.summary.count > 0 ? confirming ? <div className={styles.confirmation}><p><AlertTriangle size={17}/> Nhập chính xác <strong>{store.name}</strong> để xác nhận reset {preview.label}.</p><div className={styles.confirmActions}><label>Tên cửa hàng<input ref={confirmationRef} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="off"/></label><button type="button" className={styles.resetButton} disabled={loading || confirmation !== store.name} onClick={() => void resetData()}><Trash2 size={17}/> Reset dữ liệu</button></div></div> : <div className={styles.actions}><button type="button" className={styles.resetButton} onClick={() => setConfirming(true)}><Trash2 size={17}/> Reset dữ liệu đã xem trước</button></div> : null}
+        {preview.summary.count > 0 ? confirming ? <div className={styles.confirmation}><p><AlertTriangle size={17}/> Nhập chính xác <strong>{store.name}</strong> để xác nhận reset {preview.label}.</p><div className={styles.confirmActions}><label>Tên cửa hàng<input ref={confirmationRef} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="off"/></label><ActionButton type="button" className={styles.resetButton} disabled={loading || confirmation !== store.name} onClick={() => resetData()}><Trash2 size={17}/> Reset dữ liệu</ActionButton></div></div> : <div className={styles.actions}><ActionButton type="button" className={styles.resetButton} onClick={() => setConfirming(true)}><Trash2 size={17}/> Reset dữ liệu đã xem trước</ActionButton></div> : null}
       </> : null}
     </section>
   </div>;

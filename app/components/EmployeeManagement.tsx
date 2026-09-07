@@ -1,5 +1,8 @@
 "use client";
 
+import { ActionButton, ActionForm } from "./ActionFeedback";
+import { actionFetch as fetch } from "../lib/action-feedback";
+
 /* eslint-disable @next/next/no-img-element -- Ảnh CCCD dùng URL xem trước cục bộ hoặc API riêng tư, không phù hợp bộ tối ưu ảnh công khai. */
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -415,7 +418,7 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
           <option value="SUSPENDED">Tạm ngưng</option>
           <option value="TERMINATED">Đã nghỉ việc</option>
         </select>
-        <button type="button" className="primary-button employee-add-button" disabled={inactive} onClick={() => begin()}><Plus size={17}/> THÊM NHÂN VIÊN</button>
+        <ActionButton type="button" className="primary-button employee-add-button" disabled={inactive} onClick={() => begin()}><Plus size={17}/> THÊM NHÂN VIÊN</ActionButton>
       </div>
     </div>
 
@@ -470,7 +473,7 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
                     <option value="TERMINATED">Đã nghỉ việc</option>
                   </select>
                 </label>
-                <button type="button" disabled={inactive || Boolean(statusBusyId)} onClick={() => begin(employee)} aria-label={`Sửa ${employee.name}`}><Edit3 size={16}/></button>
+                <ActionButton type="button" disabled={inactive || Boolean(statusBusyId)} onClick={() => begin(employee)} aria-label={`Sửa ${employee.name}`}><Edit3 size={16}/></ActionButton>
               </div></td>
             </tr>)}</tbody>
           </table>
@@ -516,7 +519,7 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
                   <option value="TERMINATED">Đã nghỉ việc</option>
                 </select>
               </label>
-              <button
+              <ActionButton
                 type="button"
                 className={styles.mobileEditButton}
                 disabled={inactive || Boolean(statusBusyId)}
@@ -524,17 +527,17 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
                 aria-label={`Sửa hồ sơ ${employee.name}`}
               >
                 <Edit3 size={17}/><span>Sửa hồ sơ</span>
-              </button>
+              </ActionButton>
             </div>
           </li>)}
         </ol>
       </section>
 
       {open && <aside ref={drawerRef} className="employee-drawer" role="dialog" aria-modal="true" aria-labelledby="employee-drawer-title" tabIndex={-1}>
-        <form onSubmit={saveEmployee}>
+        <ActionForm onSubmit={saveEmployee}>
           <div className="drawer-title">
             <div><h2 id="employee-drawer-title">{editing ? "Cập nhật nhân viên" : "Thêm nhân viên"}</h2><span>{store.name}</span></div>
-            <button type="button" aria-label="Đóng biểu mẫu nhân viên" disabled={saving} onClick={() => setOpen(false)}><X size={19}/></button>
+            <ActionButton type="button" aria-label="Đóng biểu mẫu nhân viên" disabled={saving} onClick={() => setOpen(false)}><X size={19}/></ActionButton>
           </div>
 
           <fieldset disabled={saving || inactive} style={{ border: 0, margin: 0, padding: 0 }}>
@@ -594,7 +597,7 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
                   value={form.password}
                   onChange={(event) => updateForm("password", event.target.value)}
                 />
-                <button
+                <ActionButton
                   type="button"
                   aria-label={passwordVisible ? "Ẩn mật khẩu nhân viên" : "Hiện mật khẩu nhân viên"}
                   aria-pressed={passwordVisible}
@@ -602,7 +605,7 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
                   onClick={() => setPasswordVisible((current) => !current)}
                 >
                   {passwordVisible ? <EyeOff size={18} aria-hidden="true"/> : <Eye size={18} aria-hidden="true"/>}
-                </button>
+                </ActionButton>
               </div>
             </div>
             {editing && <div className="employee-status-edit-note"><b>Trạng thái: {employeeStatusLabel(form.status)}</b><small>Dùng ô trạng thái tại danh sách nhân viên để đổi quyền đăng nhập. Lịch sử ca, đơn hàng và lương không bị thay đổi.</small></div>}
@@ -611,10 +614,10 @@ export function StoreEmployeeManagement({ store }: { store: EmployeeStore }) {
           {formError && <div className="form-message">{formError}</div>}
           {savingLabel && <div className="success-banner">{savingLabel}</div>}
           <div className="drawer-actions">
-            <button type="button" disabled={saving} onClick={() => setOpen(false)}>Hủy bỏ</button>
-            <button type="submit" className="primary-button" disabled={saving || inactive}><Save size={17}/> {saving ? "ĐANG LƯU..." : "LƯU NHÂN VIÊN"}</button>
+            <ActionButton type="button" disabled={saving} onClick={() => setOpen(false)}>Hủy bỏ</ActionButton>
+            <ActionButton type="submit" className="primary-button" disabled={saving || inactive}><Save size={17}/> {saving ? "ĐANG LƯU..." : "LƯU NHÂN VIÊN"}</ActionButton>
           </div>
-        </form>
+        </ActionForm>
       </aside>}
     </div>
   </div>;

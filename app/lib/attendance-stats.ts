@@ -20,6 +20,7 @@ export type AttendanceEvaluation = {
 };
 
 export type AttendanceStatsRow = {
+  isSupport?: boolean; sourceStoreName?: string | null;
   employeeId: string;
   employeeCode: string;
   employeeName: string;

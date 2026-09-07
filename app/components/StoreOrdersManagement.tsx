@@ -1,5 +1,10 @@
 "use client";
 
+import SupportTag from "./SupportTag";
+
+import { ActionButton, ActionForm } from "./ActionFeedback";
+import { actionFetch as fetch } from "../lib/action-feedback";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Banknote, Landmark, Pencil, ReceiptText, RefreshCw, Search, ShoppingBag, Trash2, X } from "lucide-react";
 import { formatDateTime24, formatDateVn, formatMonthVn, formatVndDisplay, formatVndInput, parseVndInput } from "../lib/format";
@@ -20,6 +25,7 @@ type StoreOrder = {
   status: "COMPLETED" | "VOID";
   created_at: string;
   employeeName: string | null;
+  isSupport?: number; sourceStoreName?: string | null;
   employeeCode: string | null;
   createdByName: string | null;
   createdByCode: string | null;
@@ -273,7 +279,7 @@ export function StoreOrdersManagement({ store, period, focusedOrderId, focusRequ
       <label>Ca làm việc<select value={shiftId} onChange={(event) => setShiftId(event.target.value)}><option value="ALL">Tất cả ca</option>{shifts.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
       <label>Trạng thái<select value={status} onChange={(event) => setStatus(event.target.value)}><option value="ALL">Tất cả trạng thái</option><option value="COMPLETED">Hoàn tất</option><option value="VOID">Đã hủy</option></select></label>
       <label>Nhóm danh sách<select value={groupBy} onChange={(event) => setGroupBy(event.target.value as typeof groupBy)}><option value="shift">Theo ca</option><option value="employee">Theo nhân viên</option><option value="none">Không nhóm</option></select></label>
-      <button type="button" className={styles.refresh} onClick={load} disabled={loading}><RefreshCw size={16}/> {loading ? "Đang tải…" : "Làm mới"}</button>
+      <ActionButton type="button" className={styles.refresh} onClick={load} disabled={loading}><RefreshCw size={16}/> {loading ? "Đang tải…" : "Làm mới"}</ActionButton>
     </div>
 
     {error ? <div className={styles.error} role="alert">{error}</div> : null}
@@ -289,12 +295,12 @@ export function StoreOrdersManagement({ store, period, focusedOrderId, focusRequ
               <td data-label="Đơn / trạng thái"><b className={styles.orderCode}>{order.code}</b><span className={`${styles.pill} ${order.status === "VOID" ? styles.pillVoid : ""}`}>{order.status === "COMPLETED" ? "Hoàn tất" : "Đã hủy"}</span>{order.locked ? <small className={`${styles.pill} ${styles.pillLocked}`}>Kỳ đã khóa</small> : null}</td>
               <td data-label="Thời gian tạo"><b>{formatDateTime24(order.created_at, true)}</b><small>Kỳ {periodLabel(order.period || period)}</small></td>
               <td data-label="Khách hàng"><b>{order.customer_name || "Khách lẻ"}</b><small>{order.phone || "Không có SĐT"}{order.age ? ` · ${order.age} tuổi` : ""}</small></td>
-              <td data-label="Người tạo"><b>{order.createdByName || order.employeeName || "Nhân viên không còn hoạt động"}</b><small>{order.createdByCode || order.employeeCode || order.employee_id}</small></td>
+              <td data-label="Người tạo"><b>{order.createdByName || order.employeeName || "Nhân viên không còn hoạt động"}</b><SupportTag supporting={order.isSupport} sourceStoreName={order.sourceStoreName}/><small>{order.createdByCode || order.employeeCode || order.employee_id}</small></td>
               <td data-label="Ca làm việc"><b>{order.shiftName || order.shift_code}</b><small>{order.scheduledStart && order.scheduledEnd ? `${order.scheduledStart}–${order.scheduledEnd}` : order.shift_code}</small></td>
               <td data-label="Thanh toán"><b>{order.payment_method === "CASH" ? "Tiền mặt" : "Chuyển khoản"}</b><small>{order.shiftStatus === "COMPLETED" ? "Ca đã kết thúc" : "Ca đang hoạt động"}</small></td>
               <td data-label="Giá trị"><b>{formatVndDisplay(order.amount)}</b></td>
               <td data-label="Cập nhật gần nhất"><b>{order.lastUpdatedAt ? formatDateTime24(order.lastUpdatedAt, true) : "Chưa chỉnh sửa"}</b><small>{order.lastUpdatedBy || "—"}</small></td>
-              <td data-label="Thao tác"><div className={styles.actions}><button type="button" aria-label={`Sửa đơn ${order.code}`} title={mutable ? "Sửa đơn" : "Đơn hoặc kỳ không thể thay đổi"} disabled={!mutable} onClick={(event) => { editTriggerRef.current = event.currentTarget; openEdit(order); }}><Pencil size={15}/></button><button type="button" aria-label={`Hủy đơn ${order.code}`} title={mutable ? "Hủy đơn" : "Đơn hoặc kỳ không thể thay đổi"} disabled={!mutable} onClick={() => void remove(order)}><Trash2 size={15}/></button></div></td>
+              <td data-label="Thao tác"><div className={styles.actions}><ActionButton type="button" aria-label={`Sửa đơn ${order.code}`} title={mutable ? "Sửa đơn" : "Đơn hoặc kỳ không thể thay đổi"} disabled={!mutable} onClick={(event) => { editTriggerRef.current = event.currentTarget; openEdit(order); }}><Pencil size={15}/></ActionButton><ActionButton type="button" aria-label={`Hủy đơn ${order.code}`} title={mutable ? "Hủy đơn" : "Đơn hoặc kỳ không thể thay đổi"} disabled={!mutable} onClick={() => remove(order)}><Trash2 size={15}/></ActionButton></div></td>
             </tr>;
           })}</tbody>
         </table></div>
@@ -303,16 +309,16 @@ export function StoreOrdersManagement({ store, period, focusedOrderId, focusRequ
 
     {editing ? <div ref={editBackdropRef} className={styles.backdrop} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) setEditing(null); }}>
       <section ref={editDialogRef} className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="manager-order-edit-title" tabIndex={-1}>
-        <header className={styles.dialogHeader}><div><h2 id="manager-order-edit-title">Sửa đơn {editing.code}</h2><p>{shiftLabel(editing)} · người tạo {editing.employeeName || editing.employeeCode}</p></div><button type="button" className={styles.close} aria-label="Đóng cửa sổ sửa đơn" disabled={saving} onClick={() => setEditing(null)}><X size={18}/></button></header>
-        <form className={styles.editForm} onSubmit={saveEdit}>
+        <header className={styles.dialogHeader}><div><h2 id="manager-order-edit-title">Sửa đơn {editing.code}</h2><p>{shiftLabel(editing)} · người tạo {editing.employeeName || editing.employeeCode}</p></div><ActionButton type="button" className={styles.close} aria-label="Đóng cửa sổ sửa đơn" disabled={saving} onClick={() => setEditing(null)}><X size={18}/></ActionButton></header>
+        <ActionForm className={styles.editForm} onSubmit={saveEdit}>
           <label>Tên khách hàng<input value={form.customerName} maxLength={100} onChange={(event) => setForm((current) => ({ ...current, customerName: event.target.value }))}/></label>
           <label>Số điện thoại<input value={form.phone} inputMode="tel" maxLength={20} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))}/></label>
           <label>Tuổi<input value={form.age} type="number" min="1" max="120" onChange={(event) => setForm((current) => ({ ...current, age: event.target.value }))}/></label>
           <label>Hình thức thanh toán<select value={form.paymentMethod} onChange={(event) => setForm((current) => ({ ...current, paymentMethod: event.target.value as OrderForm["paymentMethod"] }))}><option value="CASH">Tiền mặt</option><option value="BANK_TRANSFER">Chuyển khoản</option></select></label>
           <label className={styles.wide}>Giá trị đơn hàng<input required value={form.amount} inputMode="numeric" onChange={(event) => setForm((current) => ({ ...current, amount: formatVndInput(event.target.value) }))}/><small>Nhập 15000 sẽ hiển thị 15,000.</small></label>
           {dialogMessage ? <div className={styles.dialogMessage} role="alert">{dialogMessage}</div> : null}
-          <div className={styles.dialogActions}><button type="button" disabled={saving} onClick={() => setEditing(null)}>Hủy bỏ</button><button type="submit" disabled={saving}>{saving ? "Đang lưu…" : "Lưu thay đổi"}</button></div>
-        </form>
+          <div className={styles.dialogActions}><ActionButton type="button" disabled={saving} onClick={() => setEditing(null)}>Hủy bỏ</ActionButton><ActionButton type="submit" disabled={saving}>{saving ? "Đang lưu…" : "Lưu thay đổi"}</ActionButton></div>
+        </ActionForm>
       </section>
     </div> : null}
   </section>;

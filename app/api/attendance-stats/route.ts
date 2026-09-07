@@ -1,3 +1,4 @@
+import { readStoreSupportIdentities } from "../_lib/support-identity";
 import { initDb } from "../../../db/runtime";
 import {
   ATTENDANCE_EVALUATION_RULES,
@@ -83,7 +84,9 @@ export async function GET(request: Request) {
 
   // Persisted status/delta fields are the historical evidence. Do not
   // reclassify old attendance when a shift schedule or grace policy changes.
-  const rows = buildAttendanceStats(snapshotResult.results, employeeResult.results);
+  const supportIdentities = await readStoreSupportIdentities(db, store.id, range.from, range.to);
+  const rows = buildAttendanceStats(snapshotResult.results, employeeResult.results)
+    .map((row) => ({ ...row, ...supportIdentities.get(row.employeeId) }));
   const totals = rows.reduce((summary, row) => ({
     employees: summary.employees + 1,
     early: summary.early + row.early,

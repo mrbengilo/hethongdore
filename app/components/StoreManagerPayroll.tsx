@@ -1,8 +1,12 @@
 "use client";
 
+import { ActionButton, ActionForm } from "./ActionFeedback";
+import { actionFetch as fetch } from "../lib/action-feedback";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BadgeDollarSign, Download, Gift, RefreshCw, Save, WalletCards } from "lucide-react";
 import { readFinancialResponse } from "../lib/financial-response";
+import { formatVndInput, parseVndInput } from "../lib/format";
 import { exportCsvFile } from "../lib/export-csv";
 
 type Store = { id: string; name: string; status?: string };
@@ -17,7 +21,7 @@ type PayrollData = {
     payrollPolicy?: { managerKpiRatePercent: number | null };
   };
 };
-const money = (value: number) => `${value.toLocaleString("vi-VN")} đồng`;
+const money = (value: number) => `${value.toLocaleString("en-US")} đồng`;
 const dateTime = (value?: string | null) => value
   ? new Date(value).toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh", hourCycle: "h23" }) : "—";
 
@@ -52,7 +56,7 @@ export default function StoreManagerPayroll({ store, period, onChanged }: {
       }
       if (request.current !== id || abort.signal.aborted) return;
       setData(payload);
-      setAmount(String(payload.summary.managerSalary));
+      setAmount(formatVndInput(payload.summary.managerSalary));
     } catch (cause) {
       if (request.current === id && !abort.signal.aborted) setError(cause instanceof Error ? cause.message : "Không thể tải lương quản lý.");
     } finally {
@@ -67,7 +71,7 @@ export default function StoreManagerPayroll({ store, period, onChanged }: {
   const summary = data?.summary;
   const editable = Boolean(summary) && !loading && !saving && store.status !== "INACTIVE"
     && (!data?.financialPeriod || data.financialPeriod.status === "DRAFT") && !data?.closing && summary?.status !== "LOCKED";
-  const validAmount = /^\d+$/.test(amount) && Number.isSafeInteger(Number(amount));
+  const validAmount = /^[\d,]+$/.test(amount) && Number.isSafeInteger(parseVndInput(amount));
   const rate = summary?.payrollPolicy?.managerKpiRatePercent;
   const exportReport = () => {
     if (!summary) return;
@@ -90,7 +94,7 @@ export default function StoreManagerPayroll({ store, period, onChanged }: {
       const response = await fetch("/api/payroll", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "SET_MANAGER_SALARY", storeId: store.id, period,
-          managerSalary: Number(amount), expectedSalaryVersion: summary.managerSalaryVersion ?? 0 }),
+          managerSalary: parseVndInput(amount), expectedSalaryVersion: summary.managerSalaryVersion ?? 0 }),
       });
       const payload = await readFinancialResponse<{ message: string }>(response);
       if (activeScope.current !== scope) return;
@@ -109,8 +113,8 @@ export default function StoreManagerPayroll({ store, period, onChanged }: {
   return <div className="store-manager-payroll">
     <div className="ref-toolbar"><div><h2>LƯƠNG THƯỞNG QUẢN LÝ</h2><p>{store.name} · Kỳ {period}</p></div>
       <div className="ref-toolbar-actions">
-        <button type="button" onClick={() => void load()} disabled={loading || saving}><RefreshCw size={16}/> Làm mới</button>
-        <button type="button" onClick={exportReport} disabled={loading || saving || !summary}><Download size={16}/> Xuất CSV</button>
+        <ActionButton type="button" onClick={() => load()} disabled={loading || saving}><RefreshCw size={16}/> Làm mới</ActionButton>
+        <ActionButton type="button" onClick={exportReport} disabled={loading || saving || !summary}><Download size={16}/> Xuất CSV</ActionButton>
       </div></div>
     {error && <div className="form-message" role="alert">{error}</div>}
     {message && <div className="success-banner" role="status">{message}</div>}
@@ -135,23 +139,23 @@ export default function StoreManagerPayroll({ store, period, onChanged }: {
           <div><dt>Đã khóa kỳ lúc</dt><dd>{dateTime(data?.financialPeriod?.lockedAt)}</dd></div>
         </dl>
       </section>
-      <form className="manager-panel" onSubmit={(event) => void save(event)}>
+      <ActionForm className="manager-panel" onSubmit={(event) => save(event)}>
         <h2>MỨC LƯƠNG ÁP DỤNG CHO KỲ</h2>
         <div className="setup-repayment-fields">
           <label>Lương quản lý (đồng)
-            <input type="number" inputMode="numeric" min="0" step="1" max={Number.MAX_SAFE_INTEGER}
-              value={amount} disabled={!editable} aria-invalid={editable && !validAmount} onChange={(event) => setAmount(event.target.value)} aria-describedby="manager-salary-note"/>
+            <input type="text" inputMode="numeric" pattern="[0-9,]*"
+              value={amount} disabled={!editable} aria-invalid={editable && !validAmount} onChange={(event) => setAmount(formatVndInput(event.target.value))} aria-describedby="manager-salary-note"/>
           </label>
-          <button className="primary-button" type="submit" disabled={!editable || !validAmount}>
+          <ActionButton className="primary-button" type="submit" disabled={!editable || !validAmount}>
             <Save size={17}/>{saving ? "Đang lưu…" : "Lưu lương quản lý"}
-          </button>
+          </ActionButton>
         </div>
         {editable && !validAmount && <p role="alert">Nhập số nguyên đồng, lớn hơn hoặc bằng 0.</p>}
         <p id="manager-salary-note">{editable
           ? "Nhập mức lương riêng cho cửa hàng và kỳ này trước khi xác nhận lương thưởng. Chưa nhập riêng thì áp dụng mức lương trong chính sách của kỳ."
           : "Kỳ đã bắt đầu chốt hoặc cửa hàng ngưng hoạt động. Mức lương được giữ nguyên để đối soát."}</p>
         <p>Thưởng quản lý = {rate == null ? "tỷ lệ trong chính sách kỳ" : `${rate.toLocaleString("vi-VN")}%`} × lợi nhuận hoạt động dương. Thưởng được tính tự động theo công thức hiện có.</p>
-      </form>
+      </ActionForm>
       <div className="report-profit-note">Lương và thưởng quản lý đã được tính vào chi phí cửa hàng. Xác nhận số liệu, xác nhận đã chi và khóa kỳ tại mục “Lương thưởng”. Lợi nhuận chia lấy từ số liệu sau các khoản này.</div>
     </>}
   </div>;

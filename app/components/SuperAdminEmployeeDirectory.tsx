@@ -1,5 +1,8 @@
 "use client";
 
+import { ActionButton } from "./ActionFeedback";
+import { actionFetch as fetch } from "../lib/action-feedback";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Edit3, Eye, KeyRound, RefreshCw, Search, ShieldAlert, Trash2, X } from "lucide-react";
 import { formatVndInput, parseVndInput } from "../lib/format";
@@ -22,7 +25,7 @@ type EditDraft = Pick<EmployeeRow, "name" | "position" | "phone" | "province" | 
 };
 type Action = { kind: "EDIT" | "RESET_PASSWORD" | "DELETE"; row: EmployeeRow };
 
-const money = (value: number) => `${new Intl.NumberFormat("vi-VN").format(Math.round(value))} đồng`;
+const money = (value: number) => `${new Intl.NumberFormat("en-US").format(Math.round(value))} đồng`;
 const accountLabels: Record<AccountStatus, string> = {
   ENABLED: "Được phép đăng nhập", DISABLED: "Đã khóa theo trạng thái", LOCKED: "Tạm khóa bảo mật", NO_ACCOUNT: "Chưa có tài khoản",
 };
@@ -133,7 +136,7 @@ export function SuperAdminEmployeeDirectory() {
     <section className={styles.panel} aria-labelledby="employee-directory-title">
       <header className={styles.header}>
         <div><h2 id="employee-directory-title">Danh sách nhân viên toàn hệ thống</h2><p>Hồ sơ và tài khoản của tất cả cửa hàng. Mật khẩu hiện tại luôn được mã hóa và không thể xem; quản trị chỉ có thể đặt lại mật khẩu mới.</p></div>
-        <button type="button" onClick={() => void load()} disabled={loading}><RefreshCw size={17}/> Làm mới</button>
+        <ActionButton type="button" onClick={() => load()} disabled={loading}><RefreshCw size={17}/> Làm mới</ActionButton>
       </header>
       <div className={styles.toolbar}>
         <label><span>Tìm nhân viên</span><span className={styles.search}><Search size={17}/><input type="search" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="Tên, mã, SĐT, CCCD hoặc tài khoản"/></span></label>
@@ -150,16 +153,16 @@ export function SuperAdminEmployeeDirectory() {
             <td data-label="Lương / phụ cấp"><b>{money(row.hourlyRate)}/giờ</b><small>Phụ cấp TikTok {money(row.tiktokAllowance)}</small></td>
             <td data-label="Tài khoản"><b>{row.username || "Chưa có tài khoản"}</b><span className={`${styles.account} ${styles[row.accountStatus.toLowerCase()]}`}>{accountLabels[row.accountStatus]}</span><small>Mật khẩu: đã mã hóa, không hiển thị</small></td>
             <td data-label="Đối soát"><b>{row.shiftCount} ca · {row.orderCount} đơn</b><small>{row.payrollClosingCount} kỳ lương · {row.activeShiftCount} ca đang mở</small><span className={`${styles.status} ${styles[row.status.toLowerCase()]}`}>{row.statusLabel}</span></td>
-            <td data-label="Thao tác"><div className={styles.actions}><button type="button" onClick={() => begin("EDIT", row)}><Edit3 size={15}/> Sửa</button><button type="button" onClick={() => begin("RESET_PASSWORD", row)} disabled={!row.hasLogin}><KeyRound size={15}/> Đặt lại mật khẩu</button><button type="button" className={styles.delete} onClick={() => begin("DELETE", row)}><Trash2 size={15}/> Xóa</button></div></td>
+            <td data-label="Thao tác"><div className={styles.actions}><ActionButton type="button" onClick={() => begin("EDIT", row)}><Edit3 size={15}/> Sửa</ActionButton><ActionButton type="button" onClick={() => begin("RESET_PASSWORD", row)} disabled={!row.hasLogin}><KeyRound size={15}/> Đặt lại mật khẩu</ActionButton><ActionButton type="button" className={styles.delete} onClick={() => begin("DELETE", row)}><Trash2 size={15}/> Xóa</ActionButton></div></td>
           </tr>)}</tbody>
         </table>}
       </div>
-      <footer className={styles.pagination}><span>Trang {pagination.page}/{pagination.pages}</span><div><button type="button" disabled={loading || page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>Trang trước</button><button type="button" disabled={loading || page >= pagination.pages} onClick={() => setPage((current) => current + 1)}>Trang sau</button></div></footer>
+      <footer className={styles.pagination}><span>Trang {pagination.page}/{pagination.pages}</span><div><ActionButton type="button" disabled={loading || page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>Trang trước</ActionButton><ActionButton type="button" disabled={loading || page >= pagination.pages} onClick={() => setPage((current) => current + 1)}>Trang sau</ActionButton></div></footer>
     </section>
 
     {action ? <div ref={modalRootRef} className={styles.backdrop} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
       <section ref={dialogRef} className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="employee-directory-dialog-title" tabIndex={-1} aria-busy={saving}>
-        <button type="button" className={styles.close} onClick={close} disabled={saving} aria-label="Đóng"><X size={19}/></button>
+        <ActionButton type="button" className={styles.close} onClick={close} disabled={saving} aria-label="Đóng"><X size={19}/></ActionButton>
         <h3 id="employee-directory-dialog-title">{action.kind === "EDIT" ? `Sửa hồ sơ ${action.row.name}` : action.kind === "RESET_PASSWORD" ? `Đặt lại mật khẩu ${action.row.name}` : `Xóa ${action.row.name}`}</h3>
         {error ? <p className={styles.error} role="alert">{error}</p> : null}
         {action.kind === "EDIT" && draft ? <div className={styles.formGrid}>
@@ -178,7 +181,7 @@ export function SuperAdminEmployeeDirectory() {
         {action.kind === "RESET_PASSWORD" ? <div className={styles.resetBox}><ShieldAlert size={20}/><p>Hệ thống không lưu mật khẩu dạng đọc được. Mật khẩu mới sẽ thay thế mật khẩu cũ và toàn bộ phiên đăng nhập hiện tại bị thu hồi.</p><label>Mật khẩu mới<input ref={initialFocusRef} type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)}/><small>10–128 ký tự, có ít nhất một chữ và một số.</small></label><label>Nhập lại mật khẩu<input type="password" autoComplete="new-password" value={passwordConfirmation} onChange={(event) => setPasswordConfirmation(event.target.value)}/></label></div> : null}
         {action.kind === "DELETE" ? <div className={styles.danger}><ShieldAlert size={20}/><p>Tài khoản và dữ liệu nhận dạng sẽ bị xóa; lịch sử tài chính được giữ dưới mã ẩn danh để không làm sai báo cáo.</p><label>Nhập mã <b>{action.row.code}</b> để xác nhận<input ref={initialFocusRef} autoComplete="off" value={confirmation} onChange={(event) => setConfirmation(event.target.value)}/></label></div> : null}
         <label className={styles.reason}>Lý do thao tác<textarea value={reason} maxLength={500} onChange={(event) => setReason(event.target.value)} placeholder="Nhập ít nhất 3 ký tự"/></label>
-        <div className={styles.dialogActions}><button type="button" onClick={close} disabled={saving}>Hủy</button><button type="button" className={action.kind === "DELETE" ? styles.confirmDelete : styles.confirm} onClick={() => void submit()} disabled={saving || !canSubmit}>{saving ? "Đang lưu…" : action.kind === "DELETE" ? "Xóa khỏi hệ thống" : action.kind === "RESET_PASSWORD" ? "Đặt lại và đăng xuất" : "Lưu thay đổi"}</button></div>
+        <div className={styles.dialogActions}><ActionButton type="button" onClick={close} disabled={saving}>Hủy</ActionButton><ActionButton type="button" className={action.kind === "DELETE" ? styles.confirmDelete : styles.confirm} onClick={() => submit()} disabled={saving || !canSubmit}>{saving ? "Đang lưu…" : action.kind === "DELETE" ? "Xóa khỏi hệ thống" : action.kind === "RESET_PASSWORD" ? "Đặt lại và đăng xuất" : "Lưu thay đổi"}</ActionButton></div>
       </section>
     </div> : null}
   </div>;

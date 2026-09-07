@@ -1,11 +1,15 @@
 "use client";
 
+import { ActionButton, ActionForm } from "./ActionFeedback";
+
+import SupportTag from "./SupportTag";
 import { useState, type FormEvent } from "react";
 import { validatePayrollReviewValues, type PayrollReviewSource, type PayrollReviewState, type PayrollReviewValues } from "../lib/payroll-review";
+import { formatVndInput, parseVndInput } from "../lib/format";
 import styles from "./StorePayrollClosing.module.css";
 
 type ReviewItem = PayrollReviewSource & {
-  employeeName: string; employeeCode: string; review?: PayrollReviewState;
+  employeeName: string; employeeCode: string; review?: PayrollReviewState; isSupport?: boolean; sourceStoreName?: string | null;
 };
 const amounts = [
   ["tiktokAllowance", "Phụ cấp TikTok"], ["supportAllowance", "Phụ cấp hỗ trợ"],
@@ -20,9 +24,9 @@ export default function PayrollReviewEditor({ item, busy, onUpdate, onCancel }: 
   const [fields, setFields] = useState(() => ({
     hours: String(Number((item.durationSeconds / 3_600).toFixed(6))),
     kpiHours: String(Number((item.kpiDurationSeconds / 3_600).toFixed(6))),
-    tiktokAllowance: String(item.tiktokAllowance), supportAllowance: String(item.supportAllowance),
-    manualAllowance: String(item.manualAllowance), manualBonus: String(item.manualBonus),
-    kpiBonus: String(item.review?.values.kpiBonus ?? item.kpiBonus ?? 0),
+    tiktokAllowance: formatVndInput(item.tiktokAllowance), supportAllowance: formatVndInput(item.supportAllowance),
+    manualAllowance: formatVndInput(item.manualAllowance), manualBonus: formatVndInput(item.manualBonus),
+    kpiBonus: formatVndInput(item.review?.values.kpiBonus ?? item.kpiBonus ?? 0),
     kpiAutomatic: item.review?.values.kpiBonus == null,
     reason: "",
   }));
@@ -40,33 +44,33 @@ export default function PayrollReviewEditor({ item, busy, onUpdate, onCancel }: 
       }
       const values = validatePayrollReviewValues({
         durationSeconds: Math.round(hours * 3_600), kpiDurationSeconds: Math.round(kpiHours * 3_600),
-        ...Object.fromEntries(amounts.map(([key]) => [key, Number(fields[key])])),
-        kpiBonus: fields.kpiAutomatic ? null : Number(fields.kpiBonus),
+        ...Object.fromEntries(amounts.map(([key]) => [key, parseVndInput(fields[key])])),
+        kpiBonus: fields.kpiAutomatic ? null : parseVndInput(fields.kpiBonus),
       });
       if (fields.reason.trim().length < 5) throw new Error("Nhập lý do sửa ít nhất 5 ký tự để lưu lịch sử đối soát.");
       await onUpdate(values, fields.reason.trim());
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Không thể cập nhật số liệu."); }
   };
   return <section className={`manager-panel ${styles.reviewPanel}`} aria-labelledby="payroll-review-title" id="payroll-review-editor">
-    <h3 id="payroll-review-title">Cập nhật số liệu · {item.employeeName}</h3>
+    <h3 id="payroll-review-title">Cập nhật số liệu · {item.employeeName}<SupportTag supporting={item.isSupport} sourceStoreName={item.sourceStoreName}/></h3>
     <p>{item.employeeCode} · Cập nhật xong, xem lại bảng lương rồi mới chốt.</p>
     {item.review?.stale && <p className="form-message">Dữ liệu nguồn đã thay đổi sau lần cập nhật trước. Kiểm tra lại các số dưới đây.</p>}
-    <form onSubmit={(event) => void submit(event)}>
+    <ActionForm onSubmit={(event) => submit(event)}>
       <fieldset disabled={busy} className={styles.reviewFields}>
         <legend className="sr-only">Giờ, phụ cấp và thưởng của {item.employeeName}</legend>
         <label>Giờ tính lương<input type="number" min="0" max="744" step="any" inputMode="decimal" required value={fields.hours} onChange={(event) => setFields({ ...fields, hours: event.target.value })}/></label>
         <label>Giờ tính KPI<input type="number" min="0" max="744" step="any" inputMode="decimal" required value={fields.kpiHours} onChange={(event) => setFields({ ...fields, kpiHours: event.target.value })}/></label>
-        {amounts.map(([key, label]) => <label key={key}>{label} (đồng)<input type="number" min="0" step="1" inputMode="numeric" required value={fields[key]} onChange={(event) => setFields({ ...fields, [key]: event.target.value })}/></label>)}
-        <label>Thưởng KPI (đồng)<input type="number" min="0" step="1" inputMode="numeric" required={!fields.kpiAutomatic} disabled={fields.kpiAutomatic} value={fields.kpiBonus} onChange={(event) => setFields({ ...fields, kpiBonus: event.target.value })}/></label>
+        {amounts.map(([key, label]) => <label key={key}>{label} (đồng)<input type="text" inputMode="numeric" pattern="[0-9,]*" required value={fields[key]} onChange={(event) => setFields({ ...fields, [key]: formatVndInput(event.target.value) })}/></label>)}
+        <label>Thưởng KPI (đồng)<input type="text" inputMode="numeric" pattern="[0-9,]*" required={!fields.kpiAutomatic} disabled={fields.kpiAutomatic} value={fields.kpiBonus} onChange={(event) => setFields({ ...fields, kpiBonus: formatVndInput(event.target.value) })}/></label>
         <label className={styles.reviewCheckbox}><input type="checkbox" checked={fields.kpiAutomatic} onChange={(event) => setFields({ ...fields, kpiAutomatic: event.target.checked })}/> Thưởng KPI theo công thức</label>
         <label className={styles.reviewReason}>Lý do sửa<textarea rows={2} minLength={5} maxLength={500} required value={fields.reason} onChange={(event) => setFields({ ...fields, reason: event.target.value })}/></label>
       </fieldset>
       <p className={styles.reviewHint}>Nhập tổng số cuối cùng cho từng khoản. Lương tính theo đơn giá bình quân của các ca trong kỳ; giờ KPI được xét riêng. Giờ chấm công gốc được giữ để đối chiếu.</p>
       {error && <div className="form-message" role="alert">{error}</div>}
       <div className={styles.reviewActions}>
-        <button type="submit" disabled={busy}>{busy ? "Đang cập nhật…" : "Cập nhật số liệu"}</button>
-        <button type="button" disabled={busy} onClick={onCancel}>Hủy sửa</button>
+        <ActionButton type="submit" disabled={busy}>{busy ? "Đang cập nhật…" : "Cập nhật số liệu"}</ActionButton>
+        <ActionButton type="button" disabled={busy} onClick={onCancel}>Hủy sửa</ActionButton>
       </div>
-    </form>
+    </ActionForm>
   </section>;
 }

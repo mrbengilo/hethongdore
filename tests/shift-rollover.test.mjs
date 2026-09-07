@@ -103,7 +103,7 @@ test("ending a support shift completes only its transfer and returns home", asyn
   assert.match(api, /UPDATE employee_transfers SET[\s\S]*status = 'COMPLETED'[\s\S]*closed\.transfer_id = employee_transfers\.id/u);
   assert.match(api, /TRANSFER_COMPLETE_AFTER_SHIFT/u);
   assert.match(api, /returnedToHomeStore/u);
-  assert.match(portal, /activeTransferId: data\.returnedToHomeStore \? null : user\.activeTransferId/u);
+  assert.match(portal, /activeTransferId: typeof data\.activeTransferId === "string" \? data\.activeTransferId : null/u);
 });
 
 test("employee close-out inputs stay controlled until explicit END succeeds", async () => {

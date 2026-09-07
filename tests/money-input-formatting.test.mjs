@@ -2,11 +2,16 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-import { formatVndInput, parseVndInput } from "../app/lib/format.ts";
+import { formatVndDisplay, formatVndInput, parseVndInput } from "../app/lib/format.ts";
 
 const source = (relativePath) => readFile(new URL(relativePath, import.meta.url), "utf8");
 
 test("VND input helper groups digits while preserving numeric API values", () => {
+  assert.equal(formatVndDisplay(5000), "5,000 đồng");
+  assert.equal(formatVndDisplay(-20000), "-20,000 đồng");
+  assert.equal(formatVndInput("20000"), "20,000");
+  assert.equal(parseVndInput("20,000"), 20000);
+  assert.ok(Number.isNaN(parseVndInput("9,007,199,254,740,992")));
   assert.equal(formatVndInput("3000000"), "3,000,000");
   assert.equal(formatVndInput("3,000,000"), "3,000,000");
   assert.equal(formatVndInput("00025000"), "25,000");
@@ -38,4 +43,22 @@ test("money editors format on input and parse before sending data", async () => 
   assert.match(dataRecords, /amount: parseVndInput\(orderForm\.amount\)/u);
   assert.match(directory, /hourlyRate: parseVndInput\(draft\.hourlyRate\)/u);
   assert.match(directory, /tiktokAllowance: parseVndInput\(draft\.tiktokAllowance\)/u);
+});
+
+
+test("payroll review, manager salary and setup repayment editors use grouped VND without changing hours or percentages", async () => {
+  const [review, manager, reports] = await Promise.all([
+    source("../app/components/PayrollReviewEditor.tsx"), source("../app/components/StoreManagerPayroll.tsx"),
+    source("../app/components/FinancialReports.tsx"),
+  ]);
+  assert.match(review, /parseVndInput\(fields\[key\]\)/);
+  assert.match(review, /parseVndInput\(fields\.kpiBonus\)/);
+  assert.match(review, /Giờ tính lương<input type="number"/);
+  assert.match(manager, /managerSalary: parseVndInput\(amount\)/);
+  assert.match(reports, /amount: selectedAmount/);
+  assert.match(reports, /parseVndInput\(selectedDraft\.value\)/);
+  for (const component of [review, manager, reports]) {
+    assert.match(component, /type="text" inputMode="numeric" pattern="\[0-9,\]\*"/);
+    assert.match(component, /formatVndInput\(event\.target\.value\)/);
+  }
 });

@@ -1,3 +1,5 @@
+import { notifyAction } from "./action-feedback";
+
 type CsvCell = string | number | null | undefined;
 
 export function csvContent(rows: CsvCell[][]) {
@@ -15,4 +17,5 @@ export function exportCsvFile(filename: string, rows: CsvCell[][]) {
   link.download = filename;
   link.click();
   URL.revokeObjectURL(url);
+  notifyAction(`Đã tạo tệp ${filename}.`);
 }

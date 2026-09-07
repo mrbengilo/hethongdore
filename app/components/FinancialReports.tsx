@@ -1,5 +1,10 @@
 "use client";
 
+import { ActionButton } from "./ActionFeedback";
+import { actionFetch as fetch } from "../lib/action-feedback";
+
+import { formatVndInput, parseVndInput } from "../lib/format";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BadgeDollarSign,
@@ -463,8 +468,8 @@ function ReportToolbar({ title, description, period, setPeriod, onRefresh, onExp
 }) {
   return <div className="ref-toolbar"><div><h2>{title}</h2><p>{description}</p></div><div className="ref-toolbar-actions">
     <MonthPickerControl period={period} setPeriod={setPeriod}/>
-    <button onClick={onRefresh} disabled={loading}><RefreshCw size={16}/> {loading ? "Đang tải…" : "Làm mới"}</button>
-    <button onClick={onExport} disabled={exportDisabled}><Download size={16}/> Xuất CSV</button>
+    <ActionButton onClick={onRefresh} disabled={loading}><RefreshCw size={16}/> {loading ? "Đang tải…" : "Làm mới"}</ActionButton>
+    <ActionButton onClick={onExport} disabled={exportDisabled}><Download size={16}/> Xuất CSV</ActionButton>
   </div></div>;
 }
 
@@ -609,7 +614,7 @@ export function ManagerProfitSharingClosing({ initialPeriod, onPeriodChange }: {
   const setupRepayments = (sourcePreview?.storeAllocations ?? []).map((store) => {
     const draft = setupDrafts[period]?.[store.storeId];
     return { storeId: store.storeId, amount: draft
-      ? /^\d*$/.test(draft.value) ? Number(draft.value) : NaN
+      ? draft.value.trim() ? parseVndInput(draft.value) : NaN
       : store.setupRepayment };
   });
   const hasUnsavedSetup = setupRepayments.some((entry) => entry.amount !== (savedSetup.get(entry.storeId)?.amount ?? 0));
@@ -645,7 +650,7 @@ export function ManagerProfitSharingClosing({ initialPeriod, onPeriodChange }: {
   const setupStore = storeAllocations.find((store) => store.storeId === setupStoreId) ?? storeAllocations[0];
   const selectedSavedSetup = setupStore ? savedSetup.get(setupStore.storeId) : undefined;
   const selectedDraft = setupStore ? setupDrafts[period]?.[setupStore.storeId] : undefined;
-  const selectedAmount = selectedDraft ? /^\d*$/.test(selectedDraft.value) ? Number(selectedDraft.value) : NaN : selectedSavedSetup?.amount ?? 0;
+  const selectedAmount = selectedDraft ? selectedDraft.value.trim() ? parseVndInput(selectedDraft.value) : NaN : selectedSavedSetup?.amount ?? 0;
   const invalidSelectedAmount = !Number.isSafeInteger(selectedAmount) || selectedAmount < 0;
   const selectedSetupChanged = selectedAmount !== (selectedSavedSetup?.amount ?? 0);
   const setupConflict = selectedDraft !== undefined && selectedDraft.version !== (selectedSavedSetup?.version ?? 0);
@@ -816,27 +821,27 @@ export function ManagerProfitSharingClosing({ initialPeriod, onPeriodChange }: {
             </select>
           </label>
           <label>Chi phí hoàn trả setup (đồng)
-            <input type="number" inputMode="numeric" min="0" step="1" max={Number.MAX_SAFE_INTEGER}
-              placeholder="0" value={selectedDraft?.value ?? String(selectedSavedSetup?.amount ?? 0)}
+            <input type="text" inputMode="numeric" pattern="[0-9,]*"
+              placeholder="0" value={selectedDraft?.value ?? formatVndInput(selectedSavedSetup?.amount ?? 0)}
               disabled={loading || saving || savingSetup} aria-describedby="setup-repayment-note setup-repayment-status"
               onChange={(event) => setSetupDrafts((previous) => ({
                 ...previous,
                 [period]: { ...previous[period], [setupStore.storeId]: {
-                  value: event.target.value, version: selectedDraft?.version ?? selectedSavedSetup?.version ?? 0,
+                  value: formatVndInput(event.target.value), version: selectedDraft?.version ?? selectedSavedSetup?.version ?? 0,
                 } },
               }))}/>
           </label>
         </div>
         <p id="setup-repayment-note">{invalidSelectedAmount ? "Nhập số tiền đồng nguyên, không âm." : `Lợi nhuận sau lương thưởng ${money(setupStore.finalProfit)} − hoàn trả setup ${money(selectedAmount)} = còn lại ${money(setupStore.finalProfit - selectedAmount)}.`}</p>
         <div className="setup-repayment-actions">
-          <button className="primary-button" disabled={loading || saving || savingSetup || invalidSelectedAmount || setupConflict || Boolean(selectedSavedSetup && !selectedSetupChanged)}
-            onClick={() => void saveSelectedSetup()}><Save size={17}/>{savingSetup ? "Đang lưu…" : "Lưu hoàn trả setup"}</button>
+          <ActionButton className="primary-button" disabled={loading || saving || savingSetup || invalidSelectedAmount || setupConflict || Boolean(selectedSavedSetup && !selectedSetupChanged)}
+            onClick={() => saveSelectedSetup()}><Save size={17}/>{savingSetup ? "Đang lưu…" : "Lưu hoàn trả setup"}</ActionButton>
           <span id="setup-repayment-status" role="status">{setupConflict
             ? "Số đã lưu vừa thay đổi. Tải số mới trước khi sửa tiếp."
             : selectedSetupChanged ? "Chưa lưu thay đổi"
               : selectedSavedSetup ? `Đã lưu ${dateTime(selectedSavedSetup.updatedAt)}` : "Không hoàn trả setup: để 0 đồng."}</span>
-          {setupConflict && <button className="ghost-button" disabled={loading || saving || savingSetup}
-            onClick={() => clearSetupDraft(period, setupStore.storeId)}>Tải số đã lưu</button>}
+          {setupConflict && <ActionButton className="ghost-button" disabled={loading || saving || savingSetup}
+            onClick={() => clearSetupDraft(period, setupStore.storeId)}>Tải số đã lưu</ActionButton>}
         </div>
         <p>Lưu riêng từng cửa hàng và kỳ; có thể sửa trước khi khóa kỳ chia lợi nhuận.</p>
       </section>}
@@ -849,7 +854,7 @@ export function ManagerProfitSharingClosing({ initialPeriod, onPeriodChange }: {
           })}
         <p><span>Tổng lợi nhuận được chia</span><b>{money(distributableProfit)}</b><em>{periodLabel(period)}</em></p>
         {hasUnsavedSetup && <p role="status">Lưu hoàn trả setup đã nhập trước khi khóa kỳ chia lợi nhuận.</p>}
-        <button className="primary-button wide" disabled={saving || savingSetup || loading || hasUnsavedSetup || Boolean(calculationError) || Boolean(currentHistory) || currentMembers.length === 0 || !periodClosed || !allStoresLocked} onClick={() => void closeProfitSharing()}><LockKeyhole size={17}/> {saving ? "ĐANG KHÓA KỲ…" : currentHistory ? "KỲ CHIA LỢI NHUẬN ĐÃ KHÓA" : currentMembers.length === 0 ? "CHƯA CÓ CẤU HÌNH THÀNH VIÊN" : !periodClosed ? "CHỜ KẾT THÚC KỲ" : !allStoresLocked ? "CHỜ CỬA HÀNG KHÓA KỲ" : "XÁC NHẬN CHIA VÀ KHÓA KỲ"}</button>
+        <ActionButton className="primary-button wide" disabled={saving || savingSetup || loading || hasUnsavedSetup || Boolean(calculationError) || Boolean(currentHistory) || currentMembers.length === 0 || !periodClosed || !allStoresLocked} onClick={() => closeProfitSharing()}><LockKeyhole size={17}/> {saving ? "ĐANG KHÓA KỲ…" : currentHistory ? "KỲ CHIA LỢI NHUẬN ĐÃ KHÓA" : currentMembers.length === 0 ? "CHƯA CÓ CẤU HÌNH THÀNH VIÊN" : !periodClosed ? "CHỜ KẾT THÚC KỲ" : !allStoresLocked ? "CHỜ CỬA HÀNG KHÓA KỲ" : "XÁC NHẬN CHIA VÀ KHÓA KỲ"}</ActionButton>
       </section><section className="manager-panel"><h2>NGUYÊN TẮC GHI NHẬN</h2>
         <p><span>Nguồn tính</span><b>Lợi nhuận sau cùng đã khóa</b><em>Từng cửa hàng</em></p>
         <p><span>Hoàn trả setup trong kỳ</span><b>{money(setupRepayment)}</b><em>Trừ riêng tại từng cửa hàng sau lương thưởng</em></p>

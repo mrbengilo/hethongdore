@@ -1,5 +1,10 @@
 "use client";
 
+import SupportTag from "./SupportTag";
+
+import { ActionButton } from "./ActionFeedback";
+import { actionFetch as fetch } from "../lib/action-feedback";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CheckCircle2, MapPin, ReceiptText } from "lucide-react";
 import { captureClockInLocation, type ClockInLocation } from "../lib/attendance-location";
@@ -590,7 +595,7 @@ export function ReferenceEmployeeHome({ user, shift, orders, onShift, tiktok, se
         <span>ĐIỂM DANH</span>
         <small>{now ? now.toLocaleDateString("vi-VN", { weekday: "long", day: "2-digit", month: "2-digit", year: "numeric", timeZone: "Asia/Ho_Chi_Minh" }) : "Đang đồng bộ thời gian..."}</small>
         <strong suppressHydrationWarning>{now ? now.toLocaleTimeString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh", hourCycle: "h23" }) : "--:--:--"}</strong>
-        <button ref={startButtonRef} className="primary-button" disabled={shift.active || previewingStart || startingShift} aria-haspopup="dialog" aria-expanded={Boolean(startConfirmation)} aria-busy={previewingStart || startingShift} aria-describedby="attendance-location-help" onClick={() => void requestStartConfirmation()}><CheckCircle2 size={20}/> {shift.active ? "ĐÃ ĐIỂM DANH" : startProgress === "location" ? "ĐANG LẤY VỊ TRÍ..." : startProgress === "shift" ? "ĐANG KIỂM TRA CA..." : "ĐIỂM DANH"}</button>
+        <ActionButton ref={startButtonRef} className="primary-button" disabled={shift.active || previewingStart || startingShift} aria-haspopup="dialog" aria-expanded={Boolean(startConfirmation)} aria-busy={previewingStart || startingShift} aria-describedby="attendance-location-help" onClick={() => requestStartConfirmation()}><CheckCircle2 size={20}/> {shift.active ? "ĐÃ ĐIỂM DANH" : startProgress === "location" ? "ĐANG LẤY VỊ TRÍ..." : startProgress === "shift" ? "ĐANG KIỂM TRA CA..." : "ĐIỂM DANH"}</ActionButton>
         {!shift.active && <small id="attendance-location-help" className="attendance-location-help">Khi điện thoại hỏi quyền Vị trí, hãy chọn Cho phép để điểm danh.</small>}
         <small>{shift.active ? "Đang làm · " + shiftName : "Chưa điểm danh vào ca làm"}</small>
         {shift.active && attendanceFeedback && <span className={`attendance-status ${attendanceFeedback.status === "EARLY" ? "attendance-early" : attendanceFeedback.status === "LATE" ? "attendance-late" : "attendance-on-time"}`}>
@@ -602,7 +607,7 @@ export function ReferenceEmployeeHome({ user, shift, orders, onShift, tiktok, se
       <section className="info-card">
         <span>THÔNG TIN NHÂN VIÊN</span>
         <p>Mã nhân viên <b>{user.employeeCode ?? "NV"}</b></p>
-        <p>Họ và tên <b>{user.name}</b></p>
+        <p>Họ và tên <b>{user.name}<SupportTag supporting={user.isSupporting} sourceStoreName={user.homeStoreName}/></b></p>
         <p>Chức vụ <b>{user.employeePosition ?? "Nhân viên"}</b></p>
         <p>Số điện thoại <b>{user.employeePhone ?? "Chưa cập nhật"}</b></p>
         {user.isSupporting && <p>Cửa hàng hỗ trợ <b>{user.storeName ?? "DORE"}</b></p>}
@@ -639,7 +644,7 @@ export function ReferenceEmployeeHome({ user, shift, orders, onShift, tiktok, se
             <div><span>Tổng tiền</span><b>{money(revenueTotal)}</b><small>{activeOrders.length} đơn trong ca</small></div>
           </div>
           {revenueEntered && !tendersMatch && <div className="reconciliation-message"><b>Doanh thu chưa khớp với đơn hàng trong ca</b><span>Tiền mặt: cần {money(orderCash)}, đã nhập {money(enteredCash)}, chênh lệch {money(enteredCash - orderCash)}.</span><span>Chuyển khoản: cần {money(orderTransfer)}, đã nhập {money(enteredTransfer)}, chênh lệch {money(enteredTransfer - orderTransfer)}.</span></div>}
-          <button ref={endButtonRef} className="end-shift-button" disabled={!canEnd || endingShift} aria-haspopup="dialog" aria-expanded={Boolean(pendingEarlyEnd)} onClick={() => void finishShift()}><CheckCircle2 size={19}/> {endingShift ? "ĐANG KẾT CA..." : "KẾT CA"}</button>
+          <ActionButton ref={endButtonRef} className="end-shift-button" disabled={!canEnd || endingShift} aria-haspopup="dialog" aria-expanded={Boolean(pendingEarlyEnd)} onClick={() => finishShift()}><CheckCircle2 size={19}/> {endingShift ? "ĐANG KẾT CA..." : "KẾT CA"}</ActionButton>
           {closingMessage && <p className={closingMessage.startsWith("✓") ? "success-banner" : "closing-error"}>{closingMessage}</p>}
           <small className="closing-hint">{!shift.active ? "Bạn chưa bắt đầu ca làm việc" : !allTasksDone ? "Vui lòng hoàn thành tất cả công việc trước khi kết ca" : !expenseEntered ? "Vui lòng nhập chi phí trong ca, nhập 0 nếu không có" : !revenueEntered ? "Vui lòng nhập doanh thu tiền mặt và chuyển khoản" : !amountsValid ? "Tiền phải là số nguyên VND không âm" : !expenseValid ? "Vui lòng nhập nội dung chi phí phát sinh" : !orderRequirementMet ? "Doanh thu lớn hơn 0 cần có ít nhất một đơn hàng" : !tendersMatch ? "Tiền mặt hoặc chuyển khoản chưa khớp với đơn hàng" : "Đã đủ điều kiện kết ca"}</small>
         </div>
@@ -652,7 +657,7 @@ export function ReferenceEmployeeHome({ user, shift, orders, onShift, tiktok, se
       </div>
     </section>
     {startConfirmation && <div ref={startBackdropRef} className="modal-backdrop shift-start-backdrop">
-      <button type="button" className="shift-start-dismiss" aria-label="Đóng xác nhận điểm danh" disabled={startingShift} onClick={declineStartShift}/>
+      <ActionButton type="button" className="shift-start-dismiss" aria-label="Đóng xác nhận điểm danh" disabled={startingShift} onClick={declineStartShift}/>
       <section ref={startDialogRef} className="modal shift-start-confirmation" role="dialog" aria-modal="true" aria-labelledby="shift-start-confirm-title" aria-describedby="shift-start-confirm-description" tabIndex={-1}>
         <div className="modal-title"><div>
           <h2 id="shift-start-confirm-title">{startConfirmation.mode === "CURRENT_OR_NEXT" && currentStartCandidate && upcomingStartCandidate
@@ -676,25 +681,25 @@ export function ReferenceEmployeeHome({ user, shift, orders, onShift, tiktok, se
         </div>
         <div className="modal-actions">
           {startConfirmation.mode === "CURRENT_OR_NEXT" && currentStartCandidate && upcomingStartCandidate ? <>
-            <button ref={declineStartRef} type="button" disabled={startingShift} onClick={() => void confirmStartShift(currentStartCandidate)}>{startingShift ? "ĐANG GHI NHẬN..." : `Ca hiện tại · ${currentStartCandidate.shiftName}`}</button>
-            <button type="button" className="primary-button" disabled={startingShift} onClick={() => void confirmStartShift(upcomingStartCandidate)}>{startingShift ? "ĐANG GHI NHẬN..." : `Ca sau · ${upcomingStartCandidate.shiftName}`}</button>
+            <ActionButton ref={declineStartRef} type="button" disabled={startingShift} onClick={() => confirmStartShift(currentStartCandidate)}>{startingShift ? "ĐANG GHI NHẬN..." : `Ca hiện tại · ${currentStartCandidate.shiftName}`}</ActionButton>
+            <ActionButton type="button" className="primary-button" disabled={startingShift} onClick={() => confirmStartShift(upcomingStartCandidate)}>{startingShift ? "ĐANG GHI NHẬN..." : `Ca sau · ${upcomingStartCandidate.shiftName}`}</ActionButton>
           </> : <>
-            <button ref={declineStartRef} type="button" disabled={startingShift} onClick={declineStartShift}>KHÔNG</button>
-            <button type="button" className="primary-button" disabled={startingShift || !singleStartCandidate} onClick={() => singleStartCandidate && void confirmStartShift(singleStartCandidate)}>{startingShift ? "ĐANG ĐIỂM DANH..." : "CÓ"}</button>
+            <ActionButton ref={declineStartRef} type="button" disabled={startingShift} onClick={declineStartShift}>KHÔNG</ActionButton>
+            <ActionButton type="button" className="primary-button" disabled={startingShift || !singleStartCandidate} onClick={() => singleStartCandidate && confirmStartShift(singleStartCandidate)}>{startingShift ? "ĐANG ĐIỂM DANH..." : "CÓ"}</ActionButton>
           </>}
         </div>
       </section>
     </div>}
     {pendingEarlyEnd && <div ref={earlyEndBackdropRef} className="modal-backdrop shift-start-backdrop">
-      <button type="button" tabIndex={-1} className="shift-start-dismiss" aria-label="Đóng xác nhận kết ca sớm" disabled={endingShift} onClick={declineEarlyEnd}/>
+      <ActionButton type="button" tabIndex={-1} className="shift-start-dismiss" aria-label="Đóng xác nhận kết ca sớm" disabled={endingShift} onClick={declineEarlyEnd}/>
       <section ref={earlyEndDialogRef} className="modal shift-start-confirmation" role="dialog" aria-modal="true" aria-labelledby="shift-early-end-confirm-title" aria-describedby="shift-early-end-confirm-description" tabIndex={-1}>
         <div className="modal-title"><div>
           <h2 id="shift-early-end-confirm-title">Chưa hết giờ kết ca, bạn có muốn kết ca không?</h2>
           <p id="shift-early-end-confirm-description">Nếu chọn KHÔNG, toàn bộ chi phí và doanh thu đã nhập vẫn được giữ nguyên.</p>
         </div></div>
         <div className="modal-actions">
-          <button ref={declineEarlyEndRef} type="button" disabled={endingShift} onClick={declineEarlyEnd}>KHÔNG</button>
-          <button type="button" className="primary-button" disabled={endingShift} onClick={() => void submitShiftEnd(pendingEarlyEnd, true)}>{endingShift ? "ĐANG KẾT CA..." : "CÓ"}</button>
+          <ActionButton ref={declineEarlyEndRef} type="button" disabled={endingShift} onClick={declineEarlyEnd}>KHÔNG</ActionButton>
+          <ActionButton type="button" className="primary-button" disabled={endingShift} onClick={() => submitShiftEnd(pendingEarlyEnd, true)}>{endingShift ? "ĐANG KẾT CA..." : "CÓ"}</ActionButton>
         </div>
       </section>
     </div>}

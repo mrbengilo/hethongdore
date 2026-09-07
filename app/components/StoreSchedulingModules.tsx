@@ -1,5 +1,10 @@
 "use client";
 
+import SupportTag from "./SupportTag";
+
+import { ActionButton, ActionForm } from "./ActionFeedback";
+import { actionFetch as fetch } from "../lib/action-feedback";
+
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CalendarDays, CalendarRange, Check, ChevronLeft, ChevronRight, Clock3,
@@ -26,6 +31,7 @@ type BusinessRecord = {
 };
 
 type Employee = {
+  isSupport?: number; homeStoreName?: string | null;
   id: string;
   code: string;
   name: string;
@@ -402,7 +408,7 @@ function exportCsv(filename: string, rows: Array<Array<string | number>>) {
 function EmployeeName({ employee }: { employee: Employee }) {
   return <div className={styles.employeeName}>
     <i>{employee.name.slice(0, 1).toLocaleUpperCase("vi-VN")}</i>
-    <span><b title={employee.name}>{employee.name}</b><small title={`${employee.code} · ${employee.position}`}>{employee.code} · {employee.position}</small></span>
+    <span><b title={employee.name}>{employee.name}</b><SupportTag supporting={employee.isSupport} sourceStoreName={employee.homeStoreName}/><small title={`${employee.code} · ${employee.position}`}>{employee.code} · {employee.position}</small></span>
   </div>;
 }
 
@@ -424,8 +430,8 @@ function ShiftCards({ shifts, schedules, date, onEdit, onRemove }: {
         <i><Clock3 size={25}/></i>
         <div><span>{shift.name}</span><strong>{shift.start} - {shift.end}</strong><small>{formatShiftDuration(shift.duration)}{shift.overnight ? " · Qua đêm" : ""} · {people} nhân viên</small>{(shift.updatedAt || shift.record) && <small className={styles.updatedAt}>Cập nhật: {updatedAtLabel(shift.updatedAt ?? shift.record?.updated_at ?? shift.record?.created_at)}</small>}</div>
         {onEdit && <div className={styles.cardActions}>
-          <button type="button" aria-label={`Sửa ${shift.name}`} onClick={() => onEdit(shift)}><Edit3 size={15}/></button>
-          <button type="button" aria-label={`Xóa ${shift.name}`} disabled={!shift.persisted} onClick={() => onRemove?.(shift)}><Trash2 size={15}/></button>
+          <ActionButton type="button" aria-label={`Sửa ${shift.name}`} onClick={() => onEdit(shift)}><Edit3 size={15}/></ActionButton>
+          <ActionButton type="button" aria-label={`Xóa ${shift.name}`} disabled={!shift.persisted} onClick={() => onRemove?.(shift)}><Trash2 size={15}/></ActionButton>
         </div>}
       </article>;
     })}
@@ -448,7 +454,7 @@ function DayGrid({ employees, shifts, schedules, date, onEdit }: {
       {shifts.map((shift, index) => {
         const assigned = schedules.find((entry) => entry.date === date && entry.employeeIds.includes(employee.id) && scheduleMatchesShift(entry, shift));
         return <td key={shift.id}>{assigned
-          ? <button type="button" disabled={!onEdit} className={`${styles.assignmentChip} ${styles[`chip${index % 3 + 1}`]}`} onClick={() => onEdit?.(assigned)}><Check size={14}/><span>{assigned.shiftName}<small>{assigned.start} - {assigned.end}</small></span></button>
+          ? <ActionButton type="button" disabled={!onEdit} className={`${styles.assignmentChip} ${styles[`chip${index % 3 + 1}`]}`} onClick={() => onEdit?.(assigned)}><Check size={14}/><span>{assigned.shiftName}<small>{assigned.start} - {assigned.end}</small></span></ActionButton>
           : <span className={styles.unassigned}>—</span>}</td>;
       })}
     </tr>)}</tbody>
@@ -469,7 +475,7 @@ function WeekGrid({ employees, schedules, anchor, onEdit }: {
     <thead><tr><th>Nhân viên</th>{dates.map((date, index) => <th key={date}><b>{dayNames[index]}</b><small>{shortDate(date).slice(0, 5)}</small></th>)}</tr></thead>
     <tbody>{employees.map((employee) => <tr key={employee.id}><td><EmployeeName employee={employee}/></td>{dates.map((date) => {
       const entries = schedules.filter((entry) => entry.date === date && entry.employeeIds.includes(employee.id));
-      return <td key={date}>{entries.length ? entries.map((entry) => <button type="button" disabled={!onEdit} className={styles.weekChip} key={entry.id} onClick={() => onEdit?.(entry)}><b>{entry.shiftName}</b><small>{entry.start} - {entry.end}</small></button>) : <span className={styles.unassigned}>—</span>}</td>;
+      return <td key={date}>{entries.length ? entries.map((entry) => <ActionButton type="button" disabled={!onEdit} className={styles.weekChip} key={entry.id} onClick={() => onEdit?.(entry)}><b>{entry.shiftName}</b><small>{entry.start} - {entry.end}</small></ActionButton>) : <span className={styles.unassigned}>—</span>}</td>;
     })}</tr>)}</tbody>
     </table></div>
   </>;
@@ -550,27 +556,27 @@ export function StoreShiftManagement({ store }: { store: SchedulingStore }) {
       <div><h2>Ca làm việc</h2><p>Quản lý khung giờ và theo dõi lịch làm của nhân viên</p></div>
       <div className={styles.toolbarActions}>
         <label className={styles.dateControl}><CalendarDays size={17}/><input type="date" value={date} onChange={(event) => setDate(event.target.value)}/></label>
-        <button type="button" className={styles.secondaryButton} onClick={() => exportCsv("ca-lam-viec.csv", [["Tên ca", "Bắt đầu", "Kết thúc", "Thời lượng", "Qua đêm"], ...shifts.map((shift) => [shift.name, shift.start, shift.end, formatShiftDuration(shift.duration), shift.overnight ? "Có" : "Không"])])}><Download size={17}/> Xuất Excel</button>
-        <button type="button" className={styles.primaryButton} disabled={inactive} onClick={() => begin()}><Plus size={18}/> Tạo ca làm việc</button>
+        <ActionButton type="button" className={styles.secondaryButton} onClick={() => exportCsv("ca-lam-viec.csv", [["Tên ca", "Bắt đầu", "Kết thúc", "Thời lượng", "Qua đêm"], ...shifts.map((shift) => [shift.name, shift.start, shift.end, formatShiftDuration(shift.duration), shift.overnight ? "Có" : "Không"])])}><Download size={17}/> Xuất Excel</ActionButton>
+        <ActionButton type="button" className={styles.primaryButton} disabled={inactive} onClick={() => begin()}><Plus size={18}/> Tạo ca làm việc</ActionButton>
       </div>
     </header>
     {inactive && <div className={styles.inactiveBanner}><b>Cửa hàng đã ngưng hoạt động</b><span>Ca làm việc và lịch sử vẫn được hiển thị, nhưng mọi thao tác tạo, sửa hoặc xóa đã bị khóa.</span></div>}
     <ShiftCards shifts={shifts} schedules={schedules} date={date} onEdit={inactive ? undefined : begin} onRemove={inactive ? undefined : remove}/>
     <div className={styles.summaryStrip}><span><Clock3 size={21}/><b>{shifts.length}</b> Tổng ca</span><span><UsersRound size={21}/><b>{employees.length}</b> Nhân viên</span><span><CalendarRange size={21}/><b>{assignedToday}</b> Đã xếp ngày này</span><span><b>{shifts.filter((shift) => shift.overnight).length}</b> Ca qua đêm</span></div>
     <section className={styles.panel}>
-      <div className={styles.panelHeader}><div className={styles.tabs}><button type="button" className={view === "day" ? styles.activeTab : ""} onClick={() => setView("day")}>Lịch theo ngày</button><button type="button" className={view === "week" ? styles.activeTab : ""} onClick={() => setView("week")}>Lịch theo tuần</button></div><div className={styles.dateNav}><button type="button" onClick={() => setDate(addDays(date, view === "day" ? -1 : -7))}><ChevronLeft size={18}/></button><b>{view === "day" ? dateLabel(date) : `${shortDate(weekDates(date)[0])} - ${shortDate(weekDates(date)[6])}`}</b><button type="button" onClick={() => setDate(addDays(date, view === "day" ? 1 : 7))}><ChevronRight size={18}/></button></div></div>
-      {view === "day" ? <DayGrid employees={employees} shifts={shifts} schedules={schedules} date={date}/> : <WeekGrid employees={employees} schedules={schedules} anchor={date}/>} 
+      <div className={styles.panelHeader}><div className={styles.tabs}><ActionButton type="button" className={view === "day" ? styles.activeTab : ""} onClick={() => setView("day")}>Lịch theo ngày</ActionButton><ActionButton type="button" className={view === "week" ? styles.activeTab : ""} onClick={() => setView("week")}>Lịch theo tuần</ActionButton></div><div className={styles.dateNav}><ActionButton type="button" onClick={() => setDate(addDays(date, view === "day" ? -1 : -7))}><ChevronLeft size={18}/></ActionButton><b>{view === "day" ? dateLabel(date) : `${shortDate(weekDates(date)[0])} - ${shortDate(weekDates(date)[6])}`}</b><ActionButton type="button" onClick={() => setDate(addDays(date, view === "day" ? 1 : 7))}><ChevronRight size={18}/></ActionButton></div></div>
+      {view === "day" ? <DayGrid employees={employees} shifts={shifts} schedules={schedules} date={date}/> : <WeekGrid employees={employees} schedules={schedules} anchor={date}/>}
       {(shiftsSource.loading || scheduleSource.loading) && <p className={styles.loading}>Đang tải dữ liệu...</p>}
       {(shiftsSource.error || scheduleSource.error || message) && <p className={styles.error}>{message || shiftsSource.error || scheduleSource.error}</p>}
     </section>
-    {open && <div className={styles.backdrop}><form className={styles.modal} onSubmit={save}>
-      <div className={styles.modalHeader}><div><h3>{editing ? "Sửa ca làm việc" : "Tạo ca làm việc"}</h3><p>Ca kết thúc sớm hơn giờ bắt đầu sẽ được ghi nhận là ca qua đêm.</p></div><button type="button" onClick={() => setOpen(false)}><X size={20}/></button></div>
+    {open && <div className={styles.backdrop}><ActionForm className={styles.modal} onSubmit={save}>
+      <div className={styles.modalHeader}><div><h3>{editing ? "Sửa ca làm việc" : "Tạo ca làm việc"}</h3><p>Ca kết thúc sớm hơn giờ bắt đầu sẽ được ghi nhận là ca qua đêm.</p></div><ActionButton type="button" onClick={() => setOpen(false)}><X size={20}/></ActionButton></div>
       <label>Tên ca *<input required maxLength={50} value={name} onChange={(event) => setName(event.target.value)} placeholder="Ví dụ: Ca 1"/></label>
       <div className={styles.twoColumns}><label>Thời gian bắt đầu *<input required type="time" value={start} onChange={(event) => setStart(event.target.value)}/></label><label>Thời gian kết thúc *<input required type="time" value={end} onChange={(event) => setEnd(event.target.value)}/></label></div>
       <div className={styles.durationPreview}><Clock3 size={20}/><span>Thời lượng ca<strong>{formatShiftDuration(shiftDurationMinutes(start, end))}</strong></span>{isOvernightShift(start, end) && <em>Qua đêm</em>}</div>
       {message && <p className={styles.error}>{message}</p>}
-      <div className={styles.modalActions}><button type="button" className={styles.secondaryButton} onClick={() => setOpen(false)}>Hủy</button><button className={styles.primaryButton} disabled={saving || inactive}>{saving ? "Đang lưu..." : "Lưu ca làm việc"}</button></div>
-    </form></div>}
+      <div className={styles.modalActions}><ActionButton type="button" className={styles.secondaryButton} onClick={() => setOpen(false)}>Hủy</ActionButton><ActionButton className={styles.primaryButton} disabled={saving || inactive}>{saving ? "Đang lưu..." : "Lưu ca làm việc"}</ActionButton></div>
+    </ActionForm></div>}
   </section>;
 }
 
@@ -849,30 +855,30 @@ export function StoreScheduleManagement({ store }: { store: SchedulingStore }) {
       <div><h2>Lịch phân ca</h2><p>Tạo ca riêng cho từng ngày, sau đó phân nhiều ca cho nhiều nhân viên</p></div>
       <div className={styles.toolbarActions}>
         <label className={styles.dateControl}><CalendarDays size={17}/><input type="date" value={date} onChange={(event) => setDate(event.target.value)}/></label>
-        <button type="button" className={styles.secondaryButton} onClick={() => exportCsv("lich-phan-ca.csv", [["Ngày", "Ca", "Thời gian", "Nhân viên", "Ghi chú"], ...schedules.map((entry) => [entry.date, entry.shiftName, `${entry.start} - ${entry.end}`, entry.employeeNames.join("; "), entry.note])])}><Download size={17}/> Xuất Excel</button>
-        <button type="button" className={styles.secondaryButton} disabled={inactive} onClick={() => beginShift()}><Plus size={18}/> Tạo ca làm việc</button>
-        <button type="button" className={styles.primaryButton} disabled={inactive || shifts.length === 0} onClick={() => begin()}><CalendarRange size={18}/> Tạo lịch phân ca</button>
+        <ActionButton type="button" className={styles.secondaryButton} onClick={() => exportCsv("lich-phan-ca.csv", [["Ngày", "Ca", "Thời gian", "Nhân viên", "Ghi chú"], ...schedules.map((entry) => [entry.date, entry.shiftName, `${entry.start} - ${entry.end}`, entry.employeeNames.join("; "), entry.note])])}><Download size={17}/> Xuất Excel</ActionButton>
+        <ActionButton type="button" className={styles.secondaryButton} disabled={inactive} onClick={() => beginShift()}><Plus size={18}/> Tạo ca làm việc</ActionButton>
+        <ActionButton type="button" className={styles.primaryButton} disabled={inactive || shifts.length === 0} onClick={() => begin()}><CalendarRange size={18}/> Tạo lịch phân ca</ActionButton>
       </div>
     </header>
     {inactive && <div className={styles.inactiveBanner}><b>Cửa hàng đã ngưng hoạt động</b><span>Lịch sử vẫn được xem và xuất báo cáo; tạo, sửa hoặc xóa lịch phân ca đã bị khóa.</span></div>}
     {shifts.length
       ? <ShiftCards shifts={shifts} schedules={schedules} date={date} onEdit={inactive ? undefined : beginShift} onRemove={inactive ? undefined : removeShift}/>
-      : !dailyShiftSource.loading && <div className={styles.dailyShiftEmpty}><Clock3 size={22}/><span><b>Chưa có ca làm việc ngày {shortDate(date)}</b><small>Hãy tạo ca với tên và khung giờ dành riêng cho ngày này trước khi phân lịch.</small></span><button type="button" className={styles.secondaryButton} disabled={inactive} onClick={() => beginShift()}><Plus size={17}/> Tạo ca làm việc</button></div>}
+      : !dailyShiftSource.loading && <div className={styles.dailyShiftEmpty}><Clock3 size={22}/><span><b>Chưa có ca làm việc ngày {shortDate(date)}</b><small>Hãy tạo ca với tên và khung giờ dành riêng cho ngày này trước khi phân lịch.</small></span><ActionButton type="button" className={styles.secondaryButton} disabled={inactive} onClick={() => beginShift()}><Plus size={17}/> Tạo ca làm việc</ActionButton></div>}
     <div className={styles.summaryStrip}><span><CalendarRange size={21}/><b>{daySchedules.length}</b> Lịch trong ngày</span><span><UsersRound size={21}/><b>{new Set(daySchedules.flatMap((entry) => entry.employeeIds)).size}</b> Nhân viên đã xếp</span><span><Clock3 size={21}/><b>{shifts.length}</b> Ca hoạt động</span><span><b>{employees.length - new Set(daySchedules.flatMap((entry) => entry.employeeIds)).size}</b> Chưa phân ca</span></div>
     <section className={styles.panel}>
-      <div className={styles.panelHeader}><div className={styles.tabs}><button type="button" className={view === "day" ? styles.activeTab : ""} onClick={() => setView("day")}>Theo ngày</button><button type="button" className={view === "week" ? styles.activeTab : ""} onClick={() => setView("week")}>Theo tuần</button><button type="button" className={view === "employee" ? styles.activeTab : ""} onClick={() => setView("employee")}>Theo nhân viên</button></div><div className={styles.dateNav}><button type="button" onClick={() => setDate(addDays(date, view === "day" ? -1 : -7))}><ChevronLeft size={18}/></button><b>{view === "day" ? dateLabel(date) : `${shortDate(week[0])} - ${shortDate(week[6])}`}</b><button type="button" onClick={() => setDate(addDays(date, view === "day" ? 1 : 7))}><ChevronRight size={18}/></button></div></div>
-      {view === "day" && <DayGrid employees={employees} shifts={shifts} schedules={schedules} date={date} onEdit={inactive ? undefined : begin}/>} 
-      {view === "week" && <WeekGrid employees={employees} schedules={schedules} anchor={date} onEdit={inactive ? undefined : begin}/>} 
+      <div className={styles.panelHeader}><div className={styles.tabs}><ActionButton type="button" className={view === "day" ? styles.activeTab : ""} onClick={() => setView("day")}>Theo ngày</ActionButton><ActionButton type="button" className={view === "week" ? styles.activeTab : ""} onClick={() => setView("week")}>Theo tuần</ActionButton><ActionButton type="button" className={view === "employee" ? styles.activeTab : ""} onClick={() => setView("employee")}>Theo nhân viên</ActionButton></div><div className={styles.dateNav}><ActionButton type="button" onClick={() => setDate(addDays(date, view === "day" ? -1 : -7))}><ChevronLeft size={18}/></ActionButton><b>{view === "day" ? dateLabel(date) : `${shortDate(week[0])} - ${shortDate(week[6])}`}</b><ActionButton type="button" onClick={() => setDate(addDays(date, view === "day" ? 1 : 7))}><ChevronRight size={18}/></ActionButton></div></div>
+      {view === "day" && <DayGrid employees={employees} shifts={shifts} schedules={schedules} date={date} onEdit={inactive ? undefined : begin}/>}
+      {view === "week" && <WeekGrid employees={employees} schedules={schedules} anchor={date} onEdit={inactive ? undefined : begin}/>}
       {view === "employee" && <div className={styles.employeeScheduleList}>{employees.map((employee) => {
         const entries = schedules.filter((entry) => week.includes(entry.date) && entry.employeeIds.includes(employee.id)).sort((a, b) => a.date.localeCompare(b.date));
-        return <article key={employee.id}><EmployeeName employee={employee}/><div>{entries.length ? entries.map((entry) => <button type="button" disabled={inactive} key={entry.id} onClick={() => begin(entry)}><b>{shortDate(entry.date)} · {entry.shiftName}</b><small>{entry.start} - {entry.end}{entry.overnight ? " · Qua đêm" : ""}</small></button>) : <span>Chưa có lịch trong tuần</span>}</div></article>;
+        return <article key={employee.id}><EmployeeName employee={employee}/><div>{entries.length ? entries.map((entry) => <ActionButton type="button" disabled={inactive} key={entry.id} onClick={() => begin(entry)}><b>{shortDate(entry.date)} · {entry.shiftName}</b><small>{entry.start} - {entry.end}{entry.overnight ? " · Qua đêm" : ""}</small></ActionButton>) : <span>Chưa có lịch trong tuần</span>}</div></article>;
       })}</div>}
     </section>
-    <section className={styles.historyPanel}><div className={styles.historyTitle}><div><h3>Lịch đã tạo ngày {shortDate(date)}</h3><p>{inactive ? "Cửa hàng ngưng hoạt động: chỉ xem lịch sử." : "Chọn một lịch để sửa danh sách nhân viên hoặc ghi chú."}</p></div><button type="button" className={styles.secondaryButton} onClick={() => setDate(localDate())}>Hôm nay</button></div>{daySchedules.length ? <div className={styles.scheduleHistory}>{daySchedules.map((entry) => <article key={entry.id}><i><Clock3 size={19}/></i><span><b>{entry.shiftName}</b><small className={styles.historyShiftTime}>{entry.start} - {entry.end}{entry.overnight ? " · Qua đêm" : ""}</small><small>{entry.employeeNames.join(", ") || `${entry.employeeIds.length} nhân viên`}{entry.note ? ` · ${entry.note}` : ""}</small><small className={styles.updatedAt}>Cập nhật: {updatedAtLabel(entry.record.updated_at ?? entry.record.created_at)}</small></span><div><button type="button" disabled={inactive} aria-label="Sửa lịch" onClick={() => begin(entry)}><Edit3 size={16}/></button><button type="button" disabled={inactive} aria-label="Xóa lịch" onClick={() => remove(entry)}><Trash2 size={16}/></button></div></article>)}</div> : <p className={styles.empty}>Chưa tạo lịch phân ca cho ngày này.</p>}</section>
+    <section className={styles.historyPanel}><div className={styles.historyTitle}><div><h3>Lịch đã tạo ngày {shortDate(date)}</h3><p>{inactive ? "Cửa hàng ngưng hoạt động: chỉ xem lịch sử." : "Chọn một lịch để sửa danh sách nhân viên hoặc ghi chú."}</p></div><ActionButton type="button" className={styles.secondaryButton} onClick={() => setDate(localDate())}>Hôm nay</ActionButton></div>{daySchedules.length ? <div className={styles.scheduleHistory}>{daySchedules.map((entry) => <article key={entry.id}><i><Clock3 size={19}/></i><span><b>{entry.shiftName}</b><small className={styles.historyShiftTime}>{entry.start} - {entry.end}{entry.overnight ? " · Qua đêm" : ""}</small><small>{entry.employeeNames.join(", ") || `${entry.employeeIds.length} nhân viên`}{entry.note ? ` · ${entry.note}` : ""}</small><small className={styles.updatedAt}>Cập nhật: {updatedAtLabel(entry.record.updated_at ?? entry.record.created_at)}</small></span><div><ActionButton type="button" disabled={inactive} aria-label="Sửa lịch" onClick={() => begin(entry)}><Edit3 size={16}/></ActionButton><ActionButton type="button" disabled={inactive} aria-label="Xóa lịch" onClick={() => remove(entry)}><Trash2 size={16}/></ActionButton></div></article>)}</div> : <p className={styles.empty}>Chưa tạo lịch phân ca cho ngày này.</p>}</section>
     {(dailyShiftSource.loading || scheduleSource.loading) && <p className={styles.loading}>Đang tải dữ liệu lịch và ca theo ngày...</p>}
     {(dailyShiftSource.error || scheduleSource.error || message) && !open && !shiftOpen && <p className={styles.error}>{message || dailyShiftSource.error || scheduleSource.error}</p>}
-    {shiftOpen && <div className={styles.backdrop} ref={shiftBackdropRef}><form className={styles.modal} ref={shiftDialogRef} role="dialog" aria-modal="true" aria-labelledby="daily-shift-dialog-title" tabIndex={-1} onSubmit={saveShift}>
-      <div className={styles.modalHeader}><div><h3 id="daily-shift-dialog-title">{editingShift ? "Sửa ca làm việc" : "Tạo ca làm việc"}</h3><p>Ca này chỉ áp dụng cho ngày {shortDate(date)}. Lịch của ngày khác không thay đổi.</p></div><button type="button" aria-label="Đóng biểu mẫu ca làm việc" disabled={shiftSaving} onClick={() => setShiftOpen(false)}><X size={20}/></button></div>
+    {shiftOpen && <div className={styles.backdrop} ref={shiftBackdropRef}><ActionForm className={styles.modal} ref={shiftDialogRef} role="dialog" aria-modal="true" aria-labelledby="daily-shift-dialog-title" tabIndex={-1} onSubmit={saveShift}>
+      <div className={styles.modalHeader}><div><h3 id="daily-shift-dialog-title">{editingShift ? "Sửa ca làm việc" : "Tạo ca làm việc"}</h3><p>Ca này chỉ áp dụng cho ngày {shortDate(date)}. Lịch của ngày khác không thay đổi.</p></div><ActionButton type="button" aria-label="Đóng biểu mẫu ca làm việc" disabled={shiftSaving} onClick={() => setShiftOpen(false)}><X size={20}/></ActionButton></div>
       <label>Ngày áp dụng<input type="date" value={date} disabled readOnly/></label>
       <label>Tên ca *<input ref={shiftInitialFocusRef} required maxLength={50} value={shiftName} onChange={(event) => setShiftName(event.target.value)} placeholder="Ví dụ: Ca sáng"/></label>
       <div className={styles.twoColumns}><label>Thời gian bắt đầu *<input required type="time" value={shiftStart} onChange={(event) => setShiftStart(event.target.value)}/></label><label>Thời gian kết thúc *<input required type="time" value={shiftEnd} onChange={(event) => setShiftEnd(event.target.value)}/></label></div>
@@ -880,16 +886,16 @@ export function StoreScheduleManagement({ store }: { store: SchedulingStore }) {
       {editingShift && <p className={styles.snapshotNotice}>Sửa ca không thay đổi tên hoặc thời gian trong các lịch đã phân, ca đang chạy và lịch sử trước đó.</p>}
       {editingShift && <label>Lý do chỉnh sửa *<textarea required minLength={5} maxLength={500} value={shiftReason} onChange={(event) => setShiftReason(event.target.value)} placeholder="Ví dụ: Điều chỉnh giờ làm theo lịch vận hành thực tế"/></label>}
       {message && <p className={styles.error}>{message}</p>}
-      <div className={styles.modalActions}><button type="button" className={styles.secondaryButton} disabled={shiftSaving} onClick={() => setShiftOpen(false)}>Hủy</button><button className={styles.primaryButton} disabled={shiftSaving || inactive}>{shiftSaving ? "Đang lưu..." : editingShift ? "Cập nhật ca" : "Lưu ca làm việc"}</button></div>
-    </form></div>}
-    {open && <div className={styles.backdrop} ref={scheduleBackdropRef}><form className={`${styles.modal} ${styles.scheduleModal}`} ref={scheduleDialogRef} role="dialog" aria-modal="true" aria-labelledby="schedule-editor-dialog-title" tabIndex={-1} onSubmit={save}>
-      <div className={styles.modalHeader}><div><h3 id="schedule-editor-dialog-title">{editing ? "Sửa lịch phân ca" : "Tạo lịch phân ca"}</h3><p>{editing ? "Cập nhật ca, nhân viên và ghi chú trên cùng một màn hình." : "Chọn một hoặc nhiều ca, nhân viên và ghi chú trên cùng một màn hình."}</p></div><button type="button" aria-label="Đóng biểu mẫu lịch phân ca" disabled={saving} onClick={() => setOpen(false)}><X size={20}/></button></div>
+      <div className={styles.modalActions}><ActionButton type="button" className={styles.secondaryButton} disabled={shiftSaving} onClick={() => setShiftOpen(false)}>Hủy</ActionButton><ActionButton className={styles.primaryButton} disabled={shiftSaving || inactive}>{shiftSaving ? "Đang lưu..." : editingShift ? "Cập nhật ca" : "Lưu ca làm việc"}</ActionButton></div>
+    </ActionForm></div>}
+    {open && <div className={styles.backdrop} ref={scheduleBackdropRef}><ActionForm className={`${styles.modal} ${styles.scheduleModal}`} ref={scheduleDialogRef} role="dialog" aria-modal="true" aria-labelledby="schedule-editor-dialog-title" tabIndex={-1} onSubmit={save}>
+      <div className={styles.modalHeader}><div><h3 id="schedule-editor-dialog-title">{editing ? "Sửa lịch phân ca" : "Tạo lịch phân ca"}</h3><p>{editing ? "Cập nhật ca, nhân viên và ghi chú trên cùng một màn hình." : "Chọn một hoặc nhiều ca, nhân viên và ghi chú trên cùng một màn hình."}</p></div><ActionButton type="button" aria-label="Đóng biểu mẫu lịch phân ca" disabled={saving} onClick={() => setOpen(false)}><X size={20}/></ActionButton></div>
       <div className={styles.stepBody}>
         <label>Ngày áp dụng *<input ref={scheduleInitialFocusRef} type="date" required value={date} onChange={(event) => changeDraftDate(event.target.value)}/></label>
         <fieldset className={styles.shiftPicker}><legend>{editing ? "Chọn ca làm việc *" : `Chọn một hoặc nhiều ca * (${selectedShifts.length}/${shifts.length})`}</legend><div className={styles.scheduleShiftPicker}>{selectableShifts.length ? selectableShifts.map((shift, index) => <label className={shiftIds.includes(shift.id) ? styles.selectedShift : ""} key={shift.id}><input type={editing ? "radio" : "checkbox"} name={editing ? "shift" : undefined} checked={shiftIds.includes(shift.id)} onChange={() => toggleShift(shift.id)}/><i className={styles[`dot${index % 3 + 1}`]}/><span><b>{shift.name}{shift.snapshot ? " · Bản lưu của lịch" : ""}</b><small>{shift.start} - {shift.end}</small><small>{formatShiftDuration(shift.duration)}{shift.overnight ? " · Qua đêm" : ""}</small></span><Check size={17}/></label>) : <p className={styles.employeePickerMessage}>Ngày này chưa có ca làm việc. Hãy đóng biểu mẫu và tạo ca trước.</p>}</div></fieldset>
         <div className={styles.selectedSummary}><Clock3 size={19}/><span><b>{selectedShifts.length ? editing ? selectedShift?.name : `${selectedShifts.length} ca đã chọn` : "Chưa chọn ca"}</b><small>{dateLabel(date)}{selectedShifts.length ? ` · ${selectedShifts.map((shift) => `${shift.name} ${shift.start}-${shift.end}`).join("; ")}` : ""}</small></span></div>
         <label className={styles.employeeSearch}><Search size={17}/><input aria-label="Tìm nhân viên" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm mã, tên hoặc vị trí nhân viên..."/></label>
-        <div className={styles.selectionTools}><b>Chọn nhân viên ({selectedEmployees.length}/{employees.length})</b><button type="button" onClick={toggleAllEmployees}>{selectedEmployees.length === employees.length ? "Bỏ chọn tất cả" : "Chọn tất cả"}</button></div>
+        <div className={styles.selectionTools}><b>Chọn nhân viên ({selectedEmployees.length}/{employees.length})</b><ActionButton type="button" onClick={toggleAllEmployees}>{selectedEmployees.length === employees.length ? "Bỏ chọn tất cả" : "Chọn tất cả"}</ActionButton></div>
         <fieldset className={styles.employeePicker} aria-label="Danh sách nhân viên theo chiều dọc">{employeeSource.loading
           ? <p className={styles.employeePickerMessage}>Đang tải nhân viên...</p>
           : visibleEmployees.length
@@ -898,8 +904,8 @@ export function StoreScheduleManagement({ store }: { store: SchedulingStore }) {
         <label>Ghi chú <textarea value={note} onChange={(event) => changeDraftNote(event.target.value)} placeholder="Nhập ghi chú cho lịch phân ca..." maxLength={300}/></label>
         {editing && <label>Lý do chỉnh sửa *<textarea required minLength={5} maxLength={500} value={scheduleReason} onChange={(event) => setScheduleReason(event.target.value)} placeholder="Ví dụ: Thay đổi nhân sự theo phân công thực tế"/></label>}
         {message && <p className={styles.error}>{message}</p>}
-        <div className={styles.modalActions}><button type="button" className={styles.secondaryButton} disabled={saving} onClick={() => setOpen(false)}>Hủy</button><button className={styles.primaryButton} aria-label={editing ? "Cập nhật lịch phân ca" : "Lưu lịch phân ca"} disabled={saving || inactive || !selectedEmployees.length || !selectedShifts.length}>{saving ? "Đang lưu..." : editing ? "CẬP NHẬT" : "LƯU"}</button></div>
+        <div className={styles.modalActions}><ActionButton type="button" className={styles.secondaryButton} disabled={saving} onClick={() => setOpen(false)}>Hủy</ActionButton><ActionButton className={styles.primaryButton} aria-label={editing ? "Cập nhật lịch phân ca" : "Lưu lịch phân ca"} disabled={saving || inactive || !selectedEmployees.length || !selectedShifts.length}>{saving ? "Đang lưu..." : editing ? "CẬP NHẬT" : "LƯU"}</ActionButton></div>
       </div>
-    </form></div>}
+    </ActionForm></div>}
   </section>;
 }
