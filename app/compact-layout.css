@@ -157,6 +157,9 @@
 .pending-store-panel li { padding: 4px 0; line-height: 1.5; overflow-wrap: anywhere; }
 .setup-repayment-fields { align-items: end; gap: 12px; margin: 12px 0; }
 .setup-repayment-fields > button { justify-self: start; min-height: 44px; }
+.setup-repayment-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 10px 0; }
+.setup-repayment-actions > button { min-height: 44px; max-width: 100%; white-space: normal; }
+.setup-repayment-actions > span { min-width: 0; overflow-wrap: anywhere; font-size: 14px; }
 .setup-repayment-panel p,
 .store-manager-payroll .manager-panel p { font-size: 13px; line-height: 1.6; }
 .report-profit-note { align-items: flex-start; line-height: 1.6; }
