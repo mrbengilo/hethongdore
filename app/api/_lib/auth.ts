@@ -221,10 +221,17 @@ export async function getSessionUser(request: Request): Promise<SessionUser | nu
   if (row.role === "EMPLOYEE" && row.employeeId) {
     // A running shift keeps its original store snapshot even if a transfer ends
     // while the employee is still closing the shift.
-    const runningShift = row.currentShift
-      ? await db.prepare("SELECT store_id AS storeId, transfer_id AS transferId, shift_name AS shiftName, scheduled_start AS scheduledStart, scheduled_end AS scheduledEnd, applied_tiktok_allowance AS appliedTikTokAllowance FROM shift_sessions WHERE shift_code = ? AND employee_id = ? AND status = 'ACTIVE' LIMIT 1")
-        .bind(row.currentShift, row.employeeId).first<{ storeId: string; transferId: string | null; shiftName: string | null; scheduledStart: string | null; scheduledEnd: string | null; appliedTikTokAllowance: number | null }>()
-      : null;
+    const runningShift = await db.prepare(`SELECT store_id AS storeId, transfer_id AS transferId,
+        shift_code AS shiftCode, started_at AS startedAt, shift_name AS shiftName,
+        scheduled_start AS scheduledStart, scheduled_end AS scheduledEnd,
+        applied_tiktok_allowance AS appliedTikTokAllowance
+      FROM shift_sessions WHERE employee_id = ? AND status = 'ACTIVE'
+      ORDER BY started_at DESC, id DESC LIMIT 1`)
+      .bind(row.employeeId).first<{ storeId: string; transferId: string | null; shiftCode: string; startedAt: string;
+        shiftName: string | null; scheduledStart: string | null; scheduledEnd: string | null; appliedTikTokAllowance: number | null }>();
+    row.shiftActive = runningShift ? 1 : 0;
+    row.currentShift = runningShift?.shiftCode ?? null;
+    row.shiftStartedAt = runningShift?.startedAt ?? null;
     if (runningShift) {
       storeId = runningShift.storeId;
       activeTransferId = runningShift.transferId;

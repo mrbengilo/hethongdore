@@ -1,5 +1,7 @@
 "use client";
 
+import SupportTag from "./SupportTag";
+
 import { ActionButton, ActionForm } from "./ActionFeedback";
 import { actionFetch as fetch } from "../lib/action-feedback";
 import StoreManagerPayroll from "./StoreManagerPayroll";
@@ -191,7 +193,7 @@ function AppShell({ brand, subtitle, menu, active, onActive, user, children, onB
       <div className="sidebar-brand"><div className="mini-mark"><img className="brand-logo-image" src="/logo.jpg" alt="Logo DORE Quản Lý" width={1254} height={1254}/></div><div><strong>{brand}</strong><span>{subtitle}</span></div><ActionButton className="close-menu" onClick={() => setOpen(false)} aria-label="Đóng menu"><X size={21}/></ActionButton></div>
       {onBack && <ActionButton className="back-system" onClick={onBack}><ArrowLeft size={17}/> Quay về trang quản lý chính</ActionButton>}
       <nav>{menu.map((item) => { const Icon = menuIcons[item] ?? LayoutDashboard; return <ActionButton key={item} className={active === item ? "active" : ""} onClick={() => { onActive(item); setOpen(false); window.scrollTo({ top: 0, behavior: "smooth" }); }}><i><Icon size={19} strokeWidth={1.8}/></i>{item}</ActionButton>; })}</nav>
-      <div className="sidebar-user"><div className="avatar"><UserRound size={20}/></div><div><b>{user.name}</b><span>{user.role === "MANAGER" ? Number(user.isSuperAdmin) === 1 ? "Quản trị cấp cao" : "Quản lý hệ thống" : `${user.employeeCode ?? "NV"} · ${user.employeePosition ?? "Nhân viên"}`}</span></div></div>
+      <div className="sidebar-user"><div className="avatar"><UserRound size={20}/></div><div><b>{user.name}</b><SupportTag supporting={user.isSupporting} sourceStoreName={user.homeStoreName}/><span>{user.role === "MANAGER" ? Number(user.isSuperAdmin) === 1 ? "Quản trị cấp cao" : "Quản lý hệ thống" : `${user.employeeCode ?? "NV"} · ${user.employeePosition ?? "Nhân viên"}`}</span></div></div>
       <ActionButton className="logout-button" onClick={logout}><LogOut size={18}/> Đăng xuất</ActionButton>
     </aside>
     <section className={`main-area ${shellAction ? "has-shell-action" : ""}`}><header className="mobile-header"><ActionButton onClick={() => setOpen(true)} aria-label="Mở menu" aria-controls="app-navigation-sidebar" aria-expanded={open}><Menu size={23}/></ActionButton><b>{brand}</b>{shellAction ? <span className="mobile-action-placeholder" aria-hidden="true"/> : <Bell size={19}/>}</header>{shellAction && <div className="shell-notification-action">{shellAction}</div>}{children}</section>
@@ -717,20 +719,27 @@ function EmployeePortal({ user, onUser }: {
             managerPeriod: null,
         });
     }, [navigationIdentity, navigationReady, view]);
+    const shiftSyncSequence = useRef(0);
+    const shiftMutationPending = useRef(false);
     const loadOrders = useCallback(() => fetch("/api/orders").then(response => response.json()).then(data => setOrders(data.orders ?? [])), []);
     const syncShift = useCallback(async () => {
+        if (shiftMutationPending.current) return;
+        const sequence = ++shiftSyncSequence.current;
         const response = await fetch("/api/shift", { cache: "no-store" });
         if (!response.ok)
             return;
         const data = await response.json();
+        if (sequence !== shiftSyncSequence.current || shiftMutationPending.current) return;
         const nextShiftCode = data.active ? data.shiftCode : null;
         const changedShift = Boolean(shift.shiftCode && nextShiftCode && shift.shiftCode !== nextShiftCode);
         const storeContextChanged = (typeof data.storeId === "string" || data.storeId === null) && data.storeId !== user.storeId;
+        if (storeContextChanged) setView("Trang chủ");
         if (changedShift) {
             setTiktok(false);
             setClosingDraft(EMPTY_EMPLOYEE_CLOSING_DRAFT);
             await loadOrders();
         }
+        if (sequence !== shiftSyncSequence.current || shiftMutationPending.current) return;
         setShift({
             active: Boolean(data.active),
             shiftCode: nextShiftCode,
@@ -776,6 +785,10 @@ function EmployeePortal({ user, onUser }: {
         };
     }, [syncShift]);
     async function shiftAction(action: "start" | "end", payload?: ShiftActionPayload): Promise<ShiftActionResult> {
+        if (shiftMutationPending.current) return { ok: false, message: "Đang cập nhật ca làm việc." };
+        shiftMutationPending.current = true;
+        ++shiftSyncSequence.current;
+        try {
         const response = await fetch("/api/shift", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, tiktok, ...payload }) });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) return {
@@ -790,7 +803,7 @@ function EmployeePortal({ user, onUser }: {
             storeId: typeof data.storeId === "string" || data.storeId === null ? data.storeId : user.storeId,
             storeName: typeof data.storeName === "string" || data.storeName === null ? data.storeName : user.storeName,
             isSupporting: typeof data.isSupporting === "boolean" ? data.isSupporting : user.isSupporting,
-            activeTransferId: data.returnedToHomeStore ? null : user.activeTransferId,
+            activeTransferId: typeof data.activeTransferId === "string" ? data.activeTransferId : null,
             employeeTiktokAllowance: resolveEmployeeTiktokAllowanceSnapshot(action, data, user.employeeTiktokAllowance),
             shiftActive: data.active ? 1 : 0,
             currentShift: data.active ? data.shiftCode : null,
@@ -799,6 +812,7 @@ function EmployeePortal({ user, onUser }: {
             scheduledStart: data.active ? data.scheduledStart : null,
             scheduledEnd: data.active ? data.scheduledEnd : null,
         };
+        if (next.storeId !== user.storeId) setView("Trang chủ");
         onUser(next);
         setShift({
             active: data.active,
@@ -826,6 +840,7 @@ function EmployeePortal({ user, onUser }: {
                 ? data.attendanceStatus : null,
             attendanceDeltaMinutes: Number.isInteger(data.attendanceDeltaMinutes) ? data.attendanceDeltaMinutes : null,
         };
+        } finally { shiftMutationPending.current = false; }
     }
     if (!navigationReady)
         return <div className="app-loading"><div className="pulse-logo"><img className="brand-logo-image" src="/logo.jpg" alt="Logo DORE Quản Lý" width={1254} height={1254}/></div><p>Đang mở lại màn hình gần nhất...</p></div>;
@@ -833,7 +848,7 @@ function EmployeePortal({ user, onUser }: {
     return <AppShell brand={employeeStoreName} subtitle={user.isSupporting ? "Đang hỗ trợ tạm thời" : "Hệ thống làm việc nhân viên"} menu={employeeMenu} active={view} onActive={setView} user={user} accent="employee">
         <div className="page-header employee-header employee-brand-header">
             <div><div className="employee-brand-title"><strong>{employeeStoreName}</strong><span>{user.isSupporting ? `ĐANG HỖ TRỢ · CỬA HÀNG CHÍNH: ${user.homeStoreName ?? "DORE"}` : `${view.toLocaleUpperCase("vi-VN")} · HỆ THỐNG LÀM VIỆC NHÂN VIÊN`}</span></div></div>
-            <div className="header-user"><ActionButton className="bell" aria-label="Thông báo"><Bell size={20}/><span>2</span></ActionButton><div className="avatar"><UserRound size={20}/></div><span><b>{user.name}</b><small>{user.employeeCode ?? "NV"}</small></span></div>
+            <div className="header-user"><ActionButton className="bell" aria-label="Thông báo"><Bell size={20}/><span>2</span></ActionButton><div className="avatar"><UserRound size={20}/></div><span><b>{user.name}</b><SupportTag supporting={user.isSupporting} sourceStoreName={user.homeStoreName}/><small>{user.employeeCode ?? "NV"}</small></span></div>
         </div>
         <div className="page-content"><EmployeeView user={user} view={view} shift={shift} orders={orders} onShift={shiftAction} tiktok={tiktok} setTiktok={setTiktok} closingDraft={closingDraft} onClosingDraftChange={setClosingDraft} reloadOrders={loadOrders}/></div>
     </AppShell>;

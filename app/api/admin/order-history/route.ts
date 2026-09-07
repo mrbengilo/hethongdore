@@ -10,6 +10,7 @@ type AuditRow = {
   actorName: string | null;
   actorUsername: string | null;
   employeeName: string | null;
+  isSupport?: number; sourceStoreName?: string | null;
   employeeCode: string | null;
   shiftName: string | null;
   shiftCode: string;
@@ -130,6 +131,8 @@ export async function GET(request: Request) {
       audit.id, audit.entity_id AS orderId, o.code AS orderCode, audit.action,
       audit.created_at AS changedAt, actor.name AS actorName, actor.username AS actorUsername,
       employee.name AS employeeName, employee.code AS employeeCode,
+      shift.transfer_id IS NOT NULL AS isSupport,
+      (SELECT source.name FROM employee_transfers transfer JOIN stores source ON source.id = transfer.source_store_id WHERE transfer.id = shift.transfer_id) AS sourceStoreName,
       shift.shift_name AS shiftName, o.shift_code AS shiftCode, shift.work_date AS workDate,
       o.status AS currentStatus, audit.detail
     FROM audit_logs audit

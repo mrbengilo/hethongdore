@@ -1,5 +1,7 @@
 "use client";
 
+import SupportTag from "./SupportTag";
+
 import { ActionButton, ActionForm } from "./ActionFeedback";
 import { actionFetch as fetch } from "../lib/action-feedback";
 
@@ -29,6 +31,7 @@ type BusinessRecord = {
 };
 
 type Employee = {
+  isSupport?: number; homeStoreName?: string | null;
   id: string;
   code: string;
   name: string;
@@ -405,7 +408,7 @@ function exportCsv(filename: string, rows: Array<Array<string | number>>) {
 function EmployeeName({ employee }: { employee: Employee }) {
   return <div className={styles.employeeName}>
     <i>{employee.name.slice(0, 1).toLocaleUpperCase("vi-VN")}</i>
-    <span><b title={employee.name}>{employee.name}</b><small title={`${employee.code} · ${employee.position}`}>{employee.code} · {employee.position}</small></span>
+    <span><b title={employee.name}>{employee.name}</b><SupportTag supporting={employee.isSupport} sourceStoreName={employee.homeStoreName}/><small title={`${employee.code} · ${employee.position}`}>{employee.code} · {employee.position}</small></span>
   </div>;
 }
 

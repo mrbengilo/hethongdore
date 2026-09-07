@@ -1,5 +1,7 @@
 "use client";
 
+import SupportTag from "./SupportTag";
+
 import { ActionButton, ActionForm } from "./ActionFeedback";
 import { actionFetch as fetch } from "../lib/action-feedback";
 
@@ -15,6 +17,7 @@ type SalaryAdvance = {
   employeeId: string;
   employeeCode: string;
   employeeName: string;
+  isSupport?: boolean; sourceStoreName?: string | null;
   advanceDate: string;
   amount: number;
   grossEntitlementSnapshot: number;
@@ -35,6 +38,7 @@ type EmployeeBalance = {
   employeeId: string;
   employeeCode: string;
   employeeName: string;
+  isSupport?: boolean; sourceStoreName?: string | null;
   grossEntitlement: number;
   pendingAmount: number;
   paidAmount: number;
@@ -362,7 +366,7 @@ export default function SalaryAdvancePanel({
             : data?.advances.length ? data.advances.map((advance, index) => <tr key={advance.id}>
               <td data-label="STT">{index + 1}</td>
               <td data-label="Thời gian tạo"><time dateTime={advance.createdAt}>{formatDateTime24(advance.createdAt, true)}</time><small>Ngày ứng: {formatDateVn(advance.advanceDate)}</small></td>
-              <td data-label="Nhân viên"><b>{advance.employeeName}</b><small>{advance.employeeCode}</small></td>
+              <td data-label="Nhân viên"><b>{advance.employeeName}</b><SupportTag supporting={advance.isSupport} sourceStoreName={advance.sourceStoreName}/><small>{advance.employeeCode}</small></td>
               <td data-label="Số tiền ứng"><strong>{money(advance.amount)}</strong></td>
               <td data-label="Lương khả dụng tại lúc tạo">{money(advance.availableBeforeSnapshot)}</td>
               <td data-label="Lương còn lại sau ứng"><strong className={styles.remainingAmount}>{money(advance.remainingAfterSnapshot)}</strong></td>
@@ -388,7 +392,7 @@ export default function SalaryAdvancePanel({
         <header><div><h2 id="salary-advance-dialog-title">{mode === "CREATE" ? "Tạo khoản ứng lương" : mode === "EDIT" ? "Sửa khoản ứng lương" : "Chi tiết khoản ứng lương"}</h2><p>Kỳ lương {period}</p></div><ActionButton type="button" aria-label="Đóng hộp thoại ứng lương" disabled={busy} onClick={dismiss}><X size={19}/></ActionButton></header>
         <label>Nhân viên
           <select ref={mode === "CREATE" ? initialFocusRef : undefined} value={employeeId} disabled={busy || mode !== "CREATE"} onChange={(event) => setEmployeeId(event.target.value)} required>
-            {(data?.employees ?? []).map((employee) => <option key={employee.employeeId} value={employee.employeeId}>{employee.employeeCode} · {employee.employeeName}</option>)}
+            {(data?.employees ?? []).map((employee) => <option key={employee.employeeId} value={employee.employeeId}>{employee.employeeCode} · {employee.employeeName}{employee.isSupport ? ` · Hỗ trợ từ ${employee.sourceStoreName || "cửa hàng chính"}` : ""}</option>)}
           </select>
         </label>
         <label>Thời gian hiện tại

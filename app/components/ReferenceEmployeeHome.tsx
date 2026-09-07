@@ -1,5 +1,7 @@
 "use client";
 
+import SupportTag from "./SupportTag";
+
 import { ActionButton } from "./ActionFeedback";
 import { actionFetch as fetch } from "../lib/action-feedback";
 
@@ -605,7 +607,7 @@ export function ReferenceEmployeeHome({ user, shift, orders, onShift, tiktok, se
       <section className="info-card">
         <span>THÔNG TIN NHÂN VIÊN</span>
         <p>Mã nhân viên <b>{user.employeeCode ?? "NV"}</b></p>
-        <p>Họ và tên <b>{user.name}</b></p>
+        <p>Họ và tên <b>{user.name}<SupportTag supporting={user.isSupporting} sourceStoreName={user.homeStoreName}/></b></p>
         <p>Chức vụ <b>{user.employeePosition ?? "Nhân viên"}</b></p>
         <p>Số điện thoại <b>{user.employeePhone ?? "Chưa cập nhật"}</b></p>
         {user.isSupporting && <p>Cửa hàng hỗ trợ <b>{user.storeName ?? "DORE"}</b></p>}

@@ -1,5 +1,7 @@
 "use client";
 
+import SupportTag from "./SupportTag";
+
 import { ActionButton } from "./ActionFeedback";
 import { actionFetch as fetch } from "../lib/action-feedback";
 
@@ -170,7 +172,7 @@ export default function AttendanceStatsPanel({ storeId }: { storeId: string }) {
           <thead><tr><th>STT</th><th>Nhân viên</th><th>Đi trễ</th><th>Đúng giờ</th><th>Đi sớm</th><th>Tổng phút trễ</th><th>Đánh giá chuyên cần</th></tr></thead>
           <tbody>{data.rows.map((row, index) => <tr key={row.employeeId}>
             <td>{index + 1}</td>
-            <td><b>{row.employeeName}</b><small>{row.employeeCode}</small></td>
+            <td><b>{row.employeeName}</b><SupportTag supporting={row.isSupport} sourceStoreName={row.sourceStoreName}/><small>{row.employeeCode}</small></td>
             <td className={styles.lateValue}>{row.late}</td>
             <td className={styles.onTimeValue}>{row.onTime}</td>
             <td className={styles.earlyValue}>{row.early}</td>
@@ -182,7 +184,7 @@ export default function AttendanceStatsPanel({ storeId }: { storeId: string }) {
 
       <ol className={styles.mobileList} aria-label="Danh sách thống kê đi làm đúng giờ">
         {data.rows.map((row, index) => <li className={styles.mobileCard} key={row.employeeId}>
-          <header><span className={styles.index} aria-label={`Dòng ${index + 1}`}>{index + 1}</span><div><b>{row.employeeName}</b><small>{row.employeeCode}</small></div><Evaluation row={row}/></header>
+          <header><span className={styles.index} aria-label={`Dòng ${index + 1}`}>{index + 1}</span><div><b>{row.employeeName}</b><SupportTag supporting={row.isSupport} sourceStoreName={row.sourceStoreName}/><small>{row.employeeCode}</small></div><Evaluation row={row}/></header>
           <dl>
             <div><dt>Đi trễ</dt><dd className={styles.lateValue}>{row.late}</dd></div>
             <div><dt>Đúng giờ</dt><dd className={styles.onTimeValue}>{row.onTime}</dd></div>

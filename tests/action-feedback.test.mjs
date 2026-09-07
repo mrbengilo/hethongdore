@@ -4,6 +4,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { actionFetch, runExclusiveAction, subscribeActionFeedback } from "../app/lib/action-feedback.ts";
 import { ActionButton } from "../app/components/ActionFeedback.tsx";
+import SupportTag from "../app/components/SupportTag.tsx";
 
 test("writes notify success only after a successful response and preserve the readable response body", async (t) => {
   const notices = [];
@@ -57,7 +58,11 @@ test("busy action renders a disabled accessible button while retaining its visib
   assert.doesNotMatch(idle, /action-spinner/);
 });
 
-
+test("support identity renders below the name without leaking a badge onto home staff", () => {
+  assert.equal(renderToStaticMarkup(createElement(SupportTag, { supporting: false, sourceStoreName: "DORE CẦN THƠ" })), "");
+  const html = renderToStaticMarkup(createElement(SupportTag, { supporting: true, sourceStoreName: "DORE CẦN THƠ" }));
+  assert.match(html, /Nhân viên hỗ trợ<span>Từ DORE CẦN THƠ<\/span>/);
+});
 
 
 test("a pending click or form submit runs once, clears its spinner on failure and allows an explicit retry", async () => {

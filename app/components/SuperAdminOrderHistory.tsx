@@ -1,5 +1,7 @@
 "use client";
 
+import SupportTag from "./SupportTag";
+
 import { ActionButton } from "./ActionFeedback";
 import { actionFetch as fetch } from "../lib/action-feedback";
 
@@ -26,6 +28,7 @@ type HistoryRow = {
   actorName: string | null;
   actorUsername: string | null;
   employeeName: string | null;
+  isSupport?: number; sourceStoreName?: string | null;
   employeeCode: string | null;
   shiftName: string | null;
   shiftCode: string;
@@ -121,7 +124,7 @@ export function SuperAdminOrderHistory({ store }: { store: Store }) {
           const changes = changedFields(row);
           const isVoid = row.action === "MANAGER_ORDER_VOID";
           return <tr key={row.id}>
-            <td data-label="Đơn hàng"><b>{row.orderCode}</b><span className={isVoid ? styles.voidAction : styles.updateAction}>{isVoid ? "Xóa/hủy đơn" : "Chỉnh sửa đơn"}</span><small>{row.employeeCode ?? "—"} · {row.employeeName ?? "Nhân viên đã xóa"}</small><small>{row.shiftName ?? row.shiftCode}{row.workDate ? ` · ${formatDateVn(row.workDate)}` : ""}</small></td>
+            <td data-label="Đơn hàng"><b>{row.orderCode}</b><span className={isVoid ? styles.voidAction : styles.updateAction}>{isVoid ? "Xóa/hủy đơn" : "Chỉnh sửa đơn"}</span><small>{row.employeeCode ?? "—"} · {row.employeeName ?? "Nhân viên đã xóa"}</small><SupportTag supporting={row.isSupport} sourceStoreName={row.sourceStoreName}/><small>{row.shiftName ?? row.shiftCode}{row.workDate ? ` · ${formatDateVn(row.workDate)}` : ""}</small></td>
             <td data-label="Người thực hiện"><b>{row.actorName ?? "Tài khoản quản lý đã xóa"}</b><small>{row.actorUsername ? `@${row.actorUsername}` : "Không còn tài khoản đăng nhập"}</small></td>
             <td data-label="Thời điểm"><b>{formatDateTime24(row.changedAt)}</b></td>
             <td data-label="Thay đổi đã ghi nhận">{changes.length ? <ul className={styles.changes}>{changes.map(({ key, label }) => <li key={key}><span>{label}</span><del>{displayValue(key, row.change.before?.[key] ?? null)}</del><i aria-hidden="true">→</i><ins>{displayValue(key, row.change.after?.[key] ?? null)}</ins></li>)}</ul> : <small>Nhật ký cũ không có bản chụp chi tiết.</small>}</td>

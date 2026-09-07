@@ -36,7 +36,7 @@ const NO_STORE_HEADERS = {
 };
 
 type PayrollPreview = {
-  items: Array<{ employeeId: string; employeeCode: string; employeeName: string; totalPay: number }>;
+  items: Array<{ isSupport?: boolean; sourceStoreName?: string | null; employeeId: string; employeeCode: string; employeeName: string; totalPay: number }>;
 };
 
 async function payrollPreview(request: Request, storeId: string, period: string) {
@@ -104,6 +104,7 @@ async function responseData(db: D1Database, storeId: string, period: string, req
       employeeId: item.employeeId,
       employeeCode: item.employeeCode,
       employeeName: item.employeeName,
+      isSupport: item.isSupport, sourceStoreName: item.sourceStoreName,
       grossEntitlement: item.totalPay,
       pendingAmount,
       paidAmount,
@@ -118,7 +119,10 @@ async function responseData(db: D1Database, storeId: string, period: string, req
     period,
     serverNow: new Date().toISOString(),
     locked,
-    advances,
+    advances: advances.map((advance) => {
+      const employee = employees.find((item) => item.employeeId === advance.employeeId);
+      return { ...advance, isSupport: employee?.isSupport, sourceStoreName: employee?.sourceStoreName };
+    }),
     employees,
     totals: {
       pendingAmount: employees.reduce((sum, item) => sum + item.pendingAmount, 0),

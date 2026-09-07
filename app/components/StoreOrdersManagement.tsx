@@ -1,5 +1,7 @@
 "use client";
 
+import SupportTag from "./SupportTag";
+
 import { ActionButton, ActionForm } from "./ActionFeedback";
 import { actionFetch as fetch } from "../lib/action-feedback";
 
@@ -23,6 +25,7 @@ type StoreOrder = {
   status: "COMPLETED" | "VOID";
   created_at: string;
   employeeName: string | null;
+  isSupport?: number; sourceStoreName?: string | null;
   employeeCode: string | null;
   createdByName: string | null;
   createdByCode: string | null;
@@ -292,7 +295,7 @@ export function StoreOrdersManagement({ store, period, focusedOrderId, focusRequ
               <td data-label="Đơn / trạng thái"><b className={styles.orderCode}>{order.code}</b><span className={`${styles.pill} ${order.status === "VOID" ? styles.pillVoid : ""}`}>{order.status === "COMPLETED" ? "Hoàn tất" : "Đã hủy"}</span>{order.locked ? <small className={`${styles.pill} ${styles.pillLocked}`}>Kỳ đã khóa</small> : null}</td>
               <td data-label="Thời gian tạo"><b>{formatDateTime24(order.created_at, true)}</b><small>Kỳ {periodLabel(order.period || period)}</small></td>
               <td data-label="Khách hàng"><b>{order.customer_name || "Khách lẻ"}</b><small>{order.phone || "Không có SĐT"}{order.age ? ` · ${order.age} tuổi` : ""}</small></td>
-              <td data-label="Người tạo"><b>{order.createdByName || order.employeeName || "Nhân viên không còn hoạt động"}</b><small>{order.createdByCode || order.employeeCode || order.employee_id}</small></td>
+              <td data-label="Người tạo"><b>{order.createdByName || order.employeeName || "Nhân viên không còn hoạt động"}</b><SupportTag supporting={order.isSupport} sourceStoreName={order.sourceStoreName}/><small>{order.createdByCode || order.employeeCode || order.employee_id}</small></td>
               <td data-label="Ca làm việc"><b>{order.shiftName || order.shift_code}</b><small>{order.scheduledStart && order.scheduledEnd ? `${order.scheduledStart}–${order.scheduledEnd}` : order.shift_code}</small></td>
               <td data-label="Thanh toán"><b>{order.payment_method === "CASH" ? "Tiền mặt" : "Chuyển khoản"}</b><small>{order.shiftStatus === "COMPLETED" ? "Ca đã kết thúc" : "Ca đang hoạt động"}</small></td>
               <td data-label="Giá trị"><b>{formatVndDisplay(order.amount)}</b></td>

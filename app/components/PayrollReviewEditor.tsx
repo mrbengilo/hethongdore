@@ -2,13 +2,14 @@
 
 import { ActionButton, ActionForm } from "./ActionFeedback";
 
+import SupportTag from "./SupportTag";
 import { useState, type FormEvent } from "react";
 import { validatePayrollReviewValues, type PayrollReviewSource, type PayrollReviewState, type PayrollReviewValues } from "../lib/payroll-review";
 import { formatVndInput, parseVndInput } from "../lib/format";
 import styles from "./StorePayrollClosing.module.css";
 
 type ReviewItem = PayrollReviewSource & {
-  employeeName: string; employeeCode: string; review?: PayrollReviewState;
+  employeeName: string; employeeCode: string; review?: PayrollReviewState; isSupport?: boolean; sourceStoreName?: string | null;
 };
 const amounts = [
   ["tiktokAllowance", "Phụ cấp TikTok"], ["supportAllowance", "Phụ cấp hỗ trợ"],
@@ -51,7 +52,7 @@ export default function PayrollReviewEditor({ item, busy, onUpdate, onCancel }: 
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Không thể cập nhật số liệu."); }
   };
   return <section className={`manager-panel ${styles.reviewPanel}`} aria-labelledby="payroll-review-title" id="payroll-review-editor">
-    <h3 id="payroll-review-title">Cập nhật số liệu · {item.employeeName}</h3>
+    <h3 id="payroll-review-title">Cập nhật số liệu · {item.employeeName}<SupportTag supporting={item.isSupport} sourceStoreName={item.sourceStoreName}/></h3>
     <p>{item.employeeCode} · Cập nhật xong, xem lại bảng lương rồi mới chốt.</p>
     {item.review?.stale && <p className="form-message">Dữ liệu nguồn đã thay đổi sau lần cập nhật trước. Kiểm tra lại các số dưới đây.</p>}
     <ActionForm onSubmit={(event) => submit(event)}>

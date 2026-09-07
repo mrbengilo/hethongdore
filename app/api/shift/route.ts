@@ -784,6 +784,9 @@ export async function POST(request: Request) {
       locationCapturedAt: clockInLocation.capturedAt,
       locationAccuracyMeters: clockInLocation.accuracyMeters,
       tiktokAllowance: appliedTikTokAllowance,
+      storeId: user.storeId, storeName: user.storeName,
+      activeTransferId: user.activeTransferId, isSupporting: user.isSupporting,
+      message: "Đã điểm danh và bắt đầu ca làm việc.",
     });
   }
 
@@ -1148,7 +1151,10 @@ export async function POST(request: Request) {
         revenueChanged: Boolean(stillActive),
       }, 409);
     }
-    const returnedToHomeStore = Boolean(activeSession.transferId);
+    // Resolve the next store only after the close transaction commits. An open
+    // home-store shift always wins over a transfer whose scheduled start passed.
+    const nextUser = await getSessionUser(request);
+    const returnedToHomeStore = Boolean(activeSession.transferId && nextUser?.storeId === user.homeStoreId);
     return json({
       active: false,
       endedAt,
@@ -1170,9 +1176,10 @@ export async function POST(request: Request) {
       earlyEnd,
       scheduledEndAt,
       returnedToHomeStore,
-      storeId: returnedToHomeStore ? user.homeStoreId : user.storeId,
-      storeName: returnedToHomeStore ? user.homeStoreName : user.storeName,
-      isSupporting: returnedToHomeStore ? false : user.isSupporting,
+      storeId: nextUser?.storeId ?? user.homeStoreId,
+      storeName: nextUser?.storeName ?? user.homeStoreName,
+      isSupporting: nextUser?.isSupporting ?? false,
+      activeTransferId: nextUser?.activeTransferId ?? null,
     });
   }
 

@@ -56,6 +56,8 @@ const unlockedActiveShiftPeriodSql = storePeriodUnlockedSql("active_shift.store_
 const managerOrderSelectSql = `SELECT
     o.*,
     e.name AS employeeName,
+    s.transfer_id IS NOT NULL AS isSupport,
+    (SELECT source.name FROM employee_transfers transfer JOIN stores source ON source.id = transfer.source_store_id WHERE transfer.id = s.transfer_id) AS sourceStoreName,
     e.code AS employeeCode,
     e.name AS createdByName,
     e.code AS createdByCode,
