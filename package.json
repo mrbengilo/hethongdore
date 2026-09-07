@@ -7,10 +7,10 @@
     "node": ">=22.13.0 <23"
   },
   "scripts": {
-    "dev": "vinext dev",
+    "dev": "vite",
     "build": "vinext build",
     "start": "vinext start",
-    "dev:sites": "vinext dev",
+    "dev:sites": "vite",
     "build:sites": "vinext build",
     "start:sites": "vinext start",
     "dev:selfhost": "next dev",
