@@ -2,16 +2,16 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 
-test("manager payroll ignores stale periods and renders the configured policy", async () => {
+test("manager payroll belongs to the store and validates period, scope and concurrent saves", async () => {
   const portal = await readFile(new URL("../app/components/Portal.tsx", import.meta.url), "utf8");
-  assert.match(portal, /managerKpiRate: number \| null/u);
-  assert.match(portal, /const payrollRequest = useRef\(0\)/u);
-  assert.match(portal, /payrollController\.current\?\.abort\(\)/u);
-  assert.match(portal, /signal: controller\.signal/u);
-  assert.match(portal, /payload\.managerPayroll\.period !== requestedPeriod/u);
-  assert.match(portal, /requestId !== payrollRequest\.current \|\| controller\.signal\.aborted/u);
-  assert.match(portal, /return \(\) => payrollController\.current\?\.abort\(\)/u);
-  assert.match(portal, /policy\?\.managerKpiRate == null/u);
-  assert.match(portal, /Mức KPI nhân viên: \{employeeTierText/u);
-  assert.doesNotMatch(portal, /cùng chia quỹ KPI 3%\/5%\/7%/u);
+  const page = await readFile(new URL("../app/components/StoreManagerPayroll.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(portal.match(/const managerMenu = \[[^\n]+/u)[0], /Lương thưởng quản lý/u);
+  assert.match(portal.match(/const storeMenu = \[[^\n]+/u)[0], /Lương thưởng quản lý/u);
+  assert.match(page, /payload\.period !== period/u);
+  assert.match(page, /payload\.summary\.storeId !== store\.id/u);
+  assert.match(page, /controller\.current\?\.abort\(\)/u);
+  assert.match(page, /request\.current !== id \|\| abort\.signal\.aborted/u);
+  assert.match(page, /expectedSalaryVersion: summary\.managerSalaryVersion/u);
+  assert.match(page, /data\.financialPeriod\.status === "DRAFT"/u);
+  assert.match(page, /Lương và thưởng quản lý đã được tính vào chi phí cửa hàng/u);
 });

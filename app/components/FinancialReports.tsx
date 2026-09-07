@@ -576,8 +576,10 @@ export function StoreFinancialReport({ store, initialPeriod, onPeriodChange }: {
   </div>;
 }
 
-export function ManagerProfitSharingClosing({ initialPeriod }: { initialPeriod?: string } = {}) {
-  const [period, setPeriod] = useState(initialPeriod ?? currentPeriod());
+export function ManagerProfitSharingClosing({ initialPeriod, onPeriodChange }: { initialPeriod?: string; onPeriodChange?: (period: string) => void } = {}) {
+  const [localPeriod, setLocalPeriod] = useState(initialPeriod ?? currentPeriod());
+  const period = onPeriodChange ? initialPeriod ?? localPeriod : localPeriod;
+  const setPeriod = onPeriodChange ?? setLocalPeriod;
   const { data: reportData, loading, error, reload } = useFinancialReport(period);
   const data = reportData?.period === period ? reportData : null;
   const [setupDrafts, setSetupDrafts] = useState<Record<string, Record<string, string>>>({});

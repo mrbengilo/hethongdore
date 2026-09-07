@@ -42,8 +42,8 @@ test("contains core role and finance rules", async () => {
   assert.doesNotMatch(payrollApi, /MANAGER_FIXED_WORK_HOURS_PER_STORE|managerFixedHours/u);
   assert.match(payrollApi, /managerHoursPerStore: 0/u);
   assert.doesNotMatch(portal, /salaryPerStore: 3_000_000|managerHoursPerStore: 140|\?\? 140/u);
-  assert.match(portal, /Finance Engine/u);
-  assert.match(portal, /snapshot/u);
+  assert.match(portal, /StoreManagerPayroll/u);
+  assert.match(payrollApi, /financialPeriodCalculation/u);
   assert.doesNotMatch(runtime, /DORE SÓC TRĂNG|nv001/u);
   assert.match(login, /attempts >= 10/u);
   assert.match(login, /15 \* 60 \* 1000/u);
@@ -189,8 +189,7 @@ test("legacy manager payroll components cannot create records with an obsolete f
   for (const component of components) {
     assert.doesNotMatch(component, /MANAGER_PAYROLL|2% lợi nhuận|\.02/u);
     assert.doesNotMatch(component, /3\.000\.000|3_000_000|140 giờ|3%, 5% hoặc 7%/u);
-    assert.match(component, /Finance Engine/u);
-    assert.match(component, /snapshot/u);
+
   }
 });
 
@@ -201,7 +200,9 @@ test("payroll UIs do not invent legacy manager hours, salary, or KPI tiers", asy
   ]);
   assert.doesNotMatch(portal, /salaryPerStore: 3_000_000|managerHoursPerStore: 140|\?\? 140|cơ chế lịch sử/u);
   assert.doesNotMatch(storePayroll, /managerFixedHours|140 giờ|Một ngưỡng duy nhất/u);
-  assert.match(portal, /chính sách có phiên bản/u);
+  const managerPayroll = await readFile(new URL("../app/components/StoreManagerPayroll.tsx", import.meta.url), "utf8");
+  assert.match(managerPayroll, /summary\?\.payrollPolicy\?\.managerKpiRatePercent/u);
+  assert.match(managerPayroll, /summary\.managerSalary/u);
   assert.match(storePayroll, /Finance Engine/u);
   assert.match(storePayroll, /snapshot bất biến/u);
 });

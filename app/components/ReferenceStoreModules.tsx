@@ -357,12 +357,12 @@ export function ReferenceEmployees({ store }: { store: ReferenceStore }) {
   </div>;
 }
 
-export function ReferenceStoreModule({ store, view }: { store: ReferenceStore; view: string }) {
+export function ReferenceStoreModule({ store, view, period, onPeriodChange }: { store: ReferenceStore; view: string; period?: string; onPeriodChange?: (period: string) => void }) {
   if (view === "Ca làm việc") return <ShiftManagement store={store}/>;
   if (view === "Lịch phân ca") return <ScheduleManagement store={store}/>;
   if (view === "Nhập hàng") return <GoodsManagement store={store}/>;
   if (view === "Chấm công") return <AttendanceManagement store={store}/>;
-  if (view === "Lương thưởng") return <><PayrollManagement store={store}/><StorePayrollClosing store={store}/></>;
+  if (view === "Lương thưởng") return <><PayrollManagement store={store} period={period} onPeriodChange={onPeriodChange}/><StorePayrollClosing store={store} initialPeriod={period} onPeriodChange={onPeriodChange}/></>;
   if (view === "Dòng tiền") return <CashflowManagement store={store}/>;
   return <ReportManagement store={store}/>;
 }
@@ -704,9 +704,11 @@ function AttendanceManagement({ store }: { store: ReferenceStore }) {
   </div>;
 }
 
-function PayrollManagement({ store }: { store: ReferenceStore }) {
+function PayrollManagement({ store, period, onPeriodChange }: { store: ReferenceStore; period?: string; onPeriodChange?: (period: string) => void }) {
   const { records, reload } = useRecords("LUONG_THUONG", store.id);
-  const [month, setMonth] = useState(today().slice(0, 7));
+  const [localMonth, setLocalMonth] = useState(period ?? today().slice(0, 7));
+  const month = onPeriodChange ? period ?? localMonth : localMonth;
+  const setMonth = onPeriodChange ?? setLocalMonth;
   const { employees } = useEmployees(store.id, month);
   const [loadedSummary, setLoadedSummary] = useState<PayrollSummary | null>(null);
   const [loadedLocked, setLoadedLocked] = useState(false);

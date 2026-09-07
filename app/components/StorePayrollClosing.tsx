@@ -291,8 +291,10 @@ function assertPayrollSummaryInvariants(summary: PayrollSummary) {
   assertPayrollEqual("lương quản lý/chính sách kỳ", summary.managerSalary, policySalary);
 }
 
-export default function StorePayrollClosing({ store, initialPeriod }: { store: Store; initialPeriod?: string }) {
-  const [period, setPeriod] = useState(initialPeriod ?? currentPeriod());
+export default function StorePayrollClosing({ store, initialPeriod, onPeriodChange }: { store: Store; initialPeriod?: string; onPeriodChange?: (period: string) => void }) {
+  const [localPeriod, setLocalPeriod] = useState(initialPeriod ?? currentPeriod());
+  const period = onPeriodChange ? initialPeriod ?? localPeriod : localPeriod;
+  const setPeriod = onPeriodChange ?? setLocalPeriod;
   const [data, setData] = useState<PayrollResponse>({});
   const [loadedScope, setLoadedScope] = useState<{ storeId: string; period: string } | null>(null);
   const [loading, setLoading] = useState(true);

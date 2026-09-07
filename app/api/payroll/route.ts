@@ -1,4 +1,5 @@
 import { initDb } from "../../../db/runtime";
+import { readStoreManagerSalary, saveStoreManagerSalary, StoreManagerSalaryError } from "../../lib/store-manager-salary";
 import {
   canClosePayrollPeriod, durationMinutes, localPeriod,
   multiplyRatioVnd, periodBoundsUtc, requireVnd, sumVnd, utcTimestamp,
@@ -150,6 +151,7 @@ type PayrollSummary = {
   totalKpiBonus: number;
   totalPerformanceBonus: number;
   managerSalary: number;
+  managerSalaryVersion?: number;
   managerBonus: number;
   managerTotal: number;
   payrollPolicy?: ReturnType<typeof payrollPolicyPayload>;
@@ -755,8 +757,16 @@ async function buildPreview(
   period: string,
 ): Promise<PayrollSummary | null> {
   const policyVersion = await loadFinancialPolicyForPeriod(db, period);
-  const financePolicy = policyVersion.policy;
-  const payrollPolicy = payrollPolicySnapshotFromVersion(policyVersion);
+  const salarySetting = await readStoreManagerSalary(db, storeId, period);
+  const financePolicy = {
+    ...policyVersion.policy,
+    managerMonthlySalaryVnd: salarySetting?.amount ?? policyVersion.policy.managerMonthlySalaryVnd,
+    managerSalaryVersion: salarySetting?.version ?? 0,
+  };
+  const payrollPolicy = {
+    ...payrollPolicySnapshotFromVersion(policyVersion),
+    managerMonthlySalaryVnd: financePolicy.managerMonthlySalaryVnd,
+  };
   // Use the same immutable policy value for finance and payroll calculations.
   // A concurrent superadmin save can affect the next preview, but never split
   // one preview across two policy versions.
@@ -1129,6 +1139,7 @@ async function buildPreview(
     managerSalary,
     managerBonus,
     managerTotal: sumVnd([managerSalary, managerBonus]),
+    managerSalaryVersion: financePolicy.managerSalaryVersion,
     payrollPolicy: payrollPolicyPayload(payrollPolicy),
     financialPolicyVersionId: policyVersion.id,
     financialPolicyConfigVersion: policyVersion.version,
@@ -1148,6 +1159,10 @@ async function buildPreview(
 }
 
 function payrollFailure(error: unknown) {
+  if (error instanceof StoreManagerSalaryError) return json({ message: error.message }, error.status);
+  if (String(error).includes("manager salary changed during calculation")) {
+    return json({ message: "Lương quản lý vừa thay đổi trong lúc tính. Vui lòng tải lại và xác nhận kỳ." }, 409);
+  }
   const requestId = crypto.randomUUID();
   console.error(`[payroll:${requestId}]`, error);
   return json({
@@ -1389,6 +1404,8 @@ async function postPayroll(request: Request) {
     action?: string;
     employeeId?: string;
     expectedRevision?: number;
+    managerSalary?: number;
+    expectedSalaryVersion?: number;
     reason?: string;
   };
   if (typeof body.storeId !== "string" || typeof body.period !== "string"
@@ -1403,6 +1420,12 @@ async function postPayroll(request: Request) {
   if (!await isStoreActive(storeId)) return json({ message: INACTIVE_STORE_MESSAGE }, 409);
   const db = await initDb();
   const requestedAction = body.action ?? "FINALIZE_EMPLOYEE";
+  if (requestedAction === "SET_MANAGER_SALARY") {
+    await saveStoreManagerSalary(db, {
+      storeId, period, amount: body.managerSalary, expectedVersion: body.expectedSalaryVersion, actorId: user.id,
+    });
+    return json({ message: "Đã lưu lương quản lý cho cửa hàng và kỳ đã chọn." });
+  }
   if (!isPayrollAction(requestedAction)) return json({ message: "Thao tác chốt kỳ lương không hợp lệ." }, 400);
   return executePayrollAction(db, user, { ...body, storeId, period, action: requestedAction });
 }

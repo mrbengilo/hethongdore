@@ -1,4 +1,5 @@
 import { initDb } from "../../../db/runtime";
+import { readStoreManagerSalary } from "../../lib/store-manager-salary";
 import {
   type LocalDateRange,
   dateRangeBoundsUtc,
@@ -128,6 +129,7 @@ function requireAppliedHourlyRate(value: unknown, employeeId: string) {
 
 type FinancePolicyInput = Readonly<{
   managerMonthlySalaryVnd: number;
+  managerSalaryVersion?: number;
   managerKpiRateBasisPoints: number;
   employeeKpiTiers: readonly PayrollPolicySnapshot["employeeKpiTiers"][number][];
 }>;
@@ -461,9 +463,11 @@ export async function storePeriodFinance(
   const lockedSnapshot = snapshotRow ? parseObject(snapshotRow.dataJson) : null;
   // A locked KPI snapshot owns the manager salary used for that period. A
   // later global policy update must never restate historical accounting.
+  const salarySetting = payrollPolicy.managerSalaryVersion === undefined
+    ? await readStoreManagerSalary(db, storeId, period) : null;
   const managerSalary = lockedSnapshot
     ? safeVnd(lockedSnapshot.managerSalary)
-    : payrollPolicy.managerMonthlySalaryVnd;
+    : salarySetting?.amount ?? payrollPolicy.managerMonthlySalaryVnd;
   const employeeAllowance = sumVnd([tiktokAllowance, supportAllowance, manualAllowance]);
   const operatingStage = calculateFinance({
     grossRevenue: revenue,

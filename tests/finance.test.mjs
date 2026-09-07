@@ -202,7 +202,7 @@ test("report settlement status and canonical profit distributions stay truthful"
   assert.match(reports, /to: month\.to > today \? today : month\.to/u);
   assert.match(reports, /readProfitDistribution\(db, distributionPeriod\)/u);
   assert.match(reports, /listProfitDistributions\(db, \{ limit: 36 \}\)/u);
-  assert.match(reports, /previewProfitDistribution\(db, distributionPeriod\)/u);
+  assert.match(reports, /readProfitDistributionAvailability\(db, distributionPeriod\)/u);
   assert.match(reports, /parsePersistedFinancialPeriodSnapshot\(store\.financialSnapshot\)/u);
   assert.match(reports, /closeProfitDistribution\(db, \{/u);
   assert.doesNotMatch(reports, /profitSharingSnapshot|category = 'DIVIDEND'|business_records/u);
