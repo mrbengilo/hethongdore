@@ -27,6 +27,7 @@ const seedScript = `
     import(${JSON.stringify(authUrl)}),
   ]);
   const db = await initDb();
+  await db.prepare("UPDATE stores SET created_at = '2026-08-01T00:00:00.000Z' WHERE id = 'st-can-tho'").run();
   const now = new Date().toISOString();
   await db.batch([
     db.prepare(\`INSERT INTO employees

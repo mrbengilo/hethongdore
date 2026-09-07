@@ -1046,6 +1046,21 @@ async function initializeDb() {
     WHERE key = ? AND value = ?`)
     .bind(LEGACY_RESET_COMPLETE, new Date().toISOString(), LEGACY_RESET_COMPATIBILITY_KEY, LEGACY_RESET_UPLOADS_PENDING).run();
   await db.batch(schemaStatements.map((sql) => db.prepare(sql)));
+  // Add distribution fields without rewriting any already-locked row.
+  for (const [table, column, definition] of [
+    ["profit_distributions", "allocation_method", "TEXT NOT NULL DEFAULT 'AGGREGATE' CHECK (allocation_method IN ('AGGREGATE', 'PER_STORE'))"],
+    ["profit_distribution_stores", "setup_repayment", "INTEGER NOT NULL DEFAULT 0 CHECK (typeof(setup_repayment) = 'integer' AND setup_repayment BETWEEN 0 AND 9007199254740991)"],
+  ]) {
+    const columns = await db.prepare(`PRAGMA table_info(${table})`).all<{ name: string }>();
+    if (!columns.results.some((entry) => entry.name === column)) {
+      await db.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`).run();
+    }
+  }
+  await db.prepare(`CREATE TRIGGER IF NOT EXISTS trg_profit_distribution_setup_method
+    BEFORE INSERT ON profit_distribution_stores
+    WHEN NEW.setup_repayment != 0 AND
+      (SELECT allocation_method FROM profit_distributions WHERE id = NEW.distribution_id) != 'PER_STORE'
+    BEGIN SELECT RAISE(ABORT, 'Setup repayment requires per-store allocation'); END`).run();
   // Install the daily-shift LOCKED guards before any compatibility backfill.
   // The broader shift trigger set depends on additive columns created later,
   // but these guards only depend on the two baseline tables and therefore can

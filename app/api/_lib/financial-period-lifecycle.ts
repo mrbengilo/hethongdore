@@ -726,12 +726,16 @@ function prepareMutationAndAudit(
     bindings.push(now, actorId, JSON.stringify(snapshot));
   }
   if (toStatus === "PAID") {
-    assignments.push("paid_at = ?", "paid_by = ?", "snapshot_json = ?");
-    bindings.push(now, actorId, JSON.stringify(snapshot));
+    // Update settlement metadata in place. Re-serializing a validated snapshot
+    // can reorder its JSON keys and trip SQLite's immutable-payload guard.
+    assignments.push("paid_at = ?", "paid_by = ?",
+      "snapshot_json = json_set(snapshot_json, '$.status', 'PAID', '$.paidAt', ?, '$.paidBy', ?)");
+    bindings.push(now, actorId, now, actorId);
   }
   if (toStatus === "LOCKED") {
-    assignments.push("locked_at = ?", "locked_by = ?", "snapshot_json = ?");
-    bindings.push(now, actorId, JSON.stringify(snapshot));
+    assignments.push("locked_at = ?", "locked_by = ?",
+      "snapshot_json = json_set(snapshot_json, '$.status', 'LOCKED', '$.lockedAt', ?, '$.lockedBy', ?)");
+    bindings.push(now, actorId, now, actorId);
   }
 
   const mutation = db.prepare(`UPDATE financial_periods SET ${assignments.join(", ")}

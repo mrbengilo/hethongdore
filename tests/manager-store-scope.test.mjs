@@ -54,7 +54,7 @@ before(async () => {
     db.prepare(`INSERT INTO stores (id, name, address, revenue, expense, status, created_at)
       VALUES ('scope-store-a', 'SCOPE STORE A', 'A', 0, 0, 'ACTIVE', ?),
              ('scope-store-b', 'SCOPE STORE B', 'B', 0, 0, 'ACTIVE', ?)`)
-      .bind(now, now),
+      .bind("2026-08-01T00:00:00.000Z", "2026-08-01T00:00:00.000Z"),
     db.prepare(`INSERT INTO employees
         (id, store_id, code, name, position, phone, province, ward, address_line, age,
          cccd_image_key, hourly_rate, tiktok_allowance, status)

@@ -197,6 +197,13 @@
       "when": 1788307200000,
       "tag": "0032_profit_distributions",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1788652800000,
+      "tag": "0033_profit_setup_repayment",
+      "breakpoints": true
     }
   ]
 }

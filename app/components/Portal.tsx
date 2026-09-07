@@ -466,7 +466,7 @@ function ManagerHeader({ view, period, onPeriodChange }: {
         "Dòng tiền": "Theo dõi doanh thu, chi phí và lợi nhuận của từng cửa hàng.",
         "Lương thưởng quản lý": "Xem lương quản lý và thưởng theo số liệu tài chính đã ghi nhận của từng cửa hàng.",
         "Báo cáo": "Theo dõi và phân tích kết quả hoạt động của hệ thống.",
-        "Chia lợi nhuận": "Phân chia lợi nhuận sau cùng đã khóa cho hai thành viên theo tỷ lệ cố định.",
+        "Chia lợi nhuận": "Trừ hoàn trả setup từng cửa hàng, chia lợi nhuận còn lại theo tỷ lệ thành viên và khóa kỳ.",
         "Điều chuyển nhân sự": "Quản lý nhân viên hỗ trợ giữa các cửa hàng theo thời gian và ca làm việc.",
         "Cài Đặt Chính Sách": "Thiết lập quy tắc vận hành dùng chung cho toàn hệ thống.",
         "Quản Lý Nhân Viên": "Xem và quản lý hồ sơ, tài khoản nhân viên của tất cả cửa hàng.",

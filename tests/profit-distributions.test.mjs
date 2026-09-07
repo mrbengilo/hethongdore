@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { policy, seedPolicy, seedPeriod } from "./helpers/profit-distribution-fixtures.mjs";
 
-const [{ createSqliteDatabase }, financeEngine, distributions] = await Promise.all([
+const [{ createSqliteDatabase }, distributions] = await Promise.all([
   import("../db/sqlite.ts"),
-  import("../app/lib/finance-engine.ts"),
   import("../app/lib/profit-distributions.ts"),
 ]);
 
@@ -15,7 +15,7 @@ function migrationStatements(source) {
     .filter(Boolean);
 }
 
-async function database(storeIds = ["store-a", "store-b", "store-c", "store-d"]) {
+async function database(storeIds = ["store-a", "store-b", "store-c", "store-d"], withSetup = true) {
   const db = await createSqliteDatabase(":memory:");
   await db.prepare(`CREATE TABLE stores (
     id TEXT PRIMARY KEY NOT NULL,
@@ -45,6 +45,8 @@ async function database(storeIds = ["store-a", "store-b", "store-c", "store-d"])
   // remaining foundation tables have their own focused migration tests.
   for (const statement of migrationStatements(foundation).slice(0, 7)) await db.prepare(statement).run();
   for (const statement of migrationStatements(distributionMigration)) await db.prepare(statement).run();
+  const setupMigration = await readFile(new URL("../drizzle/0033_profit_setup_repayment.sql", import.meta.url), "utf8");
+  if (withSetup) for (const statement of migrationStatements(setupMigration)) await db.prepare(statement).run();
   const createdAt = "2026-08-01T00:00:00.000Z";
   for (const id of storeIds) {
     await db.prepare("INSERT INTO stores (id, name, status, created_at) VALUES (?, ?, 'ACTIVE', ?)")
@@ -54,122 +56,120 @@ async function database(storeIds = ["store-a", "store-b", "store-c", "store-d"])
   return db;
 }
 
-const policy = {
-  schemaVersion: 1,
-  managerMonthlySalaryVnd: 3_000_000,
-  managerKpiRateBasisPoints: 200,
-  employeeKpiTiers: [],
-  allowances: {},
-  profitSharingMembers: [
-    { memberId: "member-a", name: "Thành viên A", rateBasisPoints: 4_000 },
-    { memberId: "member-b", name: "Thành viên B", rateBasisPoints: 6_000 },
-  ],
-};
 
-async function seedPolicy(db, overrides = {}) {
-  const selected = { ...policy, ...overrides };
-  await db.prepare(`INSERT INTO financial_policy_versions
-      (id, version, effective_from_period, policy_json, created_by, created_at)
-    VALUES ('policy-v3', 3, '2026-08', ?, 'admin-a', '2026-08-01T00:00:00.000Z')`)
-    .bind(JSON.stringify(selected))
-    .run();
-}
 
-function financeForFinalProfit(finalProfit) {
-  return financeEngine.calculateFinance({
-    grossRevenue: Math.max(0, finalProfit),
-    fixedExpense: Math.max(0, -finalProfit),
-    variableExpense: 0,
-    inventoryCost: 0,
-    inventoryShippingCost: 0,
-    employeeSalary: 0,
-    managerSalary: 0,
-    manualEmployeeBonus: 0,
-    employeeAllowance: 0,
-    employeeKpiTotal: 0,
-    managerKpi: 0,
-    monthEndExpense: 0,
-  });
-}
+test("setup repayment deducts after final payroll profit and freezes the requested 40/60 example", async () => {
+  const db = await database(["store-a"]);
+  try {
+    await seedPolicy(db);
+    await seedPeriod(db, "store-a", 5_000_000);
+    const original = await db.prepare("SELECT snapshot_json FROM financial_periods").first("snapshot_json");
+    const setupRepayments = [{ storeId: "store-a", amount: 2_000_000 }];
+    const preview = await distributions.previewProfitDistribution(db, "2026-08", setupRepayments);
+    assert.equal(preview.totalFinalProfit, 5_000_000);
+    assert.equal(preview.totalSetupRepayment, 2_000_000);
+    assert.equal(preview.totalDistributableProfit, 3_000_000);
+    assert.deepEqual(preview.members.map((member) => member.amount), [1_200_000, 1_800_000]);
+    const closed = await distributions.closeProfitDistribution(db, {
+      period: "2026-08", actorId: "admin-a", reason: "Hoàn trả setup cửa hàng A", setupRepayments,
+    });
+    assert.equal(closed.allocationMethod, "PER_STORE");
+    assert.equal(closed.stores[0].setupRepayment, 2_000_000);
+    assert.equal(closed.stores[0].profitAfterSetup, 3_000_000);
+    assert.deepEqual(closed.members, preview.members);
+    assert.deepEqual(await distributions.readProfitDistribution(db, "2026-08"), closed);
+    assert.equal(await db.prepare("SELECT snapshot_json FROM financial_periods").first("snapshot_json"), original);
+    const audit = JSON.parse(await db.prepare("SELECT after_json FROM audit_logs WHERE action = 'PROFIT_DISTRIBUTION_CLOSE'").first("after_json"));
+    assert.equal(audit.stores[0].setupRepayment, 2_000_000);
+    assert.equal(audit.totalSetupRepayment, 2_000_000);
+    await assert.rejects(db.prepare("UPDATE profit_distribution_stores SET setup_repayment = 0").run(), /immutable/i);
+    await assert.rejects(distributions.closeProfitDistribution(db, {
+      period: "2026-08", actorId: "admin-a", reason: "Thử sửa kỳ đã khóa", setupRepayments: [],
+    }), (error) => error.code === "ALREADY_CLOSED");
+  } finally { db.close?.(); }
+});
 
-async function seedPeriod(db, storeId, finalProfit, options = {}) {
-  const status = options.status ?? "LOCKED";
-  const finance = financeForFinalProfit(finalProfit);
-  const snapshot = options.snapshot ?? {
-    schemaVersion: 1,
-    storeId,
-    period: "2026-08",
-    status,
-    policyVersionId: "policy-v3",
-    configVersion: 3,
-    finance,
-    totalHoursSeconds: 0,
-    salaryAdvance: 0,
-    employeePayrollRows: [],
-    managerPayroll: {},
-    configSnapshot: { policyVersionId: "policy-v3", configVersion: 3 },
-    confirmedAt: "2026-09-01T00:00:00.000Z",
-    confirmedBy: "manager-a",
-    paidAt: status === "CONFIRMED" ? null : "2026-09-02T00:00:00.000Z",
-    paidBy: status === "CONFIRMED" ? null : "manager-a",
-    lockedAt: status === "LOCKED" ? "2026-09-03T00:00:00.000Z" : null,
-    lockedBy: status === "LOCKED" ? "admin-a" : null,
-  };
-  const lifecycle = {
-    calculatedAt: "2026-08-31T17:00:00.000Z",
-    calculatedBy: "SYSTEM",
-    confirmedAt: "2026-09-01T00:00:00.000Z",
-    confirmedBy: "manager-a",
-    paidAt: status === "CONFIRMED" ? null : "2026-09-02T00:00:00.000Z",
-    paidBy: status === "CONFIRMED" ? null : "manager-a",
-    lockedAt: status === "LOCKED" ? "2026-09-03T00:00:00.000Z" : null,
-    lockedBy: status === "LOCKED" ? "admin-a" : null,
-  };
-  await db.prepare(`INSERT INTO financial_periods
-      (id, store_id, period, status, policy_version_id, config_version, revision,
-       gross_revenue, fixed_expense, variable_expense, inventory_cost,
-       inventory_shipping_cost, employee_salary, manager_salary, manual_bonus,
-       allowance, total_hours_seconds, employee_kpi_total, manager_kpi,
-       operating_profit, profit_after_kpi, month_end_expense, final_profit,
-       distributable_profit, salary_advance, employee_payroll_rows_json,
-       manager_payroll_json, config_snapshot_json, snapshot_json,
-       calculated_at, calculated_by, confirmed_at, confirmed_by, paid_at, paid_by,
-       locked_at, locked_by, created_at, updated_at)
-    VALUES (?, ?, '2026-08', ?, 'policy-v3', 3, 6,
-      ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, 0, '[]', '{}', '{}', ?,
-      ?, ?, ?, ?, ?, ?, ?, ?, '2026-08-01T00:00:00.000Z', '2026-09-03T00:00:00.000Z')`)
-    .bind(
-      `period-${storeId}`,
-      storeId,
-      status,
-      finance.grossRevenue,
-      finance.fixedExpense,
-      finance.variableExpense,
-      finance.inventoryCost,
-      finance.inventoryShippingCost,
-      finance.employeeSalary,
-      finance.managerSalary,
-      finance.manualEmployeeBonus,
-      finance.employeeAllowance,
-      finance.employeeKpiTotal,
-      finance.managerKpi,
-      finance.operatingProfit,
-      finance.profitAfterKpi,
-      finance.monthEndExpense,
-      finance.finalProfit,
-      finance.distributableProfit,
-      JSON.stringify(snapshot),
-      lifecycle.calculatedAt,
-      lifecycle.calculatedBy,
-      lifecycle.confirmedAt,
-      lifecycle.confirmedBy,
-      lifecycle.paidAt,
-      lifecycle.paidBy,
-      lifecycle.lockedAt,
-      lifecycle.lockedBy,
-    )
-    .run();
-}
+test("each store rounds its own shares before member totals are added; losses never offset other stores", async () => {
+  const db = await database();
+  try {
+    await seedPolicy(db);
+    for (const [id, profit] of [["store-a", 5_000_001], ["store-b", 1], ["store-c", -50], ["store-d", 10]]) {
+      await seedPeriod(db, id, profit);
+    }
+    const setupRepayments = [{ storeId: "store-a", amount: 2_000_000 }, { storeId: "store-d", amount: 20 }];
+    const closed = await distributions.closeProfitDistribution(db, {
+      period: "2026-08", actorId: "admin-a", reason: "Chia riêng từng cửa hàng", setupRepayments,
+    });
+    assert.deepEqual(closed.stores.map((store) => store.distributableProfit), [3_000_001, 1, 0, 0]);
+    assert.equal(closed.stores[3].profitAfterSetup, -10);
+    assert.equal(closed.totalDistributableProfit, 3_000_002);
+    assert.deepEqual(closed.members.map((member) => member.amount), [1_200_000, 1_800_002]);
+    assert.notDeepEqual(closed.members.map((member) => member.amount), [1_200_001, 1_800_001], "do not allocate from the aggregate before rounding");
+    for (const member of closed.members) {
+      const fromStores = closed.stores.reduce((sum, store) => sum + distributions.allocateProfitSharingMembers(store.distributableProfit, closed.members)
+        .find((allocation) => allocation.memberId === member.memberId).amount, 0);
+      assert.equal(member.amount, fromStores);
+    }
+  } finally { db.close?.(); }
+});
+
+test("invalid setup inputs fail before any distribution or audit is written", async () => {
+  const db = await database(["store-a"]);
+  try {
+    await seedPolicy(db);
+    await seedPeriod(db, "store-a", 5_000_000);
+    for (const setupRepayments of [
+      ...[-1, 1.5, Number.MAX_SAFE_INTEGER + 1, "2000000", null].map((amount) => [{ storeId: "store-a", amount }]),
+      [{ storeId: "missing", amount: 0 }],
+      [{ storeId: "store-a", amount: 0 }, { storeId: "store-a", amount: 10 }],
+      [null], {}, null,
+    ]) {
+      await assert.rejects(distributions.closeProfitDistribution(db, {
+        period: "2026-08", actorId: "admin-a", reason: "Invalid setup", setupRepayments,
+      }), (error) => error.code === "INVALID_INPUT");
+    }
+    assert.equal(await db.prepare("SELECT COUNT(*) FROM profit_distributions").first("COUNT(*)"), 0);
+    assert.equal(await db.prepare("SELECT COUNT(*) FROM audit_logs").first("COUNT(*)"), 0);
+  } finally { db.close?.(); }
+});
+
+test("additive upgrade preserves legacy aggregate rounding and immutable source rows", async () => {
+  const db = await database(["store-a", "store-b"], false);
+  try {
+    await seedPolicy(db);
+    await seedPeriod(db, "store-a", 1);
+    await seedPeriod(db, "store-b", 1);
+    await db.prepare(`INSERT INTO profit_distributions
+      (id, period, policy_version_id, config_version, policy_snapshot_json, total_final_profit,
+       total_distributable_profit, store_count, member_count, closed_by, closed_at, reason, created_at)
+      VALUES ('legacy', '2026-08', 'policy-v3', 3, ?, 2, 2, 2, 2, 'admin-a',
+        '2026-09-01T00:00:00.000Z', 'Original aggregate distribution', '2026-09-01T00:00:00.000Z')`)
+      .bind(JSON.stringify(policy)).run();
+    for (const [ordinal, storeId] of ["store-a", "store-b"].entries()) {
+      await db.prepare(`INSERT INTO profit_distribution_stores
+        (id, distribution_id, store_id, store_name_snapshot, financial_period_id, financial_period_revision,
+         policy_version_id, config_version, final_profit, distributable_profit, financial_snapshot_json, ordinal)
+        SELECT ?, 'legacy', store_id, ?, id, revision, policy_version_id, config_version,
+          final_profit, distributable_profit, snapshot_json, ? FROM financial_periods WHERE store_id = ?`)
+        .bind(`legacy-store-${ordinal}`, storeId, ordinal, storeId).run();
+    }
+    for (const [ordinal, member] of policy.profitSharingMembers.entries()) {
+      await db.prepare(`INSERT INTO profit_distribution_members
+        (id, distribution_id, member_id, member_name_snapshot, rate_basis_points, amount, member_snapshot_json, ordinal)
+        VALUES (?, 'legacy', ?, ?, ?, 1, ?, ?)`)
+        .bind(`legacy-member-${ordinal}`, member.memberId, member.name, member.rateBasisPoints, JSON.stringify(member), ordinal).run();
+    }
+    const priorMembers = await db.prepare("SELECT * FROM profit_distribution_members ORDER BY ordinal").all();
+    const migration = await readFile(new URL("../drizzle/0033_profit_setup_repayment.sql", import.meta.url), "utf8");
+    for (const statement of migrationStatements(migration)) await db.prepare(statement).run();
+    const record = await distributions.readProfitDistribution(db, "2026-08");
+    assert.equal(record.allocationMethod, "AGGREGATE");
+    assert.equal(record.totalSetupRepayment, 0);
+    assert.deepEqual(record.members.map((member) => member.amount), [1, 1]);
+    assert.deepEqual((await db.prepare("SELECT * FROM profit_distribution_members ORDER BY ordinal").all()).results, priorMembers.results);
+    await assert.rejects(db.prepare("UPDATE profit_distribution_stores SET setup_repayment = 1").run(), /immutable/i);
+  } finally { db.close?.(); }
+});
 
 test("profit distribution migration is additive, journaled and immutable", async () => {
   const [migration, journalSource] = await Promise.all([

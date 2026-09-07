@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, Download, LockKeyhole, RefreshCw, WalletCards } from "lucide-react";
 import { canClosePayrollPeriod, payrollPeriodClosingDate } from "../lib/finance";
 import { PAYROLL_UPDATED_EVENT } from "../lib/payroll";
-import { salaryAdvanceSettlementSplit } from "../lib/salary-advances";
+import { readFinancialResponse } from "../lib/financial-response";
 import { DatePickerControl } from "./DatePickerControl";
 import styles from "./StorePayrollClosing.module.css";
 
@@ -148,7 +148,7 @@ type PayrollResponse = {
   history?: PayrollClosing[];
 };
 
-type PayrollAction = "FINALIZE_SINGLE_EMPLOYEE" | "FINALIZE_EMPLOYEE" | "FINALIZE_MANAGER" | "CONFIRM_SALARY" | "CONFIRM_REWARDS" | "CONFIRM_PAYMENT" | "CLOSE_PERIOD";
+type PayrollAction = "CONFIRM_PERIOD" | "FINALIZE_SINGLE_EMPLOYEE" | "CONFIRM_PAYMENT" | "CLOSE_PERIOD";
 
 type PayrollWorkflowAction = {
   action: Exclude<PayrollAction, "FINALIZE_SINGLE_EMPLOYEE">;
@@ -207,10 +207,7 @@ function payrollActionReason(action: PayrollAction, employee?: PayrollItem) {
   if (action === "FINALIZE_SINGLE_EMPLOYEE") {
     return `Chốt bảng lương cá nhân ${employee?.employeeCode ?? "chưa xác định"} để phục vụ đối soát kỳ.`;
   }
-  if (action === "FINALIZE_EMPLOYEE") return "Tính bảng lương kỳ từ dữ liệu chấm công, phụ cấp, thưởng và ứng lương đã đối soát.";
-  if (action === "FINALIZE_MANAGER") return "Bắt đầu đối soát toàn bộ bảng lương nhân viên và quản lý của kỳ.";
-  if (action === "CONFIRM_SALARY") return "Xác nhận đã đối soát phần lương cơ bản của kỳ.";
-  if (action === "CONFIRM_REWARDS") return "Xác nhận số liệu lương, thưởng, phụ cấp, KPI và ứng lương toàn kỳ.";
+  if (action === "CONFIRM_PERIOD") return "Đã kiểm tra bảng lương; xác nhận lương, thưởng, phụ cấp, KPI và ứng lương toàn kỳ.";
   if (action === "CONFIRM_PAYMENT") return "Xác nhận các khoản lương và thưởng của kỳ đã được chi trả.";
   return "Khóa kỳ sau khi hoàn tất đối soát, xác nhận số liệu và chi trả.";
 }
@@ -304,6 +301,7 @@ export default function StorePayrollClosing({ store, initialPeriod }: { store: S
   const [error, setError] = useState("");
   const loadRequest = useRef(0);
   const loadController = useRef<AbortController | null>(null);
+  const actionInFlight = useRef(false);
   const readOnly = store.status === "INACTIVE";
 
   const load = useCallback(async () => {
@@ -321,8 +319,7 @@ export default function StorePayrollClosing({ store, initialPeriod }: { store: S
         cache: "no-store",
         signal: controller.signal,
       });
-      const payload = await response.json() as PayrollResponse;
-      if (!response.ok) throw new Error(payload.message || "Không thể tải dữ liệu lương thưởng.");
+      const payload = await readFinancialResponse<PayrollResponse>(response);
       if (
         payload.period !== requestedScope.period
         || !payload.summary
@@ -365,11 +362,15 @@ export default function StorePayrollClosing({ store, initialPeriod }: { store: S
   }, [load, period, store.id]);
 
   const runAction = async (action: PayrollAction, employee?: PayrollItem) => {
+    if (actionInFlight.current) return;
     const actionScope = loadedScope;
     if (loading || !actionScope || actionScope.period !== period || actionScope.storeId !== store.id) {
       setError("Dữ liệu kỳ lương đang tải hoặc chưa khớp kỳ đã chọn. Vui lòng tải lại trước khi thao tác.");
       return;
     }
+    if (action === "CONFIRM_PERIOD" && !window.confirm(
+      `Bạn đã kiểm tra bảng lương kỳ ${actionScope.period}? Xác nhận số liệu ${money(grandTotal)} sẽ chốt lương, thưởng, phụ cấp và các khoản ứng của kỳ. Bước này chưa ghi nhận chi trả.`,
+    )) return;
     if (action === "CONFIRM_PAYMENT" && !window.confirm(
       "Xác nhận đã chi sẽ ghi nhận việc chi trả lương, thưởng và phụ cấp của kỳ vào dòng tiền. Bạn có chắc chắn số tiền đã được chi?",
     )) return;
@@ -379,6 +380,7 @@ export default function StorePayrollClosing({ store, initialPeriod }: { store: S
     if (action === "FINALIZE_SINGLE_EMPLOYEE" && employee && !window.confirm(
       `Chốt bảng lương cá nhân cho ${employee.employeeName}? Bản chốt này được giữ để đối soát kỳ ${actionScope.period}.`,
     )) return;
+    actionInFlight.current = true;
     setSaving(true);
     setError("");
     setMessage("");
@@ -395,16 +397,19 @@ export default function StorePayrollClosing({ store, initialPeriod }: { store: S
           reason: payrollActionReason(action, employee),
         }),
       });
-      const payload = await response.json() as PayrollResponse;
-      if (!response.ok) throw new Error(payload.message || "Không thể thực hiện thao tác.");
+      const payload = await readFinancialResponse<PayrollResponse>(response);
       setMessage(payload.message || "Đã cập nhật kỳ lương thưởng.");
       await load();
       window.dispatchEvent(new CustomEvent(PAYROLL_UPDATED_EVENT, {
         detail: { storeId: actionScope.storeId, period: actionScope.period, source: "closing" },
       }));
     } catch (cause) {
+      // The server may have committed before the connection was interrupted.
+      // Refresh the authoritative state before offering another action.
+      await load();
       setError(cause instanceof Error ? cause.message : "Không thể thực hiện thao tác.");
     } finally {
+      actionInFlight.current = false;
       setSaving(false);
     }
   };
@@ -421,17 +426,6 @@ export default function StorePayrollClosing({ store, initialPeriod }: { store: S
     && summary.storeId === store.id,
   );
   const grandTotal = closing?.grandTotal ?? ((summary?.totalAvailablePay ?? summary?.totalPay ?? 0) + (summary?.managerTotal ?? 0));
-  // Before the manager closing exists, show the same net settlement split the
-  // API will persist. Pending advances are included here because they already
-  // reserve payroll and the workflow cannot continue until they are paid or
-  // corrected. Once no draft remains, this is exactly the API's PAID split.
-  const previewSettlement = salaryAdvanceSettlementSplit({
-    employeeBaseSalary: summary?.totalBaseSalary ?? 0,
-    employeeTotalPay: summary?.totalPay ?? 0,
-    managerSalary: summary?.managerSalary ?? 0,
-    managerBonus: summary?.managerBonus ?? 0,
-    advanceAmount: summary?.totalSalaryAdvanceReserved ?? 0,
-  });
   const employeeKpiHours = summary?.kpiEligibleHours ?? summary?.totalHours ?? 0;
   const totalKpiHours = summary?.totalKpiHours ?? employeeKpiHours;
   const profitPerKpiHour = summary?.profitPerKpiHour ?? summary?.profitPerHour ?? 0;
@@ -440,7 +434,6 @@ export default function StorePayrollClosing({ store, initialPeriod }: { store: S
     () => new Map((data.employeeClosings ?? []).map((item) => [item.employeeId, item])),
     [data.employeeClosings],
   );
-  const allEmployeesIndividuallyLocked = summary?.items.every((item) => employeeClosingById.has(item.employeeId)) ?? false;
   const inactiveEmployeesWaiting = summary?.items.filter((item) => item.employmentStatus === "INACTIVE" && !employeeClosingById.has(item.employeeId)) ?? [];
   const closingWindowOpen = canClosePayrollPeriod(period);
   const closingWindowDate = payrollPeriodClosingDate(period);
@@ -467,33 +460,21 @@ export default function StorePayrollClosing({ store, initialPeriod }: { store: S
   const individualCheckpointOpen = canonicalRank === null || canonicalRank < financialPeriodRank.CONFIRMED;
   const canLockIndividual = closingWindowOpen && individualCheckpointOpen;
   const workflowActions = useMemo<PayrollWorkflowAction[]>(() => {
-    const waitingEmployees = Math.max(0, (summary?.items.length ?? 0) - employeeClosingById.size);
     const openingReason = `Mở từ ngày cuối tháng ${localDateLabel(closingWindowDate)} hoặc các ngày sau đó.`;
-    const firstCompleted = workflowRank >= financialPeriodRank.CALCULATED;
-    const firstAvailable = Boolean(summary && workflowRank === financialPeriodRank.DRAFT && closingWindowOpen && allEmployeesIndividuallyLocked && pendingAdvanceAmount === 0);
-    const firstReason = firstCompleted
-      ? "Đã tính bảng lương từ dữ liệu nguồn của kỳ."
-      : !closingWindowOpen
-        ? openingReason
-        : pendingAdvanceAmount > 0
-          ? `Còn ${money(pendingAdvanceAmount)} ứng lương đang chờ xác nhận chi.`
-          : !allEmployeesIndividuallyLocked
-            ? `Cần chốt bảng lương cá nhân cho ${waitingEmployees} nhân viên còn lại trước.`
-            : "Đủ điều kiện tính bảng lương kỳ.";
-    const reconciliationStarted = workflowRank >= financialPeriodRank.RECONCILING;
-    const salaryChecklistCompleted = workflowRank >= financialPeriodRank.CONFIRMED || legacyClosingRank >= 2;
     const periodConfirmed = workflowRank >= financialPeriodRank.CONFIRMED;
     const periodPaid = workflowRank >= financialPeriodRank.PAID;
     const periodLocked = workflowRank >= financialPeriodRank.LOCKED;
+    const confirmationReason = periodConfirmed
+      ? "Đã chốt số liệu, bảng lương và chính sách áp dụng cho kỳ."
+      : !closingWindowOpen ? openingReason
+        : pendingAdvanceAmount > 0 ? `Còn ${money(pendingAdvanceAmount)} ứng lương chờ xác nhận chi.`
+          : "Kiểm tra bảng lương bên dưới. Khi xác nhận, hệ thống kiểm tra điều kiện và chốt số liệu toàn kỳ.";
     return [
-      { action: "FINALIZE_EMPLOYEE", label: "Tính bảng lương kỳ", completed: firstCompleted, available: firstAvailable, reason: firstReason },
-      { action: "FINALIZE_MANAGER", label: "Bắt đầu đối soát", completed: reconciliationStarted, available: workflowRank === financialPeriodRank.CALCULATED, reason: reconciliationStarted ? "Kỳ đã chuyển sang đối soát." : firstCompleted ? "Đủ điều kiện bắt đầu đối soát." : "Tính bảng lương kỳ trước." },
-      { action: "CONFIRM_SALARY", label: "Xác nhận đối soát lương", completed: salaryChecklistCompleted, available: workflowRank === financialPeriodRank.RECONCILING && legacyClosingRank === 1, reason: salaryChecklistCompleted ? "Đã đối soát phần lương cơ bản." : workflowRank === financialPeriodRank.RECONCILING ? "Đủ điều kiện xác nhận đối soát lương." : "Bắt đầu đối soát trước." },
-      { action: "CONFIRM_REWARDS", label: "Xác nhận số liệu toàn kỳ", completed: periodConfirmed, available: workflowRank === financialPeriodRank.RECONCILING && salaryChecklistCompleted, reason: periodConfirmed ? "Số liệu và cấu hình áp dụng cho kỳ đã được xác nhận." : salaryChecklistCompleted ? "Đủ điều kiện xác nhận toàn bộ số liệu kỳ." : "Xác nhận đối soát lương trước." },
-      { action: "CONFIRM_PAYMENT", label: "Xác nhận đã chi", completed: periodPaid, available: workflowRank === financialPeriodRank.CONFIRMED, reason: periodPaid ? "Đã xác nhận chi trả lương, thưởng và phụ cấp." : periodConfirmed ? "Đủ điều kiện xác nhận đã chi." : "Xác nhận số liệu toàn kỳ trước." },
-      { action: "CLOSE_PERIOD", label: "Khóa kỳ", completed: periodLocked, available: workflowRank === financialPeriodRank.PAID, reason: periodLocked ? "Kỳ đã khóa và dùng snapshot bất biến." : periodPaid ? "Đủ điều kiện khóa kỳ." : "Xác nhận đã chi trước khi khóa kỳ." },
+      { action: "CONFIRM_PERIOD", label: periodConfirmed ? "Đã xác nhận số liệu" : "Kiểm tra & xác nhận số liệu", completed: periodConfirmed, available: !periodConfirmed && closingWindowOpen && pendingAdvanceAmount === 0, reason: confirmationReason },
+      { action: "CONFIRM_PAYMENT", label: periodPaid ? "Đã xác nhận chi" : "Xác nhận đã chi", completed: periodPaid, available: workflowRank === financialPeriodRank.CONFIRMED, reason: periodPaid ? "Đã ghi nhận chi trả và dòng tiền của kỳ." : "Chỉ xác nhận sau khi đã thực tế trả lương, thưởng và phụ cấp." },
+      { action: "CLOSE_PERIOD", label: periodLocked ? "Đã khóa kỳ" : "Khóa kỳ", completed: periodLocked, available: workflowRank === financialPeriodRank.PAID, reason: periodLocked ? "Số liệu kỳ đã khóa được giữ nguyên để tra cứu." : "Khóa sau khi đã chi; các điều chỉnh sau đó phải có lịch sử riêng." },
     ];
-  }, [allEmployeesIndividuallyLocked, closingWindowDate, closingWindowOpen, employeeClosingById.size, legacyClosingRank, pendingAdvanceAmount, summary, workflowRank]);
+  }, [closingWindowDate, closingWindowOpen, pendingAdvanceAmount, workflowRank]);
 
   const exportReport = () => {
     if (!summary || !dataIsCurrent) return;
@@ -540,17 +521,9 @@ export default function StorePayrollClosing({ store, initialPeriod }: { store: S
       <div className="report-profit-note"><WalletCards size={18}/><span><b>Tổng giờ xét KPI nhân viên:</b> {totalKpiHours.toFixed(2)} giờ làm thực tế. KPI quản lý áp dụng độc lập theo tỷ lệ {managerKpiRatePercent.toFixed(2)}% trên lợi nhuận hoạt động dương. Lợi nhuận trên giờ: {money(profitPerKpiHour)}/giờ.</span></div>
 
       <section className="manager-panel">
-        <div className="panel-title"><div><h2>QUY TRÌNH CHỐT KỲ</h2><p>Thực hiện lần lượt để tính, đối soát, xác nhận, chi trả và khóa kỳ an toàn.</p></div><span className="status-pill">{canonicalStatus ? financialPeriodStatusLabel(canonicalStatus) : statusLabel(closing?.status)}</span></div>
-        <div className="comparison-grid">
-          <p><span>1. Tính bảng lương kỳ</span><b>{workflowRank >= financialPeriodRank.CALCULATED ? "Đã tính" : "Chờ tính"}</b><em>{money(summary.totalAvailablePay ?? summary.totalPay)}</em></p>
-          <p><span>2. Đối soát toàn kỳ</span><b>{workflowRank >= financialPeriodRank.RECONCILING ? "Đã bắt đầu" : "Chờ đối soát"}</b><em>{money(summary.managerTotal)}</em></p>
-          <p><span>3. Đối soát phần lương</span><b>{workflowRank >= financialPeriodRank.CONFIRMED || legacyClosingRank >= 2 ? "Đã xác nhận" : "Chờ xác nhận"}</b><em>{money(closing?.salaryTotal ?? previewSettlement.salaryTotal)}</em></p>
-          <p><span>4. Xác nhận số liệu toàn kỳ</span><b>{workflowRank >= financialPeriodRank.CONFIRMED ? "Đã xác nhận" : "Chờ xác nhận"}</b><em>{money(closing?.rewardAllowanceTotal ?? previewSettlement.rewardAllowanceTotal)}</em></p>
-          <p><span>5. Xác nhận đã chi</span><b>{workflowRank >= financialPeriodRank.PAID ? "Đã chi" : "Chờ chi"}</b><em>{money(grandTotal)}</em></p>
-          <p><span>6. Khóa kỳ</span><b>{periodIsLocked ? "Đã khóa" : "Chưa khóa"}</b><em>{period}</em></p>
-        </div>
+        <div className="panel-title"><div><h2>CHỐT LƯƠNG THƯỞNG</h2><p>3 bước: xác nhận số liệu → xác nhận đã chi → khóa kỳ.</p></div><span className="status-pill">{canonicalStatus ? financialPeriodStatusLabel(canonicalStatus) : statusLabel(closing?.status)}</span></div>
         {readOnly && <div className="form-message">Cửa hàng đang ngưng hoạt động. Bạn chỉ có thể xem và xuất lịch sử kỳ lương.</div>}
-        {inactiveEmployeesWaiting.length > 0 && <div className="employee-closing-warning"><LockKeyhole size={17}/><div><b>Cần chốt lương cho nhân viên ngưng làm việc</b><span>{inactiveEmployeesWaiting.map((item) => `${item.employeeCode} · ${item.employeeName}`).join(", ")}</span></div></div>}
+        {inactiveEmployeesWaiting.length > 0 && <div className="employee-closing-warning"><LockKeyhole size={17}/><div><b>Nhân viên ngưng làm việc cần đối soát</b><span>{inactiveEmployeesWaiting.map((item) => `${item.employeeCode} · ${item.employeeName}`).join(", ")}. Có thể chốt sớm từng người; bước 1 sẽ chốt các bảng lương còn lại.</span></div></div>}
         <div className="payroll-workflow-actions" role="list" aria-label="Các bước chốt và khóa kỳ lương thưởng">
           {workflowActions.map((item, index) => {
             const reasonId = `payroll-workflow-reason-${item.action.toLocaleLowerCase("en-US")}`;
@@ -564,7 +537,7 @@ export default function StorePayrollClosing({ store, initialPeriod }: { store: S
                 aria-current={item.available && !item.completed ? "step" : undefined}
                 onClick={() => void runAction(item.action)}
               >
-                {item.action === "CLOSE_PERIOD" || item.completed ? <LockKeyhole size={16}/> : <CheckCircle2 size={16}/>}<span>{index + 1}. {saving && item.available ? "ĐANG XỬ LÝ…" : item.label}</span>
+                {item.action === "CLOSE_PERIOD" ? <LockKeyhole size={16}/> : <CheckCircle2 size={16}/>}<span>{index + 1}. {saving && item.available ? "ĐANG XỬ LÝ…" : item.label}</span>
               </button>
               <small id={reasonId}>{item.reason}</small>
             </div>;

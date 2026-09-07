@@ -22,6 +22,7 @@ import {
   type ProfitDistributionPreview,
   type ProfitDistributionRecord,
 } from "../../lib/profit-distributions";
+import { type SetupRepayment } from "../../lib/profit-sharing";
 import { getSessionUser, json } from "../_lib/auth";
 import {
   loadFinancialPolicyForPeriod,
@@ -51,12 +52,15 @@ type StoreProfitAllocation = {
   revenue: number;
   expense: number;
   finalProfit: number;
+  setupRepayment: number;
+  profitAfterSetup: number;
   distributableProfit: number;
   settlementStatus: "LOCKED" | "PAYMENT_CONFIRMED" | "OPEN" | "PROVISIONAL";
   memberAllocations: MemberProfitAllocation[];
 };
 
 type ProfitSharingHistory = {
+  setupRepayment: number;
   version: number;
   period: string;
   revenue: number;
@@ -241,7 +245,9 @@ function uiStoreAllocations(distribution: CanonicalProfitDistribution): StorePro
       revenue: snapshot.finance.grossRevenue,
       expense: snapshot.finance.totalExpense,
       finalProfit: snapshot.finance.finalProfit,
-      distributableProfit: snapshot.finance.distributableProfit,
+      setupRepayment: store.setupRepayment,
+      profitAfterSetup: store.profitAfterSetup,
+      distributableProfit: store.distributableProfit,
       settlementStatus: "LOCKED",
       memberAllocations: allocations.map((member) => ({
         memberId: member.memberId,
@@ -262,6 +268,7 @@ function uiProfitSharingSummary(distribution: CanonicalProfitDistribution) {
     period: distribution.period,
     revenue,
     expense,
+    setupRepayment: distribution.totalSetupRepayment,
     finalProfit: distribution.totalFinalProfit,
     distributableProfit: distribution.totalDistributableProfit,
     memberAllocations,
@@ -285,6 +292,7 @@ function uiProfitSharingHistory(record: ProfitDistributionRecord): ProfitSharing
     expense: summary.expense,
     profit: record.totalDistributableProfit,
     accountingProfit: record.totalFinalProfit,
+    setupRepayment: record.totalSetupRepayment,
     distributableProfit: record.totalDistributableProfit,
     memberAllocations: summary.memberAllocations,
     storeAllocations: summary.storeAllocations,
@@ -324,7 +332,7 @@ function distributionErrorMessage(error: ProfitDistributionError) {
     INTEGRITY_ERROR: "Dữ liệu chia lợi nhuận đã khóa không toàn vẹn.",
     ATOMIC_WRITE_FAILED: "Không thể ghi nhận chia lợi nhuận an toàn; không có dữ liệu dở dang được lưu.",
   };
-  return messages[error.code];
+  return error.code === "INVALID_INPUT" ? error.message : messages[error.code];
 }
 
 function distributionErrorStatus(error: ProfitDistributionError) {
@@ -528,21 +536,37 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  try {
+    return await closeReport(request);
+  } catch (error) {
+    const requestId = crypto.randomUUID();
+    console.error(`[profit-sharing:${requestId}]`, error);
+    return json({ message: "Không thể xử lý chia lợi nhuận. Vui lòng tải lại để kiểm tra trạng thái kỳ.", requestId }, 500);
+  }
+}
+
+async function closeReport(request: Request) {
   const user = await getSessionUser(request);
   if (!user || user.role !== "MANAGER") return json({ message: "Không có quyền chốt chia lợi nhuận." }, 403);
   if (!managerHasGlobalStoreAccess(user)) return json({ message: MANAGER_STORE_SCOPE_MESSAGE }, 403);
-  const body = await request.json().catch(() => ({})) as { action?: string; period?: string; reason?: string };
+  const input: unknown = await request.json().catch(() => null);
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return json({ message: "Dữ liệu chia lợi nhuận không hợp lệ." }, 400);
+  }
+  const body = input as { action?: string; period?: string; reason?: string; setupRepayments?: readonly SetupRepayment[] };
   const period = body.period ?? "";
   const validAction = body.action === "CLOSE_PROFIT_SHARING" || body.action === "CLOSE_DIVIDEND";
-  if (!validAction || !validPeriod(period)) return json({ message: "Thao tác hoặc kỳ chia lợi nhuận không hợp lệ." }, 400);
+  if (!validAction || typeof period !== "string" || !validPeriod(period)) return json({ message: "Thao tác hoặc kỳ chia lợi nhuận không hợp lệ." }, 400);
   if (period >= localPeriod()) return json({ message: "Chỉ được chốt chia lợi nhuận sau khi kỳ tháng đã kết thúc." }, 409);
   const db = await initDb();
+  if (body.reason !== undefined && typeof body.reason !== "string") return json({ message: "Lý do chốt không hợp lệ." }, 400);
   const reason = body.reason?.trim() || "Xác nhận chia lợi nhuận cuối kỳ trên báo cáo tài chính.";
   try {
     const canonicalRecord = await closeProfitDistribution(db, {
       period,
       actorId: user.id,
       reason,
+      setupRepayments: body.setupRepayments,
     });
     const record = uiProfitSharingHistory(canonicalRecord);
     return json({

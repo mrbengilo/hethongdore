@@ -242,9 +242,19 @@ type EmployeePayrollClosing = {
   lockedBy: string;
 };
 
-type PayrollAction = "FINALIZE_SINGLE_EMPLOYEE" | "FINALIZE_EMPLOYEE" | "FINALIZE_MANAGER" | "CONFIRM_SALARY" | "CONFIRM_REWARDS" | "CONFIRM_PAYMENT" | "CLOSE_PERIOD";
+type PayrollAction = "CONFIRM_PERIOD" | "FINALIZE_SINGLE_EMPLOYEE" | "FINALIZE_EMPLOYEE" | "FINALIZE_MANAGER" | "CONFIRM_SALARY" | "CONFIRM_REWARDS" | "CONFIRM_PAYMENT" | "CLOSE_PERIOD";
+
+type PayrollCommand = {
+  storeId: string;
+  period: string;
+  action: PayrollAction;
+  employeeId?: string;
+  expectedRevision?: number;
+  reason?: string;
+};
 
 const payrollActions = new Set<PayrollAction>([
+  "CONFIRM_PERIOD",
   "FINALIZE_SINGLE_EMPLOYEE",
   "FINALIZE_EMPLOYEE",
   "FINALIZE_MANAGER",
@@ -1137,7 +1147,25 @@ async function buildPreview(
   return summary;
 }
 
+function payrollFailure(error: unknown) {
+  const requestId = crypto.randomUUID();
+  console.error(`[payroll:${requestId}]`, error);
+  return json({
+    code: "PAYROLL_OPERATION_FAILED",
+    message: "Không thể xử lý kỳ lương. Vui lòng tải lại để kiểm tra trạng thái; nếu lỗi còn tiếp diễn, gửi mã lỗi cho quản trị viên.",
+    requestId,
+  }, 500);
+}
+
 export async function GET(request: Request) {
+  try {
+    return await getPayroll(request);
+  } catch (error) {
+    return payrollFailure(error);
+  }
+}
+
+async function getPayroll(request: Request) {
   const user = await getSessionUser(request);
   if (!user) return json({ message: "Chưa đăng nhập" }, 401);
   const params = new URL(request.url).searchParams;
@@ -1341,9 +1369,21 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  try {
+    return await postPayroll(request);
+  } catch (error) {
+    return payrollFailure(error);
+  }
+}
+
+async function postPayroll(request: Request) {
   const user = await getSessionUser(request);
   if (!user || user.role !== "MANAGER") return json({ message: "Không có quyền tổng kết lương thưởng" }, 403);
-  const body = await request.json().catch(() => ({})) as {
+  const input: unknown = await request.json().catch(() => null);
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return json({ message: "Dữ liệu chốt lương không hợp lệ." }, 400);
+  }
+  const body = input as {
     storeId?: string;
     period?: string;
     action?: string;
@@ -1351,7 +1391,12 @@ export async function POST(request: Request) {
     expectedRevision?: number;
     reason?: string;
   };
-  const storeId = body.storeId?.trim();
+  if (typeof body.storeId !== "string" || typeof body.period !== "string"
+    || (body.employeeId !== undefined && typeof body.employeeId !== "string")
+    || (body.reason !== undefined && typeof body.reason !== "string")) {
+    return json({ message: "Dữ liệu chốt lương không hợp lệ." }, 400);
+  }
+  const storeId = body.storeId.trim();
   const period = body.period?.trim() ?? "";
   if (!storeId || !validPeriod(period)) return json({ message: "Cửa hàng hoặc kỳ lương không hợp lệ" }, 400);
   if (!managerCanAccessStore(user, storeId)) return json({ message: MANAGER_STORE_SCOPE_MESSAGE }, 403);
@@ -1359,15 +1404,76 @@ export async function POST(request: Request) {
   const db = await initDb();
   const requestedAction = body.action ?? "FINALIZE_EMPLOYEE";
   if (!isPayrollAction(requestedAction)) return json({ message: "Thao tác chốt kỳ lương không hợp lệ." }, 400);
-  const action = requestedAction;
+  return executePayrollAction(db, user, { ...body, storeId, period, action: requestedAction });
+}
+
+async function executePayrollAction(
+  db: Awaited<ReturnType<typeof initDb>>,
+  user: NonNullable<Awaited<ReturnType<typeof getSessionUser>>>,
+  body: PayrollCommand,
+): Promise<Response> {
+  const { storeId, period, action } = body;
   const reason = body.reason?.trim() || `Thực hiện ${action} cho kỳ ${period}`;
   const financialPeriodAtRequest = await readFinancialPeriodLifecycleRow(db, storeId, period);
+  const completedAction = financialPeriodAtRequest && (
+    (action === "CONFIRM_PERIOD" && financialPeriodReached(financialPeriodAtRequest, "CONFIRMED"))
+    || (action === "CONFIRM_PAYMENT" && financialPeriodReached(financialPeriodAtRequest, "PAID"))
+    || (action === "CLOSE_PERIOD" && financialPeriodAtRequest.status === "LOCKED")
+  );
   if (action !== "FINALIZE_SINGLE_EMPLOYEE"
+    && !completedAction
     && !requestedRevisionMatches(body.expectedRevision, financialPeriodAtRequest)) {
     return json({
       message: "Kỳ tài chính vừa được cập nhật bởi một yêu cầu khác. Vui lòng tải lại dữ liệu.",
       financialPeriod: publicFinancialPeriod(storeId, period, financialPeriodAtRequest),
     }, 409);
+  }
+  if (action === "CONFIRM_PERIOD") {
+    if (financialPeriodAtRequest && financialPeriodReached(financialPeriodAtRequest, "CONFIRMED")) {
+      return json({
+        financialPeriod: publicFinancialPeriod(storeId, period, financialPeriodAtRequest),
+        closing: await payrollClosing(db, storeId, period),
+        message: "Số liệu kỳ lương đã được xác nhận.",
+      });
+    }
+    if (!canClosePayrollPeriod(period)) {
+      return json({ message: "Chỉ được xác nhận kỳ lương từ ngày cuối tháng hoặc sau đó." }, 409);
+    }
+    const rank = financialPeriodAtRequest ? financialPeriodStatusRank[financialPeriodAtRequest.status] : 0;
+    const steps: Array<Pick<PayrollCommand, "action" | "employeeId">> = [];
+    if (rank < financialPeriodStatusRank.CALCULATED) {
+      const summary = await buildPreview(db, storeId, period);
+      if (!summary) return json({ message: "Không tìm thấy cửa hàng." }, 404);
+      if (summary.totalSalaryAdvancePending > 0) {
+        return json({ message: "Còn khoản ứng lương chưa xác nhận chi. Vui lòng xử lý trước khi xác nhận số liệu kỳ." }, 409);
+      }
+      const individualClosings = new Set((await employeePayrollClosings(db, storeId, period)).map((item) => item.employeeId));
+      for (const employee of summary.items) {
+        if (!individualClosings.has(employee.employeeId)) steps.push({ action: "FINALIZE_SINGLE_EMPLOYEE", employeeId: employee.employeeId });
+      }
+      steps.push({ action: "FINALIZE_EMPLOYEE" });
+    }
+    if (rank < financialPeriodStatusRank.RECONCILING) steps.push({ action: "FINALIZE_MANAGER" });
+    const closing = await payrollClosing(db, storeId, period);
+    if (!closing || closing.status === "MANAGER_FINALIZED") steps.push({ action: "CONFIRM_SALARY" });
+    steps.push({ action: "CONFIRM_REWARDS" });
+
+    // Reuse the audited, transactional checkpoints. If one fails, stop before
+    // payment; a retry resumes from the persisted stage without repeating it.
+    let revision = body.expectedRevision;
+    let result: { financialPeriod?: { revision: number; status: string }; message?: string } = {};
+    for (const step of steps) {
+      const response = await executePayrollAction(db, user, {
+        ...body, ...step, expectedRevision: revision, reason,
+      });
+      if (!response.ok) return response;
+      result = await response.json() as typeof result;
+      if (result.financialPeriod) revision = result.financialPeriod.revision;
+    }
+    if (result.financialPeriod?.status !== "CONFIRMED") {
+      return json({ message: "Kỳ lương chưa hoàn tất xác nhận. Vui lòng tải lại để kiểm tra." }, 409);
+    }
+    return json({ ...result, message: "Đã kiểm tra và xác nhận số liệu toàn kỳ. Chỉ xác nhận đã chi sau khi thực tế chi trả." });
   }
   if (action === "FINALIZE_SINGLE_EMPLOYEE") {
     if (financialPeriodAtRequest
@@ -1570,7 +1676,15 @@ export async function POST(request: Request) {
   if (action !== "FINALIZE_EMPLOYEE") {
     const financialPeriod = await readFinancialPeriodLifecycleRow(db, storeId, period);
     if (!financialPeriod) return json({ message: "Hãy tính bảng lương kỳ trước." }, 409);
-    const employeeSummary = await buildPreview(db, storeId, period);
+    // Confirmed amounts own settlement. Recomputing with a newer policy can
+    // disagree with Finance's frozen snapshot and prevent an already-approved
+    // payroll from being paid or locked.
+    const employeeSummary = financialPeriodReached(financialPeriod, "CONFIRMED")
+      ? payrollSummaryFromFinancialPeriod(financialPeriod)
+      : await buildPreview(db, storeId, period);
+    if (!employeeSummary && financialPeriodReached(financialPeriod, "CONFIRMED")) {
+      return json({ message: "Kỳ đã xác nhận thiếu bản chốt bảng lương. Cần quản trị viên kiểm tra trước khi chi trả." }, 409);
+    }
     if (!employeeSummary) return json({ message: "Không tìm thấy cửa hàng." }, 404);
     const coverageConflict = salaryAdvanceCoverageConflict(employeeSummary);
     if (coverageConflict) return coverageConflict;
@@ -1831,6 +1945,9 @@ export async function POST(request: Request) {
         WHERE paid.id = ? AND paid.status = 'PAYMENT_CONFIRMED'
           AND json_extract(paid.data_json, '$.paymentConfirmedAt') = ?
           AND json_extract(paid.data_json, '$.paymentConfirmedBy') = ?
+      ) AND EXISTS (
+        SELECT 1 FROM financial_periods period
+        WHERE period.id = ? AND period.status = 'CONFIRMED' AND period.revision = ?
       )`;
       const transition = prepareFinancialPeriodTransitionPlan(db, {
         current: financialPeriod,
@@ -1846,7 +1963,7 @@ export async function POST(request: Request) {
           db,
           paidEntry,
           paymentGuard,
-          [id, now, user.id],
+          [id, now, user.id, financialPeriod.id, financialPeriod.revision],
         )] : []),
         db.prepare(`INSERT INTO audit_logs
             (id, user_id, store_id, action, entity_type, entity_id, detail, before_json, after_json, reason, created_at)
@@ -1854,7 +1971,9 @@ export async function POST(request: Request) {
           FROM business_records paid
           WHERE paid.id = ? AND paid.status = 'PAYMENT_CONFIRMED'
             AND json_extract(paid.data_json, '$.paymentConfirmedAt') = ?
-            AND json_extract(paid.data_json, '$.paymentConfirmedBy') = ?`)
+            AND json_extract(paid.data_json, '$.paymentConfirmedBy') = ?
+            AND EXISTS (SELECT 1 FROM financial_periods period
+              WHERE period.id = ? AND period.status = 'CONFIRMED' AND period.revision = ?)`)
           .bind(
             crypto.randomUUID(),
             user.id,
@@ -1867,6 +1986,8 @@ export async function POST(request: Request) {
             id,
             now,
             user.id,
+            financialPeriod.id,
+            financialPeriod.revision,
           ),
         ...transition.statements,
       ]);

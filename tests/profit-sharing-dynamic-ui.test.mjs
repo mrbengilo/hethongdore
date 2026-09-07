@@ -54,6 +54,6 @@ test("profit-sharing CSV and lifecycle provenance are dynamic and legacy-safe", 
   assert.match(source, /finiteNumber\(currentHistory\?\.accountingProfit\)[\s\S]*finiteNumber\(currentHistory\?\.profit\)/u);
   assert.match(source, /currentMembers\.length === 0/u);
   assert.match(source, /exportDisabled=\{!data \|\| history\.length === 0\}/u);
-  assert.match(source, /colSpan=\{6 \+ currentMembers\.length\}/u);
-  assert.match(source, /colSpan=\{9 \+ historyMembers\.length\}/u);
+  assert.match(source, /colSpan=\{7 \+ currentMembers\.length\}/u);
+  assert.match(source, /colSpan=\{10 \+ historyMembers\.length\}/u);
 });
