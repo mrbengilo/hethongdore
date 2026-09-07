@@ -22,7 +22,7 @@ type EditDraft = Pick<EmployeeRow, "name" | "position" | "phone" | "province" | 
 };
 type Action = { kind: "EDIT" | "RESET_PASSWORD" | "DELETE"; row: EmployeeRow };
 
-const money = (value: number) => `${new Intl.NumberFormat("vi-VN").format(Math.round(value))} đồng`;
+const money = (value: number) => `${new Intl.NumberFormat("en-US").format(Math.round(value))} đồng`;
 const accountLabels: Record<AccountStatus, string> = {
   ENABLED: "Được phép đăng nhập", DISABLED: "Đã khóa theo trạng thái", LOCKED: "Tạm khóa bảo mật", NO_ACCOUNT: "Chưa có tài khoản",
 };

@@ -65,7 +65,7 @@ type ApiResult = Partial<AdvanceData> & {
 
 type DialogMode = "CREATE" | "EDIT" | "VIEW";
 
-const money = (value: number) => `${new Intl.NumberFormat("vi-VN").format(Math.round(value))} đồng`;
+const money = (value: number) => `${new Intl.NumberFormat("en-US").format(Math.round(value))} đồng`;
 
 function periodDefaultDate(period: string) {
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh" }).format(new Date());

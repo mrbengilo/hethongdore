@@ -45,7 +45,7 @@ const STATUS_OPTIONS: Array<{ value: EmployeeStatus; label: string }> = [
   { value: "TERMINATED", label: "Đã nghỉ việc" },
 ];
 
-const money = (value: number) => `${new Intl.NumberFormat("vi-VN").format(Math.round(value))} đồng`;
+const money = (value: number) => `${new Intl.NumberFormat("en-US").format(Math.round(value))} đồng`;
 const fullDateTime = (value: string | null) => value
   ? new Intl.DateTimeFormat("vi-VN", {
       day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",

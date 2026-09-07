@@ -25,7 +25,7 @@ type PolicyResponse = {
   message?: string;
 };
 
-const money = (value: number) => new Intl.NumberFormat("vi-VN").format(value);
+const money = (value: number) => new Intl.NumberFormat("en-US").format(value);
 const dateTime = (value: string) => new Intl.DateTimeFormat("vi-VN", {
   dateStyle: "short", timeStyle: "medium", hourCycle: "h23", timeZone: "Asia/Ho_Chi_Minh",
 }).format(new Date(value));

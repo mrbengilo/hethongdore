@@ -44,7 +44,7 @@ type Preview = {
 
 const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh" }).format(new Date());
 const currentPeriod = () => today().slice(0, 7);
-const money = (value: number) => `${new Intl.NumberFormat("vi-VN").format(Math.round(value))} đồng`;
+const money = (value: number) => `${new Intl.NumberFormat("en-US").format(Math.round(value))} đồng`;
 const dateTime = (value?: string | null) => formatDateTime24(value);
 const employeeStatusSuffix = (status: string) => status === "SUSPENDED"
   ? " · Tạm ngưng" : status === "TERMINATED" || status === "INACTIVE" ? " · Đã nghỉ việc" : "";

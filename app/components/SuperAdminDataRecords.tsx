@@ -36,7 +36,7 @@ type ListResponse = {
 
 const localDay = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh" }).format(new Date());
 const currentPeriod = () => localDay().slice(0, 7);
-const money = (value: number) => `${new Intl.NumberFormat("vi-VN").format(Math.round(value))} đồng`;
+const money = (value: number) => `${new Intl.NumberFormat("en-US").format(Math.round(value))} đồng`;
 const dateTime = (value?: string | null) => formatDateTime24(value);
 const toLocalDateTimeInput = (value?: string | null) => {
   if (!value) return "";

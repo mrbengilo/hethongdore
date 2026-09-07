@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { validatePayrollReviewValues, type PayrollReviewSource, type PayrollReviewState, type PayrollReviewValues } from "../lib/payroll-review";
+import { formatVndInput, parseVndInput } from "../lib/format";
 import styles from "./StorePayrollClosing.module.css";
 
 type ReviewItem = PayrollReviewSource & {
@@ -20,9 +21,9 @@ export default function PayrollReviewEditor({ item, busy, onUpdate, onCancel }: 
   const [fields, setFields] = useState(() => ({
     hours: String(Number((item.durationSeconds / 3_600).toFixed(6))),
     kpiHours: String(Number((item.kpiDurationSeconds / 3_600).toFixed(6))),
-    tiktokAllowance: String(item.tiktokAllowance), supportAllowance: String(item.supportAllowance),
-    manualAllowance: String(item.manualAllowance), manualBonus: String(item.manualBonus),
-    kpiBonus: String(item.review?.values.kpiBonus ?? item.kpiBonus ?? 0),
+    tiktokAllowance: formatVndInput(item.tiktokAllowance), supportAllowance: formatVndInput(item.supportAllowance),
+    manualAllowance: formatVndInput(item.manualAllowance), manualBonus: formatVndInput(item.manualBonus),
+    kpiBonus: formatVndInput(item.review?.values.kpiBonus ?? item.kpiBonus ?? 0),
     kpiAutomatic: item.review?.values.kpiBonus == null,
     reason: "",
   }));
@@ -40,8 +41,8 @@ export default function PayrollReviewEditor({ item, busy, onUpdate, onCancel }: 
       }
       const values = validatePayrollReviewValues({
         durationSeconds: Math.round(hours * 3_600), kpiDurationSeconds: Math.round(kpiHours * 3_600),
-        ...Object.fromEntries(amounts.map(([key]) => [key, Number(fields[key])])),
-        kpiBonus: fields.kpiAutomatic ? null : Number(fields.kpiBonus),
+        ...Object.fromEntries(amounts.map(([key]) => [key, parseVndInput(fields[key])])),
+        kpiBonus: fields.kpiAutomatic ? null : parseVndInput(fields.kpiBonus),
       });
       if (fields.reason.trim().length < 5) throw new Error("Nhập lý do sửa ít nhất 5 ký tự để lưu lịch sử đối soát.");
       await onUpdate(values, fields.reason.trim());
@@ -56,8 +57,8 @@ export default function PayrollReviewEditor({ item, busy, onUpdate, onCancel }: 
         <legend className="sr-only">Giờ, phụ cấp và thưởng của {item.employeeName}</legend>
         <label>Giờ tính lương<input type="number" min="0" max="744" step="any" inputMode="decimal" required value={fields.hours} onChange={(event) => setFields({ ...fields, hours: event.target.value })}/></label>
         <label>Giờ tính KPI<input type="number" min="0" max="744" step="any" inputMode="decimal" required value={fields.kpiHours} onChange={(event) => setFields({ ...fields, kpiHours: event.target.value })}/></label>
-        {amounts.map(([key, label]) => <label key={key}>{label} (đồng)<input type="number" min="0" step="1" inputMode="numeric" required value={fields[key]} onChange={(event) => setFields({ ...fields, [key]: event.target.value })}/></label>)}
-        <label>Thưởng KPI (đồng)<input type="number" min="0" step="1" inputMode="numeric" required={!fields.kpiAutomatic} disabled={fields.kpiAutomatic} value={fields.kpiBonus} onChange={(event) => setFields({ ...fields, kpiBonus: event.target.value })}/></label>
+        {amounts.map(([key, label]) => <label key={key}>{label} (đồng)<input type="text" inputMode="numeric" pattern="[0-9,]*" required value={fields[key]} onChange={(event) => setFields({ ...fields, [key]: formatVndInput(event.target.value) })}/></label>)}
+        <label>Thưởng KPI (đồng)<input type="text" inputMode="numeric" pattern="[0-9,]*" required={!fields.kpiAutomatic} disabled={fields.kpiAutomatic} value={fields.kpiBonus} onChange={(event) => setFields({ ...fields, kpiBonus: formatVndInput(event.target.value) })}/></label>
         <label className={styles.reviewCheckbox}><input type="checkbox" checked={fields.kpiAutomatic} onChange={(event) => setFields({ ...fields, kpiAutomatic: event.target.checked })}/> Thưởng KPI theo công thức</label>
         <label className={styles.reviewReason}>Lý do sửa<textarea rows={2} minLength={5} maxLength={500} required value={fields.reason} onChange={(event) => setFields({ ...fields, reason: event.target.value })}/></label>
       </fieldset>

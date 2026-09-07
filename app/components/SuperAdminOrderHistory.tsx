@@ -45,7 +45,7 @@ const fields: Array<{ key: keyof OrderSnapshot; label: string }> = [
 ];
 
 function money(value: number) {
-  return `${new Intl.NumberFormat("vi-VN").format(Math.round(value))} đồng`;
+  return `${new Intl.NumberFormat("en-US").format(Math.round(value))} đồng`;
 }
 
 function displayValue(key: keyof OrderSnapshot, value: OrderSnapshot[keyof OrderSnapshot]) {

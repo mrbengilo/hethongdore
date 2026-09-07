@@ -1,5 +1,7 @@
 "use client";
 
+import { formatVndInput, parseVndInput } from "../lib/format";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BadgeDollarSign,
@@ -609,7 +611,7 @@ export function ManagerProfitSharingClosing({ initialPeriod, onPeriodChange }: {
   const setupRepayments = (sourcePreview?.storeAllocations ?? []).map((store) => {
     const draft = setupDrafts[period]?.[store.storeId];
     return { storeId: store.storeId, amount: draft
-      ? /^\d*$/.test(draft.value) ? Number(draft.value) : NaN
+      ? draft.value.trim() ? parseVndInput(draft.value) : NaN
       : store.setupRepayment };
   });
   const hasUnsavedSetup = setupRepayments.some((entry) => entry.amount !== (savedSetup.get(entry.storeId)?.amount ?? 0));
@@ -645,7 +647,7 @@ export function ManagerProfitSharingClosing({ initialPeriod, onPeriodChange }: {
   const setupStore = storeAllocations.find((store) => store.storeId === setupStoreId) ?? storeAllocations[0];
   const selectedSavedSetup = setupStore ? savedSetup.get(setupStore.storeId) : undefined;
   const selectedDraft = setupStore ? setupDrafts[period]?.[setupStore.storeId] : undefined;
-  const selectedAmount = selectedDraft ? /^\d*$/.test(selectedDraft.value) ? Number(selectedDraft.value) : NaN : selectedSavedSetup?.amount ?? 0;
+  const selectedAmount = selectedDraft ? selectedDraft.value.trim() ? parseVndInput(selectedDraft.value) : NaN : selectedSavedSetup?.amount ?? 0;
   const invalidSelectedAmount = !Number.isSafeInteger(selectedAmount) || selectedAmount < 0;
   const selectedSetupChanged = selectedAmount !== (selectedSavedSetup?.amount ?? 0);
   const setupConflict = selectedDraft !== undefined && selectedDraft.version !== (selectedSavedSetup?.version ?? 0);
@@ -816,13 +818,13 @@ export function ManagerProfitSharingClosing({ initialPeriod, onPeriodChange }: {
             </select>
           </label>
           <label>Chi phí hoàn trả setup (đồng)
-            <input type="number" inputMode="numeric" min="0" step="1" max={Number.MAX_SAFE_INTEGER}
-              placeholder="0" value={selectedDraft?.value ?? String(selectedSavedSetup?.amount ?? 0)}
+            <input type="text" inputMode="numeric" pattern="[0-9,]*"
+              placeholder="0" value={selectedDraft?.value ?? formatVndInput(selectedSavedSetup?.amount ?? 0)}
               disabled={loading || saving || savingSetup} aria-describedby="setup-repayment-note setup-repayment-status"
               onChange={(event) => setSetupDrafts((previous) => ({
                 ...previous,
                 [period]: { ...previous[period], [setupStore.storeId]: {
-                  value: event.target.value, version: selectedDraft?.version ?? selectedSavedSetup?.version ?? 0,
+                  value: formatVndInput(event.target.value), version: selectedDraft?.version ?? selectedSavedSetup?.version ?? 0,
                 } },
               }))}/>
           </label>
