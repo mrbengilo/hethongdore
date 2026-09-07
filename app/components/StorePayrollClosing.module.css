@@ -268,3 +268,26 @@
     max-width: 100%;
   }
 }
+
+.reviewPanel { min-width: 0; scroll-margin-top: 90px; }
+.reviewPanel h3, .reviewPanel p { overflow-wrap: anywhere; margin: 0 0 10px; }
+.reviewFields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; border: 0; padding: 0; margin: 0; min-width: 0; }
+.reviewFields label { display: grid; gap: 6px; min-width: 0; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.reviewFields input, .reviewFields textarea { box-sizing: border-box; width: 100%; min-width: 0; min-height: 42px; padding: 9px; border: 1px solid #bdd7c6; border-radius: 8px; font: inherit; background: #fff; color: #173425; }
+.reviewFields input:disabled { background: #f1f5f2; color: #5c6d62; }
+.reviewFields .reviewCheckbox { display: flex; align-items: center; gap: 8px; }
+.reviewCheckbox input { width: 20px; min-height: 20px; flex: 0 0 20px; }
+.reviewReason { grid-column: 1 / -1; }
+.reviewPanel .reviewHint { margin-top: 10px; font-size: 12px; color: #54685b; }
+.reviewActions { display: flex; flex-wrap: wrap; gap: 8px; }
+.reviewActions button, .editButton { min-height: 40px; padding: 8px 12px; border: 1px solid #7cb88f; border-radius: 8px; background: #edf8f0; color: #155b30; font: inherit; font-weight: 700; white-space: normal; overflow-wrap: anywhere; }
+.reviewActions button[type="submit"] { background: #087a35; color: #fff; }
+.reviewActions button:disabled, .editButton:disabled { opacity: .6; cursor: not-allowed; }
+.editButton, .reviewStatus { display: block; margin-top: 8px; }
+.reviewStatus { white-space: normal; overflow-wrap: anywhere; color: #356346; }
+.reviewPanel :focus-visible, .editButton:focus-visible { outline: 3px solid #559e6d; outline-offset: 2px; }
+.mobilePayrollAction { display: grid; gap: 8px; }
+@media (max-width: 480px) {
+  .reviewFields { grid-template-columns: minmax(0, 1fr); }
+  .reviewActions button { flex: 1 1 140px; }
+}
