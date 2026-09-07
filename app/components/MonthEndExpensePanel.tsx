@@ -1,5 +1,8 @@
 "use client";
 
+import { ActionButton, ActionForm } from "./ActionFeedback";
+import { actionFetch as fetch } from "../lib/action-feedback";
+
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Download, Pencil, Plus, ReceiptText, RefreshCw, Trash2, WalletCards, X } from "lucide-react";
 import { formatVndInput, parseVndInput } from "../lib/format";
@@ -286,9 +289,9 @@ export function MonthEndExpensePanel({ store, period, onChanged }: {
         <p>Khoản điều chỉnh sau KPI, được trừ đúng một lần trước khi xác định lợi nhuận sau cùng.</p>
       </div>
       <div className={styles.headerActions}>
-        <button type="button" onClick={() => void load()} disabled={loading || busy}><RefreshCw size={16}/> Làm mới</button>
-        <button type="button" onClick={exportCsv} disabled={!items.length}><Download size={16}/> Xuất CSV</button>
-        <button type="button" className={styles.primaryButton} onClick={beginCreate} disabled={readonly || loading || busy}><Plus size={17}/> TẠO CHI PHÍ CUỐI KỲ</button>
+        <ActionButton type="button" onClick={() => load()} disabled={loading || busy}><RefreshCw size={16}/> Làm mới</ActionButton>
+        <ActionButton type="button" onClick={exportCsv} disabled={!items.length}><Download size={16}/> Xuất CSV</ActionButton>
+        <ActionButton type="button" className={styles.primaryButton} onClick={beginCreate} disabled={readonly || loading || busy}><Plus size={17}/> TẠO CHI PHÍ CUỐI KỲ</ActionButton>
       </div>
     </header>
 
@@ -317,8 +320,8 @@ export function MonthEndExpensePanel({ store, period, onChanged }: {
               <td data-label="Trạng thái"><span className={item.status === "ACTIVE" ? styles.active : styles.void}>{item.status === "ACTIVE" ? "Hiệu lực" : "Đã hủy"}</span></td>
               <td data-label="Thao tác"><div className={styles.actions}>
                 {item.status === "ACTIVE" ? <>
-                  <button type="button" disabled={readonly || busy} onClick={() => beginEdit(item)}><Pencil size={15}/><span>Sửa</span></button>
-                  <button type="button" className={styles.voidButton} disabled={readonly || busy} onClick={() => beginVoid(item)}><Trash2 size={15}/><span>Hủy</span></button>
+                  <ActionButton type="button" disabled={readonly || busy} onClick={() => beginEdit(item)}><Pencil size={15}/><span>Sửa</span></ActionButton>
+                  <ActionButton type="button" className={styles.voidButton} disabled={readonly || busy} onClick={() => beginVoid(item)}><Trash2 size={15}/><span>Hủy</span></ActionButton>
                 </> : <span>Chỉ xem</span>}
               </div></td>
             </tr>) : <tr><td colSpan={8} className={styles.empty}>Chưa có chi phí cuối kỳ trong tháng này.</td></tr>}
@@ -327,8 +330,8 @@ export function MonthEndExpensePanel({ store, period, onChanged }: {
     </div>
 
     {mode ? <div ref={modalRootRef} className={styles.backdrop}>
-      <form ref={dialogRef} className={styles.modal} role="dialog" aria-modal="true" aria-labelledby="month-end-dialog-title" tabIndex={-1} aria-busy={busy} onSubmit={mutate}>
-        <header><div><h2 id="month-end-dialog-title">{mode === "CREATE" ? "Tạo chi phí cuối kỳ" : mode === "EDIT" ? "Sửa chi phí cuối kỳ" : "Hủy chi phí cuối kỳ"}</h2><p>{store.name} · Kỳ {period}</p></div><button type="button" aria-label="Đóng" onClick={dismiss} disabled={busy}><X size={19}/></button></header>
+      <ActionForm ref={dialogRef} className={styles.modal} role="dialog" aria-modal="true" aria-labelledby="month-end-dialog-title" tabIndex={-1} aria-busy={busy} onSubmit={mutate}>
+        <header><div><h2 id="month-end-dialog-title">{mode === "CREATE" ? "Tạo chi phí cuối kỳ" : mode === "EDIT" ? "Sửa chi phí cuối kỳ" : "Hủy chi phí cuối kỳ"}</h2><p>{store.name} · Kỳ {period}</p></div><ActionButton type="button" aria-label="Đóng" onClick={dismiss} disabled={busy}><X size={19}/></ActionButton></header>
         {mode === "VOID" ? <div className={styles.voidSummary}><span>Khoản sẽ hủy</span><b>{selected?.title}</b><strong>{money(selected?.amount ?? 0)}</strong></div> : <>
           <label>Tên khoản chi<input ref={titleFocusRef} value={title} maxLength={120} onChange={(event) => setTitle(event.target.value)} required/></label>
           <div className={styles.formGrid}>
@@ -339,8 +342,8 @@ export function MonthEndExpensePanel({ store, period, onChanged }: {
         </>}
         {mode !== "CREATE" ? <label>Lý do {mode === "VOID" ? "hủy" : "chỉnh sửa"}<textarea ref={reasonFocusRef} value={reason} maxLength={500} onChange={(event) => setReason(event.target.value)} required/></label> : null}
         {message && mode !== null ? <p className={styles.error} role="alert">{message}</p> : null}
-        <footer><button type="button" onClick={dismiss} disabled={busy}>Đóng</button><button type="submit" className={mode === "VOID" ? styles.dangerButton : styles.primaryButton} disabled={busy}>{busy ? "Đang lưu…" : mode === "VOID" ? "XÁC NHẬN HỦY" : "LƯU"}</button></footer>
-      </form>
+        <footer><ActionButton type="button" onClick={dismiss} disabled={busy}>Đóng</ActionButton><ActionButton type="submit" className={mode === "VOID" ? styles.dangerButton : styles.primaryButton} disabled={busy}>{busy ? "Đang lưu…" : mode === "VOID" ? "XÁC NHẬN HỦY" : "LƯU"}</ActionButton></footer>
+      </ActionForm>
     </div> : null}
   </section>;
 }

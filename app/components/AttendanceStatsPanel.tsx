@@ -1,5 +1,8 @@
 "use client";
 
+import { ActionButton } from "./ActionFeedback";
+import { actionFetch as fetch } from "../lib/action-feedback";
+
 import { useEffect, useRef, useState } from "react";
 import { CalendarCheck2, ClockAlert } from "lucide-react";
 import { formatDateVn } from "../lib/format";
@@ -130,13 +133,13 @@ export default function AttendanceStatsPanel({ storeId }: { storeId: string }) {
       </div>
       <div className={styles.controls}>
         <div className={styles.segmented} role="group" aria-label="Khoảng thống kê đi làm đúng giờ">
-          {(Object.keys(MODE_LABELS) as AttendanceStatsMode[]).map((item) => <button
+          {(Object.keys(MODE_LABELS) as AttendanceStatsMode[]).map((item) => <ActionButton
             key={item}
             type="button"
             className={mode === item ? styles.active : ""}
             aria-pressed={mode === item}
             onClick={() => chooseMode(item)}
-          >{MODE_LABELS[item]}</button>)}
+          >{MODE_LABELS[item]}</ActionButton>)}
         </div>
         <DatePickerControl
           className={styles.anchorPicker}

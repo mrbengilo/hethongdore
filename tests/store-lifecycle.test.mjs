@@ -20,7 +20,7 @@ test("stores use ACTIVE/INACTIVE lifecycle and superadmin-only transactional tom
   assert.match(storesApi, /DELETE FROM sessions/u);
   assert.match(portal, /Ngưng hoạt động/u);
   assert.match(portal, /Kích hoạt lại/u);
-  assert.match(portal, /isSuperAdmin \? <button className="danger store-delete-button"/u);
+  assert.match(portal, /isSuperAdmin \? <ActionButton className="danger store-delete-button"/u);
   assert.match(portal, /role="alertdialog"/u);
   assert.match(portal, /Chỉ xóa được cửa hàng chưa từng phát sinh đơn hàng/u);
 });

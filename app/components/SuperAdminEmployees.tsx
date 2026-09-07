@@ -1,5 +1,8 @@
 "use client";
 
+import { ActionButton } from "./ActionFeedback";
+import { actionFetch as fetch } from "../lib/action-feedback";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Eye, RefreshCw, Save, Search, ShieldAlert, Trash2, X } from "lucide-react";
 import styles from "./SuperAdminEmployees.module.css";
@@ -204,7 +207,7 @@ export function SuperAdminEmployees({ store, onChanged }: { store: Store; onChan
   return <section className={styles.panel} aria-labelledby="super-admin-employees-title">
     <header className={styles.header}>
       <div><h2 id="super-admin-employees-title">Danh sách nhân viên · {store.name}</h2><p>Quản trị cấp cao có thể đổi trạng thái tài khoản hoặc xóa hồ sơ. Các báo cáo cũ vẫn giữ mã đối soát ẩn danh để số liệu không thay đổi.</p></div>
-      <button type="button" className={styles.refresh} onClick={() => void load()} disabled={loading}><RefreshCw size={17} className={loading ? "spin" : ""}/> Làm mới</button>
+      <ActionButton type="button" className={styles.refresh} onClick={() => load()} disabled={loading}><RefreshCw size={17} className={loading ? "spin" : ""}/> Làm mới</ActionButton>
     </header>
     <div className={styles.toolbar}>
       <label><span>Tìm nhân viên</span><span className={styles.search}><Search size={17}/><input type="search" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="Tên, mã, SĐT hoặc tài khoản"/></span></label>
@@ -227,23 +230,23 @@ export function SuperAdminEmployees({ store, onChanged }: { store: Store; onChan
             <small>Cập nhật {fullDateTime(row.statusUpdatedAt)}</small>
             <div className={styles.actions}>
               <select aria-label={`Trạng thái của ${row.name}`} value={draftStatuses[row.id] ?? row.status} onChange={(event) => setDraftStatuses((current) => ({ ...current, [row.id]: event.target.value as EmployeeStatus }))}>{STATUS_OPTIONS.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select>
-              <button type="button" disabled={(draftStatuses[row.id] ?? row.status) === row.status || saving} onClick={() => beginStatus(row)}><Save size={15}/> Lưu trạng thái</button>
-              <button type="button" className={styles.delete} disabled={saving} onClick={() => beginDelete(row)}><Trash2 size={15}/> Xóa khỏi hệ thống</button>
+              <ActionButton type="button" disabled={(draftStatuses[row.id] ?? row.status) === row.status || saving} onClick={() => beginStatus(row)}><Save size={15}/> Lưu trạng thái</ActionButton>
+              <ActionButton type="button" className={styles.delete} disabled={saving} onClick={() => beginDelete(row)}><Trash2 size={15}/> Xóa khỏi hệ thống</ActionButton>
             </div>
           </td>
         </tr>)}</tbody>
       </table>}
     </div>
-    <footer className={styles.pagination}><span>Trang {pagination.page}/{pagination.pages}</span><div><button type="button" disabled={loading || page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>Trang trước</button><button type="button" disabled={loading || page >= pagination.pages} onClick={() => setPage((current) => current + 1)}>Trang sau</button></div></footer>
+    <footer className={styles.pagination}><span>Trang {pagination.page}/{pagination.pages}</span><div><ActionButton type="button" disabled={loading || page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>Trang trước</ActionButton><ActionButton type="button" disabled={loading || page >= pagination.pages} onClick={() => setPage((current) => current + 1)}>Trang sau</ActionButton></div></footer>
 
     {pending ? <div className={styles.backdrop} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeDialog(); }}>
       <section ref={dialogRef} className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="employee-action-title" aria-busy={saving}>
-        <button type="button" className={styles.close} aria-label="Đóng" onClick={closeDialog} disabled={saving}><X size={19}/></button>
+        <ActionButton type="button" className={styles.close} aria-label="Đóng" onClick={closeDialog} disabled={saving}><X size={19}/></ActionButton>
         <h3 id="employee-action-title" ref={dialogTitleRef} tabIndex={-1}>{pending.kind === "DELETE" ? `Xóa ${pending.row.name}` : `Chuyển sang ${statusLabel}`}</h3>
         {pending.kind === "DELETE" ? <div className={styles.dangerNote}><ShieldAlert size={20}/><p>Tài khoản, phiên đăng nhập, hồ sơ nhận dạng và ảnh CCCD sẽ bị xóa. Nhân viên không còn xuất hiện trong danh sách. Lịch sử tài chính chỉ giữ mã ẩn danh để không làm sai báo cáo.</p></div> : <p>Trạng thái mới có hiệu lực ngay. Tạm ngưng và Đã nghỉ việc sẽ bị đăng xuất và không thể đăng nhập.</p>}
         <label>Lý do thao tác<textarea value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} placeholder="Nhập ít nhất 3 ký tự"/></label>
         {pending.kind === "DELETE" ? <label>Nhập mã <b>{pending.row.code}</b> để xác nhận<input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="off"/></label> : null}
-        <div className={styles.dialogActions}><button type="button" onClick={closeDialog} disabled={saving}>Hủy bỏ</button><button type="button" className={pending.kind === "DELETE" ? styles.confirmDelete : styles.confirm} onClick={() => void submit()} disabled={saving || !canSubmit}>{saving ? "Đang lưu…" : pending.kind === "DELETE" ? "Xóa khỏi hệ thống" : "Xác nhận trạng thái"}</button></div>
+        <div className={styles.dialogActions}><ActionButton type="button" onClick={closeDialog} disabled={saving}>Hủy bỏ</ActionButton><ActionButton type="button" className={pending.kind === "DELETE" ? styles.confirmDelete : styles.confirm} onClick={() => submit()} disabled={saving || !canSubmit}>{saving ? "Đang lưu…" : pending.kind === "DELETE" ? "Xóa khỏi hệ thống" : "Xác nhận trạng thái"}</ActionButton></div>
       </section>
     </div> : null}
   </section>;

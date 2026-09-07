@@ -1,5 +1,8 @@
 "use client";
 
+import { ActionButton, ActionForm } from "./ActionFeedback";
+import { actionFetch as fetch } from "../lib/action-feedback";
+
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { Banknote, CheckCircle2, Eye, Pencil, Plus, X } from "lucide-react";
 import { formatDateTime24, formatDateVn, formatVndInput, parseVndInput } from "../lib/format";
@@ -331,9 +334,9 @@ export default function SalaryAdvancePanel({
         <h2 id="salary-advance-title">Lịch sử ứng lương của nhân viên</h2>
         <p>Khả dụng = lương thực tế + phụ cấp + thưởng − các khoản đã ứng.</p>
       </div>
-      <button type="button" className={styles.primaryButton} disabled={locked || loading || busy} onClick={() => void beginCreate()}>
+      <ActionButton type="button" className={styles.primaryButton} disabled={locked || loading || busy} onClick={() => beginCreate()}>
         <Plus size={17} aria-hidden="true"/> TẠO ỨNG LƯƠNG
-      </button>
+      </ActionButton>
     </header>
 
     {message && mode === null ? <p className={success ? styles.success : styles.error} role={success ? "status" : "alert"}>{message}</p> : null}
@@ -368,11 +371,11 @@ export default function SalaryAdvancePanel({
               <td data-label="Trạng thái"><span className={advance.status === "PAID" ? styles.paid : styles.pending}>{advance.status === "PAID" ? "Đã chi" : "Mới tạo"}</span></td>
               <td data-label="Thao tác"><div className={styles.actions}>
                 {advance.status === "DRAFT" ?
-                  <button type="button" disabled={locked || busy} aria-label={`Sửa khoản ứng của ${advance.employeeName}`} onClick={() => beginEdit(advance)}><Pencil size={16}/><span>Sửa</span></button>
+                  <ActionButton type="button" disabled={locked || busy} aria-label={`Sửa khoản ứng của ${advance.employeeName}`} onClick={() => beginEdit(advance)}><Pencil size={16}/><span>Sửa</span></ActionButton>
                   : null}
-                <button type="button" aria-label={`Xem chi tiết khoản ứng của ${advance.employeeName}`} onClick={() => beginView(advance)}><Eye size={16}/><span>Xem chi tiết</span></button>
+                <ActionButton type="button" aria-label={`Xem chi tiết khoản ứng của ${advance.employeeName}`} onClick={() => beginView(advance)}><Eye size={16}/><span>Xem chi tiết</span></ActionButton>
                 {advance.status === "DRAFT" ?
-                  <button type="button" className={styles.confirmButton} disabled={locked || busy} onClick={() => void confirmPayment(advance)}><CheckCircle2 size={16}/><span>XÁC NHẬN CHI</span></button>
+                  <ActionButton type="button" className={styles.confirmButton} disabled={locked || busy} onClick={() => confirmPayment(advance)}><CheckCircle2 size={16}/><span>XÁC NHẬN CHI</span></ActionButton>
                   : null}
               </div></td>
             </tr>) : <tr><td colSpan={10} className={styles.empty}>Chưa có khoản ứng lương trong kỳ.</td></tr>}
@@ -381,8 +384,8 @@ export default function SalaryAdvancePanel({
     </div>
 
     {mode ? <div ref={modalRootRef} className={styles.backdrop}>
-      <form ref={modalRef} className={styles.modal} role="dialog" aria-modal="true" aria-labelledby="salary-advance-dialog-title" aria-busy={busy} tabIndex={-1} onSubmit={save}>
-        <header><div><h2 id="salary-advance-dialog-title">{mode === "CREATE" ? "Tạo khoản ứng lương" : mode === "EDIT" ? "Sửa khoản ứng lương" : "Chi tiết khoản ứng lương"}</h2><p>Kỳ lương {period}</p></div><button type="button" aria-label="Đóng hộp thoại ứng lương" disabled={busy} onClick={dismiss}><X size={19}/></button></header>
+      <ActionForm ref={modalRef} className={styles.modal} role="dialog" aria-modal="true" aria-labelledby="salary-advance-dialog-title" aria-busy={busy} tabIndex={-1} onSubmit={save}>
+        <header><div><h2 id="salary-advance-dialog-title">{mode === "CREATE" ? "Tạo khoản ứng lương" : mode === "EDIT" ? "Sửa khoản ứng lương" : "Chi tiết khoản ứng lương"}</h2><p>Kỳ lương {period}</p></div><ActionButton type="button" aria-label="Đóng hộp thoại ứng lương" disabled={busy} onClick={dismiss}><X size={19}/></ActionButton></header>
         <label>Nhân viên
           <select ref={mode === "CREATE" ? initialFocusRef : undefined} value={employeeId} disabled={busy || mode !== "CREATE"} onChange={(event) => setEmployeeId(event.target.value)} required>
             {(data?.employees ?? []).map((employee) => <option key={employee.employeeId} value={employee.employeeId}>{employee.employeeCode} · {employee.employeeName}</option>)}
@@ -412,8 +415,8 @@ export default function SalaryAdvancePanel({
           {selected.paidAt ? <div><dt>Xác nhận chi</dt><dd>{selected.paidByName} · {formatDateTime24(selected.paidAt, true)}</dd></div> : null}
         </dl> : null}
         {message && !success ? <p className={styles.error} role="alert">{message}</p> : null}
-        <footer><button type="button" disabled={busy} onClick={dismiss}>{mode === "VIEW" ? "Đóng" : "Hủy"}</button>{mode !== "VIEW" ? <button type="submit" className={styles.primaryButton} disabled={busy || maximumAmount <= 1}>{busy ? "Đang lưu…" : mode === "CREATE" ? "Lưu khoản ứng" : "Lưu thay đổi"}</button> : null}</footer>
-      </form>
+        <footer><ActionButton type="button" disabled={busy} onClick={dismiss}>{mode === "VIEW" ? "Đóng" : "Hủy"}</ActionButton>{mode !== "VIEW" ? <ActionButton type="submit" className={styles.primaryButton} disabled={busy || maximumAmount <= 1}>{busy ? "Đang lưu…" : mode === "CREATE" ? "Lưu khoản ứng" : "Lưu thay đổi"}</ActionButton> : null}</footer>
+      </ActionForm>
     </div> : null}
   </section>;
 }

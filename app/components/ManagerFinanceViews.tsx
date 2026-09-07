@@ -1,5 +1,8 @@
 "use client";
 
+import { ActionButton } from "./ActionFeedback";
+import { actionFetch as fetch } from "../lib/action-feedback";
+
 import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import {
   ArrowDownLeft,
@@ -310,8 +313,8 @@ function RangeControls({ granularity, range, onFromChange, onToChange }: {
 
 function GranularityToggle({ value, onChange }: { value: Granularity; onChange: (value: Granularity) => void }) {
   return <div className="finance-segment" role="group" aria-label="Kiểu thống kê">
-    <button type="button" className={value === "day" ? "active" : ""} aria-pressed={value === "day"} onClick={() => onChange("day")}><span aria-hidden="true"/>Theo ngày</button>
-    <button type="button" className={value === "month" ? "active" : ""} aria-pressed={value === "month"} onClick={() => onChange("month")}><span aria-hidden="true"/>Theo tháng</button>
+    <ActionButton type="button" className={value === "day" ? "active" : ""} aria-pressed={value === "day"} onClick={() => onChange("day")}><span aria-hidden="true"/>Theo ngày</ActionButton>
+    <ActionButton type="button" className={value === "month" ? "active" : ""} aria-pressed={value === "month"} onClick={() => onChange("month")}><span aria-hidden="true"/>Theo tháng</ActionButton>
   </div>;
 }
 
@@ -322,8 +325,8 @@ function ExportButtons({ onExcel, onPrint, disabled = false, compact = false }: 
   compact?: boolean;
 }) {
   return <div className={`finance-export-box${compact ? " compact" : ""}`}><span>{compact ? "Xuất dữ liệu" : "Xuất báo cáo"}</span><div>
-    <button type="button" className="excel" onClick={onExcel} disabled={disabled}><FileSpreadsheet size={16}/>{compact ? "Excel" : "File Excel"}</button>
-    <button type="button" className="pdf" title="Mở hộp thoại in hoặc lưu thành PDF" onClick={onPrint} disabled={disabled}><FileText size={16}/>{compact ? "PDF" : "File PDF"}</button>
+    <ActionButton type="button" className="excel" onClick={onExcel} disabled={disabled}><FileSpreadsheet size={16}/>{compact ? "Excel" : "File Excel"}</ActionButton>
+    <ActionButton type="button" className="pdf" title="Mở hộp thoại in hoặc lưu thành PDF" onClick={onPrint} disabled={disabled}><FileText size={16}/>{compact ? "PDF" : "File PDF"}</ActionButton>
   </div></div>;
 }
 
@@ -461,13 +464,13 @@ export function ManagerBusinessReport() {
       <div className="finance-header-controls">
         <GranularityToggle value={financeRange.granularity} onChange={financeRange.setGranularity}/>
         <RangeControls granularity={financeRange.granularity} range={financeRange.range} onFromChange={financeRange.updateFrom} onToChange={financeRange.updateTo}/>
-        <button type="button" className="finance-refresh" onClick={reload} disabled={loading} aria-label="Làm mới báo cáo"><RefreshCw size={17}/></button>
+        <ActionButton type="button" className="finance-refresh" onClick={reload} disabled={loading} aria-label="Làm mới báo cáo"><RefreshCw size={17}/></ActionButton>
         <ExportButtons onExcel={exportReport} onPrint={() => window.print()} disabled={loading || !data}/>
       </div>
     </header>
     <div className="finance-scope-row">
-      <div className="finance-scope-tabs" role="tablist" aria-label="Phạm vi báo cáo"><button type="button" role="tab" aria-selected={scope === "ALL"} className={scope === "ALL" ? "active" : ""} onClick={() => chooseScope("ALL")}><BarChart3 size={19}/>Tổng tất cả cửa hàng</button>
-      <button type="button" role="tab" aria-selected={scope === "STORE"} className={scope === "STORE" ? "active" : ""} onClick={() => chooseScope("STORE")}><Store size={19}/>Theo từng cửa hàng</button></div>
+      <div className="finance-scope-tabs" role="tablist" aria-label="Phạm vi báo cáo"><ActionButton type="button" role="tab" aria-selected={scope === "ALL"} className={scope === "ALL" ? "active" : ""} onClick={() => chooseScope("ALL")}><BarChart3 size={19}/>Tổng tất cả cửa hàng</ActionButton>
+      <ActionButton type="button" role="tab" aria-selected={scope === "STORE"} className={scope === "STORE" ? "active" : ""} onClick={() => chooseScope("STORE")}><Store size={19}/>Theo từng cửa hàng</ActionButton></div>
       {scope === "STORE" ? <label className="finance-store-picker"><span>Chọn cửa hàng</span><select aria-label="Chọn cửa hàng xem báo cáo" value={storeId} onChange={(event) => setStoreId(event.target.value)}>{storeOptions.map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}</select></label> : null}
     </div>
     {error ? <div className="form-message" role="alert">{error}</div> : null}
@@ -633,7 +636,7 @@ export function ManagerCashflow() {
         <label className="finance-store-select"><span>Chọn cửa hàng</span><select aria-label="Chọn cửa hàng xem dòng tiền" value={storeId} onChange={(event) => { setStoreId(event.target.value); setPage(0); }}><option value="ALL">Tất cả cửa hàng</option>{storeOptions.map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}</select></label>
         <GranularityToggle value={financeRange.granularity} onChange={setGranularity}/>
         <RangeControls granularity={financeRange.granularity} range={financeRange.range} onFromChange={(value) => { financeRange.updateFrom(value); setPage(0); }} onToChange={(value) => { financeRange.updateTo(value); setPage(0); }}/>
-        <button type="button" className="finance-refresh" onClick={reload} disabled={loading} aria-label="Làm mới dòng tiền"><RefreshCw size={17}/></button>
+        <ActionButton type="button" className="finance-refresh" onClick={reload} disabled={loading} aria-label="Làm mới dòng tiền"><RefreshCw size={17}/></ActionButton>
         <ExportButtons compact onExcel={exportCashflow} onPrint={() => window.print()} disabled={loading || !data}/>
       </div>
     </header>
@@ -650,7 +653,7 @@ export function ManagerCashflow() {
       <div className="finance-cash-grid"><CashflowLineChart data={data}/><CashflowStructure totals={totals}/></div>
       {storeId === "ALL" ? <section className="finance-panel finance-table-panel cash-store-summary"><div className="finance-panel-heading"><div><h2>Tổng hợp tiền đã chi thực tế tất cả cửa hàng</h2><p>Đối chiếu tổng thu, tổng tiền đã chi và dòng tiền thuần của từng cửa hàng trong khoảng đã chọn.</p></div><span>{data.byStore.length} cửa hàng</span></div><div className="data-table-wrap"><table className="data-table"><caption className="sr-only">Tổng hợp dòng tiền của tất cả cửa hàng</caption><thead><tr><th>Cửa hàng</th><th>Doanh thu</th><th>Tiền đã chi thực tế</th><th>Dòng tiền thuần</th></tr></thead><tbody>{data.byStore.map((store) => <tr key={store.storeId}><td><b>{store.storeName}</b></td><td className="money-green">{money(store.inflow)}</td><td className="money-orange">{money(store.outflow)}</td><td className={store.net >= 0 ? "money-green" : "money-orange"}><b>{money(store.net)}</b></td></tr>)}</tbody><tfoot><tr><td>TỔNG TẤT CẢ CỬA HÀNG</td><td>{money(totals.inflow)}</td><td>{money(totals.outflow)}</td><td>{money(totals.net)}</td></tr></tfoot></table></div></section> : null}
       <section className="finance-panel finance-table-panel cash-detail-table"><div className="finance-panel-heading"><div><h2>Chi tiết dòng tiền theo {financeRange.granularity === "day" ? "ngày" : "tháng"}</h2><p>{rangeLabel(data.range)}</p></div><span>{data.timeline.reduce((sum, row) => sum + row.transactionCount, 0)} phát sinh</span></div><div className="data-table-wrap"><table className="data-table"><caption className="sr-only">Chi tiết dòng tiền theo kỳ</caption><thead><tr><th>{financeRange.granularity === "day" ? "Ngày" : "Tháng"}</th><th>Doanh thu</th><th>Tiền đã chi thực tế</th><th>Dòng tiền thuần</th><th>Số phát sinh</th><th>Nguồn ghi nhận</th><th>Ghi chú</th></tr></thead><tbody>{visibleTimeline.length === 0 ? <tr><td colSpan={7} className="empty-cell">Không có phát sinh trong kỳ đang xem.</td></tr> : visibleTimeline.map((row) => <tr className="cash-row-screen" key={row.key}><td><b>{bucketLabel(row.key)}</b></td><td className="money-green">{money(row.inflow)}</td><td className="money-orange">{money(row.outflow)}</td><td className={row.net >= 0 ? "money-green" : "money-orange"}><b>{money(row.net)}</b></td><td>{row.transactionCount}</td><td>{row.sources.length ? row.sources.join(", ") : "–"}</td><td>{row.notes.length ? row.notes.join(", ") : "–"}</td></tr>)}{data.timeline.map((row) => <tr className="cash-row-print" key={`print-${row.key}`}><td><b>{bucketLabel(row.key)}</b></td><td className="money-green">{money(row.inflow)}</td><td className="money-orange">{money(row.outflow)}</td><td className={row.net >= 0 ? "money-green" : "money-orange"}><b>{money(row.net)}</b></td><td>{row.transactionCount}</td><td>{row.sources.length ? row.sources.join(", ") : "–"}</td><td>{row.notes.length ? row.notes.join(", ") : "–"}</td></tr>)}</tbody></table></div>
-        <div className="finance-pagination"><label>Hiển thị <select aria-label="Số dòng trên mỗi trang" value={rowsPerPage} onChange={(event) => { setRowsPerPage(Number(event.target.value)); setPage(0); }}><option value={5}>5</option><option value={10}>10</option><option value={20}>20</option></select> trên mỗi trang</label><span>{data.timeline.length ? `${safePage * rowsPerPage + 1} – ${Math.min((safePage + 1) * rowsPerPage, data.timeline.length)} của ${data.timeline.length}` : "0 dòng"}</span><div><button type="button" onClick={() => setPage(Math.max(0, safePage - 1))} disabled={safePage === 0} aria-label="Trang trước"><ArrowLeft size={16}/></button><b aria-label={`Trang ${safePage + 1} trên ${pageCount}`}>{safePage + 1}</b><button type="button" onClick={() => setPage(Math.min(pageCount - 1, safePage + 1))} disabled={safePage >= pageCount - 1} aria-label="Trang sau"><ArrowRight size={16}/></button></div></div>
+        <div className="finance-pagination"><label>Hiển thị <select aria-label="Số dòng trên mỗi trang" value={rowsPerPage} onChange={(event) => { setRowsPerPage(Number(event.target.value)); setPage(0); }}><option value={5}>5</option><option value={10}>10</option><option value={20}>20</option></select> trên mỗi trang</label><span>{data.timeline.length ? `${safePage * rowsPerPage + 1} – ${Math.min((safePage + 1) * rowsPerPage, data.timeline.length)} của ${data.timeline.length}` : "0 dòng"}</span><div><ActionButton type="button" onClick={() => setPage(Math.max(0, safePage - 1))} disabled={safePage === 0} aria-label="Trang trước"><ArrowLeft size={16}/></ActionButton><b aria-label={`Trang ${safePage + 1} trên ${pageCount}`}>{safePage + 1}</b><ActionButton type="button" onClick={() => setPage(Math.min(pageCount - 1, safePage + 1))} disabled={safePage >= pageCount - 1} aria-label="Trang sau"><ArrowRight size={16}/></ActionButton></div></div>
       </section>
     </> : null}
   </div>;

@@ -1,5 +1,8 @@
 "use client";
 
+import { ActionButton } from "./ActionFeedback";
+import { actionFetch as fetch } from "../lib/action-feedback";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Edit3, RefreshCw, Search, Trash2, X } from "lucide-react";
 import { formatDateTime24, formatDateVn, formatVndInput, parseVndInput } from "../lib/format";
@@ -277,11 +280,11 @@ export function SuperAdminDataRecords({ store, onChanged }: { store: Store; onCh
     <div ref={panelContentRef} className={styles.panelContent}>
     <header className={styles.header}>
       <div><h2 id="super-admin-records-title">Danh sách dữ liệu chi tiết · {store.name}</h2><p>Mỗi bản ghi hiển thị riêng. Mọi sửa/xóa đều bị chặn khi kỳ đã khóa và được lưu bản đối soát cùng lịch sử thao tác.</p></div>
-      <button type="button" className={styles.refresh} disabled={loading} onClick={() => void load()}><RefreshCw size={17} className={loading ? "spin" : ""}/> Làm mới</button>
+      <ActionButton type="button" className={styles.refresh} disabled={loading} onClick={() => load()}><RefreshCw size={17} className={loading ? "spin" : ""}/> Làm mới</ActionButton>
     </header>
     <div className={styles.tabs} role="tablist" aria-label="Loại dữ liệu chi tiết">
-      <button type="button" role="tab" aria-selected={resource === "ORDERS"} className={resource === "ORDERS" ? styles.activeTab : ""} onClick={() => changeResource("ORDERS")}>Tất cả đơn hàng</button>
-      <button type="button" role="tab" aria-selected={resource === "ATTENDANCE"} className={resource === "ATTENDANCE" ? styles.activeTab : ""} onClick={() => changeResource("ATTENDANCE")}>Chấm công theo ca</button>
+      <ActionButton type="button" role="tab" aria-selected={resource === "ORDERS"} className={resource === "ORDERS" ? styles.activeTab : ""} onClick={() => changeResource("ORDERS")}>Tất cả đơn hàng</ActionButton>
+      <ActionButton type="button" role="tab" aria-selected={resource === "ATTENDANCE"} className={resource === "ATTENDANCE" ? styles.activeTab : ""} onClick={() => changeResource("ATTENDANCE")}>Chấm công theo ca</ActionButton>
     </div>
     <div className={styles.filters}>
       <label>Thời gian<select value={range} onChange={(event) => changeFilter(() => { setRange(event.target.value as Range); setShiftCode(""); })}><option value="ALL">Toàn bộ lịch sử</option><option value="DAY">Theo ngày</option><option value="MONTH">Theo tháng</option></select></label>
@@ -302,7 +305,7 @@ export function SuperAdminDataRecords({ store, onChanged }: { store: Store; onCh
           <td data-label="Nhân viên / ca"><b>{row.employeeName ?? row.employeeId}</b><small>{row.employeeCode ?? "—"} · {row.shiftName ?? row.shiftCode}</small></td>
           <td data-label="Giá trị"><b>{money(row.amount)}</b></td><td data-label="Thanh toán">{paymentLabel(row.paymentMethod)}</td>
           <td data-label="Tạo lúc">{dateTime(row.createdAt)}</td><td data-label="Trạng thái"><span className={styles.status}>{row.status === "COMPLETED" ? "Hoàn tất" : row.status}</span>{row.locked ? <small>Kỳ đã khóa</small> : null}</td>
-          <td data-label="Thao tác"><div className={styles.rowActions}><button type="button" aria-label={`Sửa đơn ${row.code}`} disabled={Boolean(row.locked) || !row.shiftSessionId} onClick={() => openEdit(row)}><Edit3 size={16}/> Sửa</button><button type="button" className={styles.delete} aria-label={`Xóa đơn ${row.code}`} disabled={Boolean(row.locked) || !row.shiftSessionId} onClick={() => openDelete(row)}><Trash2 size={16}/> Xóa</button></div></td>
+          <td data-label="Thao tác"><div className={styles.rowActions}><ActionButton type="button" aria-label={`Sửa đơn ${row.code}`} disabled={Boolean(row.locked) || !row.shiftSessionId} onClick={() => openEdit(row)}><Edit3 size={16}/> Sửa</ActionButton><ActionButton type="button" className={styles.delete} aria-label={`Xóa đơn ${row.code}`} disabled={Boolean(row.locked) || !row.shiftSessionId} onClick={() => openDelete(row)}><Trash2 size={16}/> Xóa</ActionButton></div></td>
         </tr>)}</tbody>
       </table> : <table className={styles.table}>
         <thead><tr><th>Ngày</th><th>Nhân viên</th><th>Ca</th><th>Giờ vào / kết</th><th>Giờ thực tế</th><th>Doanh thu / chi phí</th><th>Trạng thái</th><th>Thao tác</th></tr></thead>
@@ -314,16 +317,16 @@ export function SuperAdminDataRecords({ store, onChanged }: { store: Store; onCh
             <td data-label="Giờ thực tế"><b>{(row.durationSeconds / 3_600).toFixed(2)} giờ</b>{row.adminAdjustedDurationSeconds != null ? <small>Đã điều chỉnh bởi quản trị cấp cao</small> : null}</td>
             <td data-label="Doanh thu / chi phí"><b>{money(row.cashRevenue + row.transferRevenue)}</b><small>Chi phí {money(row.expenseAmount)}</small></td>
             <td data-label="Trạng thái"><span className={`${styles.status} ${row.attendanceStatus === "EARLY" ? styles.early : row.attendanceStatus === "LATE" ? styles.late : row.attendanceStatus === "ON_TIME" ? styles.onTime : styles.unknown}`}>{attendanceLabel(row)}</span>{row.locked ? <small>Kỳ đã khóa</small> : row.linkedOrderCount > 0 ? <small>{row.linkedOrderCount} đơn hàng liên kết</small> : null}</td>
-            <td data-label="Thao tác"><div className={styles.rowActions}><button type="button" aria-label={`Sửa giờ làm ${row.employeeName ?? row.employeeId}`} disabled={Boolean(row.locked) || (row.status !== "ACTIVE" && !row.endedAt)} onClick={() => openEdit(row)}><Edit3 size={16}/> Sửa giờ</button><button type="button" className={styles.delete} aria-label={`Xóa chấm công ${row.employeeName ?? row.employeeId}`} disabled={blockedDelete} title={row.linkedOrderCount > 0 ? "Hãy xóa đơn hàng của ca trước" : undefined} onClick={() => openDelete(row)}><Trash2 size={16}/> Xóa</button></div></td>
+            <td data-label="Thao tác"><div className={styles.rowActions}><ActionButton type="button" aria-label={`Sửa giờ làm ${row.employeeName ?? row.employeeId}`} disabled={Boolean(row.locked) || (row.status !== "ACTIVE" && !row.endedAt)} onClick={() => openEdit(row)}><Edit3 size={16}/> Sửa giờ</ActionButton><ActionButton type="button" className={styles.delete} aria-label={`Xóa chấm công ${row.employeeName ?? row.employeeId}`} disabled={blockedDelete} title={row.linkedOrderCount > 0 ? "Hãy xóa đơn hàng của ca trước" : undefined} onClick={() => openDelete(row)}><Trash2 size={16}/> Xóa</ActionButton></div></td>
           </tr>;
         })}</tbody>
       </table>}
     </div>
-    <footer className={styles.pagination}><span>{pagination.total} bản ghi · Trang {pagination.page}/{pagination.pages}</span><div><button type="button" aria-label="Trang trước" disabled={loading || page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}><ChevronLeft size={18}/></button><button type="button" aria-label="Trang sau" disabled={loading || page >= pagination.pages} onClick={() => setPage((current) => Math.min(pagination.pages, current + 1))}><ChevronRight size={18}/></button></div></footer>
+    <footer className={styles.pagination}><span>{pagination.total} bản ghi · Trang {pagination.page}/{pagination.pages}</span><div><ActionButton type="button" aria-label="Trang trước" disabled={loading || page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}><ChevronLeft size={18}/></ActionButton><ActionButton type="button" aria-label="Trang sau" disabled={loading || page >= pagination.pages} onClick={() => setPage((current) => Math.min(pagination.pages, current + 1))}><ChevronRight size={18}/></ActionButton></div></footer>
     </div>
     {dialogRow ? <div className={styles.backdrop} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeDialog(); }}>
       <section ref={dialogRef} className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="record-dialog-title">
-        <header><h3 id="record-dialog-title" ref={dialogTitleRef} tabIndex={-1}>{deleting ? "Xác nhận xóa dữ liệu" : resource === "ORDERS" ? "Sửa đơn hàng" : "Sửa giờ vào và giờ kết ca"}</h3><button type="button" aria-label="Đóng" disabled={saving} onClick={closeDialog}><X size={20}/></button></header>
+        <header><h3 id="record-dialog-title" ref={dialogTitleRef} tabIndex={-1}>{deleting ? "Xác nhận xóa dữ liệu" : resource === "ORDERS" ? "Sửa đơn hàng" : "Sửa giờ vào và giờ kết ca"}</h3><ActionButton type="button" aria-label="Đóng" disabled={saving} onClick={closeDialog}><X size={20}/></ActionButton></header>
         <p>{resource === "ORDERS" ? `Đơn ${(dialogRow as OrderRow).code}` : `${dialogRow.employeeName ?? dialogRow.employeeId} · ${dialogRow.shiftName ?? dialogRow.shiftCode}`}</p>
         {editing && resource === "ORDERS" ? <div className={styles.formGrid}><label>Tên khách hàng<input value={orderForm.customerName} onChange={(event) => setOrderForm((current) => ({ ...current, customerName: event.target.value }))}/></label><label>Số điện thoại<input inputMode="tel" value={orderForm.phone} onChange={(event) => setOrderForm((current) => ({ ...current, phone: event.target.value }))}/></label><label>Tuổi<input type="number" min="1" max="120" value={orderForm.age} onChange={(event) => setOrderForm((current) => ({ ...current, age: event.target.value }))}/></label><label>Giá trị đơn<input type="text" inputMode="numeric" pattern="[0-9,]*" required value={orderForm.amount} onChange={(event) => setOrderForm((current) => ({ ...current, amount: formatVndInput(event.target.value) }))}/></label><label>Thanh toán<select value={orderForm.paymentMethod} onChange={(event) => setOrderForm((current) => ({ ...current, paymentMethod: event.target.value }))}><option value="CASH">Tiền mặt</option><option value="BANK_TRANSFER">Chuyển khoản</option></select></label></div> : null}
         {editing && resource === "ATTENDANCE" ? <div className={styles.formGrid}>
@@ -333,7 +336,7 @@ export function SuperAdminDataRecords({ store, onChanged }: { store: Store; onCh
         </div> : null}
         {deleting ? <div className={styles.dangerNote}><b>Dữ liệu sẽ bị loại khỏi vận hành.</b> Bản đối soát và lịch sử người thực hiện vẫn được lưu. Chấm công có đơn hàng liên kết phải xóa đơn trước.</div> : null}
         <label className={styles.fullLabel}>Lý do {deleting ? "xóa" : "thay đổi"}<textarea rows={3} minLength={3} maxLength={500} required value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Nhập lý do để lưu vào lịch sử kiểm tra"/></label>
-        <div className={styles.dialogActions}><button type="button" disabled={saving} onClick={closeDialog}>Hủy</button><button type="button" className={deleting ? styles.confirmDelete : styles.confirmSave} disabled={saving || reason.trim().length < 3 || Boolean(editing && resource === "ATTENDANCE" && !attendanceTimesValid)} onClick={() => void (deleting ? removeRow() : saveEdit())}>{saving ? "Đang lưu…" : deleting ? "Xóa dữ liệu" : "Lưu thay đổi"}</button></div>
+        <div className={styles.dialogActions}><ActionButton type="button" disabled={saving} onClick={closeDialog}>Hủy</ActionButton><ActionButton type="button" className={deleting ? styles.confirmDelete : styles.confirmSave} disabled={saving || reason.trim().length < 3 || Boolean(editing && resource === "ATTENDANCE" && !attendanceTimesValid)} onClick={() => (deleting ? removeRow() : saveEdit())}>{saving ? "Đang lưu…" : deleting ? "Xóa dữ liệu" : "Lưu thay đổi"}</ActionButton></div>
       </section>
     </div> : null}
   </section>;

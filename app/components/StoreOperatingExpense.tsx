@@ -1,5 +1,8 @@
 "use client";
 
+import { ActionButton, ActionForm } from "./ActionFeedback";
+import { actionFetch as fetch } from "../lib/action-feedback";
+
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Download, Plus, ReceiptText, RefreshCw, WalletCards, X } from "lucide-react";
 import { formatVndInput, parseVndInput } from "../lib/format";
@@ -204,9 +207,9 @@ export function StoreOperatingExpense({ store, onSaved }: {
     <div className="ref-toolbar">
       <div><h2>CHI PHÍ PHÁT SINH</h2><p>Ghi nhận từng khoản chi thực tế của {store.name}; mỗi lần lưu tạo một dòng lịch sử riêng.</p></div>
       <div className="ref-toolbar-actions">
-        <button type="button" onClick={() => void reload()} disabled={loading}><RefreshCw size={16}/> Làm mới</button>
-        <button type="button" onClick={exportHistory} disabled={!records.length}><Download size={16}/> Xuất CSV</button>
-        <button type="button" className="primary-button" disabled={inactive} onClick={begin}><Plus size={17}/> Tạo chi phí phát sinh</button>
+        <ActionButton type="button" onClick={() => reload()} disabled={loading}><RefreshCw size={16}/> Làm mới</ActionButton>
+        <ActionButton type="button" onClick={exportHistory} disabled={!records.length}><Download size={16}/> Xuất CSV</ActionButton>
+        <ActionButton type="button" className="primary-button" disabled={inactive} onClick={begin}><Plus size={17}/> Tạo chi phí phát sinh</ActionButton>
       </div>
     </div>
 
@@ -226,8 +229,8 @@ export function StoreOperatingExpense({ store, onSaved }: {
       </tbody><tfoot><tr><td colSpan={3}>TỔNG CỘNG</td><td>{money(total)}</td><td colSpan={4}/></tr></tfoot></table></div>
     </section>
 
-    {open && <div className="modal-backdrop"><form className="modal" onSubmit={save}>
-      <div className="modal-title"><div><h2>Tạo chi phí phát sinh</h2><p>Khoản chi sẽ được ghi riêng vào lịch sử của {store.name}.</p></div><button type="button" disabled={saving} onClick={() => setOpen(false)} aria-label="Đóng"><X size={19}/></button></div>
+    {open && <div className="modal-backdrop"><ActionForm className="modal" onSubmit={save}>
+      <div className="modal-title"><div><h2>Tạo chi phí phát sinh</h2><p>Khoản chi sẽ được ghi riêng vào lịch sử của {store.name}.</p></div><ActionButton type="button" disabled={saving} onClick={() => setOpen(false)} aria-label="Đóng"><X size={19}/></ActionButton></div>
       <div className="form-grid two">
         <label>Ngày chi *<input type="date" required value={date} onChange={(event) => setDate(event.target.value)}/></label>
         <label>Loại / tên chi phí *<input list="operating-expense-types" required maxLength={100} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Ví dụ: Sửa chữa thiết bị"/><datalist id="operating-expense-types"><option value="Marketing"/><option value="Sửa chữa"/><option value="Vật tư tiêu hao"/><option value="Phí dịch vụ"/><option value="Khác"/></datalist></label>
@@ -235,7 +238,7 @@ export function StoreOperatingExpense({ store, onSaved }: {
       <label>Số tiền *<input type="text" inputMode="numeric" required value={amount} onChange={(event) => setAmount(formatVndInput(event.target.value))} placeholder="Ví dụ: 15,000"/><small>{money(parseVndInput(amount))}</small></label>
       <label>Ghi chú *<textarea required maxLength={500} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Nội dung, lý do hoặc thông tin đối soát khoản chi"/></label>
       {error && <div className="form-message">{error}</div>}
-      <div className="modal-actions"><button type="button" disabled={saving} onClick={() => setOpen(false)}>Hủy</button><button type="submit" className="primary-button" disabled={saving || inactive}>{saving ? "ĐANG LƯU..." : "LƯU"}</button></div>
-    </form></div>}
+      <div className="modal-actions"><ActionButton type="button" disabled={saving} onClick={() => setOpen(false)}>Hủy</ActionButton><ActionButton type="submit" className="primary-button" disabled={saving || inactive}>{saving ? "ĐANG LƯU..." : "LƯU"}</ActionButton></div>
+    </ActionForm></div>}
   </section>;
 }

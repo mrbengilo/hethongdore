@@ -1,5 +1,8 @@
 "use client";
 
+import { ActionButton, ActionForm } from "./ActionFeedback";
+import { actionFetch as fetch } from "../lib/action-feedback";
+
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { Clock3, RefreshCw, Save, ShieldCheck } from "lucide-react";
 import styles from "./AttendancePolicySettings.module.css";
@@ -122,11 +125,11 @@ export function AttendancePolicySettings() {
     <section className={styles.intro}>
       <span><ShieldCheck size={25} aria-hidden="true"/></span>
       <div><h2 id="attendance-policy-title">Cài Đặt Chính Sách</h2><p>Thiết lập quy tắc chấm công dùng chung cho toàn hệ thống DORE.</p></div>
-      <button type="button" onClick={() => void load()} disabled={loading || saving}><RefreshCw size={17} aria-hidden="true"/> Làm mới</button>
+      <ActionButton type="button" onClick={() => load()} disabled={loading || saving}><RefreshCw size={17} aria-hidden="true"/> Làm mới</ActionButton>
     </section>
     <section className={styles.card} aria-labelledby="late-policy-title">
       <header><span><Clock3 size={23} aria-hidden="true"/></span><div><h3 id="late-policy-title">Set thời gian đi trễ</h3><p>Nhân viên chỉ được gắn trạng thái “Đi trễ” khi thời điểm điểm danh vượt quá số phút này sau giờ bắt đầu ca.</p></div></header>
-      {loading ? <p className={styles.loading} role="status">Đang tải chính sách...</p> : error && !data ? <div className={styles.error} role="alert">{error}</div> : <form onSubmit={submit}>
+      {loading ? <p className={styles.loading} role="status">Đang tải chính sách...</p> : error && !data ? <div className={styles.error} role="alert">{error}</div> : <ActionForm onSubmit={submit}>
         <div className={styles.policyGrid}>
           <div><label htmlFor="late-grace-minutes">Ngưỡng đi trễ</label><div className={styles.numberField}>
             <input id="late-grace-minutes" type="number" inputMode="numeric" min={data?.limits?.min ?? 0} max={data?.limits?.max ?? 120} step="1" required value={minutes} onChange={(event) => setMinutes(event.target.value)}/><span>phút</span>
@@ -138,13 +141,13 @@ export function AttendancePolicySettings() {
             <input id="max-shift-duration-minutes" type="number" inputMode="numeric" min={data?.maxShiftDurationLimits?.min ?? 60} max={data?.maxShiftDurationLimits?.max ?? 2880} step="1" required value={maxShiftMinutes} onChange={(event) => setMaxShiftMinutes(event.target.value)}/><span>phút</span>
           </div></div>
         </div>
-        <div className={styles.actionRow}><button type="submit" disabled={saving}><Save size={17} aria-hidden="true"/> {saving ? "Đang lưu..." : "LƯU CHÍNH SÁCH"}</button></div>
+        <div className={styles.actionRow}><ActionButton type="submit" disabled={saving}><Save size={17} aria-hidden="true"/> {saving ? "Đang lưu..." : "LƯU CHÍNH SÁCH"}</ActionButton></div>
         <p className={styles.example}>Ví dụ: đặt 15 phút thì điểm danh đúng 15 phút sau giờ bắt đầu vẫn là “Đúng giờ”; từ thời điểm vượt quá 15 phút mới là “Đi trễ”.</p>
         <div className={styles.notice}><b>Phạm vi áp dụng</b><span>Chỉ áp dụng cho lượt điểm danh mới. Mỗi ca lưu ngưỡng tại thời điểm điểm danh nên lịch sử không thay đổi khi chính sách được chỉnh sửa.</span></div>
         {data?.policy && <p className={styles.meta}>Phiên bản {data.policy.version} · cập nhật {formatDateTime(data.policy.updatedAt)}{data.policy.updatedByName ? ` bởi ${data.policy.updatedByName}` : ""}</p>}
         {message && <div className={styles.success} role="status">{message}</div>}
         {error && <div className={styles.error} role="alert">{error}</div>}
-      </form>}
+      </ActionForm>}
     </section>
     <PayrollPolicySettings/>
   </main>;

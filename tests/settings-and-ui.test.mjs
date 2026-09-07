@@ -26,7 +26,7 @@ test("fixed-cost primary buttons expose readable action labels", async () => {
     source("../app/globals.css"),
   ]);
 
-  assert.match(component, /> Thêm chi phí<\/button>/u);
+  assert.match(component, /> Thêm chi phí<\/ActionButton>/u);
   assert.equal(component.match(/"Lưu chi phí"/gu)?.length, 2);
   assert.match(styles, /\.fixed-cost-toolbar \.primary-button,[\s\S]*?background:\s*linear-gradient\([^)]+\);[\s\S]*?color:\s*#fff;/u);
   assert.match(styles, /\.fixed-cost-save-actions \.primary-button/u);
@@ -163,7 +163,7 @@ test("store month controls, expense breakdown and system back action stay touch-
   assert.match(portal, /function showMonthPicker\(input: HTMLInputElement\)[\s\S]*typeof input\.showPicker !== "function"\) return false;[\s\S]*return true;/u);
   assert.match(portal, /function MonthPickerControl[\s\S]*<Calendar size=\{18\}[\s\S]*className="month-picker-native"[\s\S]*aria-label=\{ariaLabel\}[\s\S]*type="month"/u);
   assert.match(portal, /showMonthPicker\(inputRef\.current \?\? event\.currentTarget\)\) event\.preventDefault\(\)/u);
-  assert.match(portal, /<ArrowLeft size=\{17\}\/?> Quay về trang quản lý chính<\/button>/u);
+  assert.match(portal, /<ArrowLeft size=\{17\}\/?> Quay về trang quản lý chính<\/ActionButton>/u);
   assert.doesNotMatch(portal, /<span className="date-control">▣ Kỳ/u);
   assert.match(portal, /className="table-card store-expense-breakdown"/u);
   assert.match(portal, /<StoreFinancialReport store=\{store\} initialPeriod=\{period\} onPeriodChange=\{onPeriodChange\}\/>/u);

@@ -75,7 +75,7 @@ test("inventory receipts use a persistent mobile-safe list and server-calculated
   const noteIndex = inventoryUi.indexOf('placeholder="Ghi chú chung cho phiếu nhập"');
   assert.ok(draftTableIndex >= 0 && draftTableIndex < addItemActionIndex, "add-item action must follow the inventory list");
   assert.ok(addItemActionIndex < noteIndex, "add-item action must stay directly above the receipt note");
-  assert.match(inventoryUi, /<button type="button" disabled=\{inactive \|\| saving \|\| items\.length >= 100\} onClick=\{addItem\}>/u);
+  assert.match(inventoryUi, /<ActionButton type="button" disabled=\{inactive \|\| saving \|\| items\.length >= 100\} onClick=\{addItem\}>/u);
   assert.match(inventoryUi, /className="inventory-draft-fieldset"/u);
   assert.match(inventoryUi, /className="data-table-wrap inventory-table-scroll" role="region" aria-label=/u);
   assert.doesNotMatch(inventoryUi, /<fieldset[^>]*style=\{\{ border: 0, margin: 0, padding: 0 \}\}/u);
@@ -322,7 +322,7 @@ test("payroll management ignores out-of-order months and gates every action on t
   assert.match(payrollUi, /const actionScope = loadedScope/u);
   assert.match(payrollUi, /body: JSON\.stringify\(\{ storeId: actionScope\.storeId, period: actionScope\.period \}\)/u);
   assert.match(payrollUi, /luong-thuong-\$\{actionScope\.storeId\}-\$\{actionScope\.period\}\.csv/u);
-  assert.match(payrollUi, /<button disabled=\{!dataIsCurrent\} onClick=\{exportPayroll\}>/u);
+  assert.match(payrollUi, /<ActionButton disabled=\{!dataIsCurrent\} onClick=\{exportPayroll\}>/u);
   assert.match(payrollUi, /disabled=\{locked \|\| loading \|\| finalizing \|\| !dataIsCurrent\}/u);
   assert.match(payrollUi, /storeId: actionScope\.storeId,[\s\S]*period: actionScope\.period/u);
 });

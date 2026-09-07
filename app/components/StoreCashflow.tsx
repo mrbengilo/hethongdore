@@ -1,5 +1,8 @@
 "use client";
 
+import { ActionButton } from "./ActionFeedback";
+import { actionFetch as fetch } from "../lib/action-feedback";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDownLeft,
@@ -339,7 +342,7 @@ export function StoreShiftCashflow({ store, period, onPeriodChange, refreshVersi
       <div><span className="store-cashflow-eyebrow">DỮ LIỆU CA ĐÃ HOÀN TẤT</span><h2>Dòng tiền theo ca</h2><p>Doanh thu kết ca và chi phí trong ca lấy trực tiếp từ dữ liệu vận hành của {store.name}.</p></div>
       <div className="store-cashflow-actions">
         <div className="store-cashflow-modes" role="group" aria-label="Chọn cách xem dòng tiền">
-          {modes.map(({ value, label, icon: Icon }) => <button key={value} type="button" aria-pressed={filter.mode === value} className={filter.mode === value ? "active" : ""} onClick={() => chooseMode(value)}><Icon size={17}/>{label}</button>)}
+          {modes.map(({ value, label, icon: Icon }) => <ActionButton key={value} type="button" aria-pressed={filter.mode === value} className={filter.mode === value ? "active" : ""} onClick={() => chooseMode(value)}><Icon size={17}/>{label}</ActionButton>)}
         </div>
         <DatePickerControl
           className="store-cashflow-period-control"
@@ -349,7 +352,7 @@ export function StoreShiftCashflow({ store, period, onPeriodChange, refreshVersi
           value={anchor}
           onChange={(value) => filter.mode === "month" ? updateMonth(value) : updateDay(value)}
         />
-        <button type="button" className="store-cashflow-refresh" onClick={reload} disabled={loading}><RefreshCw size={17}/>{loading ? "Đang tải…" : "Làm mới"}</button>
+        <ActionButton type="button" className="store-cashflow-refresh" onClick={reload} disabled={loading}><RefreshCw size={17}/>{loading ? "Đang tải…" : "Làm mới"}</ActionButton>
       </div>
     </header>
 

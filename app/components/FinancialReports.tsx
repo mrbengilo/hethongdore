@@ -1,5 +1,8 @@
 "use client";
 
+import { ActionButton } from "./ActionFeedback";
+import { actionFetch as fetch } from "../lib/action-feedback";
+
 import { formatVndInput, parseVndInput } from "../lib/format";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -465,8 +468,8 @@ function ReportToolbar({ title, description, period, setPeriod, onRefresh, onExp
 }) {
   return <div className="ref-toolbar"><div><h2>{title}</h2><p>{description}</p></div><div className="ref-toolbar-actions">
     <MonthPickerControl period={period} setPeriod={setPeriod}/>
-    <button onClick={onRefresh} disabled={loading}><RefreshCw size={16}/> {loading ? "Đang tải…" : "Làm mới"}</button>
-    <button onClick={onExport} disabled={exportDisabled}><Download size={16}/> Xuất CSV</button>
+    <ActionButton onClick={onRefresh} disabled={loading}><RefreshCw size={16}/> {loading ? "Đang tải…" : "Làm mới"}</ActionButton>
+    <ActionButton onClick={onExport} disabled={exportDisabled}><Download size={16}/> Xuất CSV</ActionButton>
   </div></div>;
 }
 
@@ -831,14 +834,14 @@ export function ManagerProfitSharingClosing({ initialPeriod, onPeriodChange }: {
         </div>
         <p id="setup-repayment-note">{invalidSelectedAmount ? "Nhập số tiền đồng nguyên, không âm." : `Lợi nhuận sau lương thưởng ${money(setupStore.finalProfit)} − hoàn trả setup ${money(selectedAmount)} = còn lại ${money(setupStore.finalProfit - selectedAmount)}.`}</p>
         <div className="setup-repayment-actions">
-          <button className="primary-button" disabled={loading || saving || savingSetup || invalidSelectedAmount || setupConflict || Boolean(selectedSavedSetup && !selectedSetupChanged)}
-            onClick={() => void saveSelectedSetup()}><Save size={17}/>{savingSetup ? "Đang lưu…" : "Lưu hoàn trả setup"}</button>
+          <ActionButton className="primary-button" disabled={loading || saving || savingSetup || invalidSelectedAmount || setupConflict || Boolean(selectedSavedSetup && !selectedSetupChanged)}
+            onClick={() => saveSelectedSetup()}><Save size={17}/>{savingSetup ? "Đang lưu…" : "Lưu hoàn trả setup"}</ActionButton>
           <span id="setup-repayment-status" role="status">{setupConflict
             ? "Số đã lưu vừa thay đổi. Tải số mới trước khi sửa tiếp."
             : selectedSetupChanged ? "Chưa lưu thay đổi"
               : selectedSavedSetup ? `Đã lưu ${dateTime(selectedSavedSetup.updatedAt)}` : "Không hoàn trả setup: để 0 đồng."}</span>
-          {setupConflict && <button className="ghost-button" disabled={loading || saving || savingSetup}
-            onClick={() => clearSetupDraft(period, setupStore.storeId)}>Tải số đã lưu</button>}
+          {setupConflict && <ActionButton className="ghost-button" disabled={loading || saving || savingSetup}
+            onClick={() => clearSetupDraft(period, setupStore.storeId)}>Tải số đã lưu</ActionButton>}
         </div>
         <p>Lưu riêng từng cửa hàng và kỳ; có thể sửa trước khi khóa kỳ chia lợi nhuận.</p>
       </section>}
@@ -851,7 +854,7 @@ export function ManagerProfitSharingClosing({ initialPeriod, onPeriodChange }: {
           })}
         <p><span>Tổng lợi nhuận được chia</span><b>{money(distributableProfit)}</b><em>{periodLabel(period)}</em></p>
         {hasUnsavedSetup && <p role="status">Lưu hoàn trả setup đã nhập trước khi khóa kỳ chia lợi nhuận.</p>}
-        <button className="primary-button wide" disabled={saving || savingSetup || loading || hasUnsavedSetup || Boolean(calculationError) || Boolean(currentHistory) || currentMembers.length === 0 || !periodClosed || !allStoresLocked} onClick={() => void closeProfitSharing()}><LockKeyhole size={17}/> {saving ? "ĐANG KHÓA KỲ…" : currentHistory ? "KỲ CHIA LỢI NHUẬN ĐÃ KHÓA" : currentMembers.length === 0 ? "CHƯA CÓ CẤU HÌNH THÀNH VIÊN" : !periodClosed ? "CHỜ KẾT THÚC KỲ" : !allStoresLocked ? "CHỜ CỬA HÀNG KHÓA KỲ" : "XÁC NHẬN CHIA VÀ KHÓA KỲ"}</button>
+        <ActionButton className="primary-button wide" disabled={saving || savingSetup || loading || hasUnsavedSetup || Boolean(calculationError) || Boolean(currentHistory) || currentMembers.length === 0 || !periodClosed || !allStoresLocked} onClick={() => closeProfitSharing()}><LockKeyhole size={17}/> {saving ? "ĐANG KHÓA KỲ…" : currentHistory ? "KỲ CHIA LỢI NHUẬN ĐÃ KHÓA" : currentMembers.length === 0 ? "CHƯA CÓ CẤU HÌNH THÀNH VIÊN" : !periodClosed ? "CHỜ KẾT THÚC KỲ" : !allStoresLocked ? "CHỜ CỬA HÀNG KHÓA KỲ" : "XÁC NHẬN CHIA VÀ KHÓA KỲ"}</ActionButton>
       </section><section className="manager-panel"><h2>NGUYÊN TẮC GHI NHẬN</h2>
         <p><span>Nguồn tính</span><b>Lợi nhuận sau cùng đã khóa</b><em>Từng cửa hàng</em></p>
         <p><span>Hoàn trả setup trong kỳ</span><b>{money(setupRepayment)}</b><em>Trừ riêng tại từng cửa hàng sau lương thưởng</em></p>

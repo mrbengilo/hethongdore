@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton, ActionForm } from "./ActionFeedback";
+
 import { useState, type FormEvent } from "react";
 import { validatePayrollReviewValues, type PayrollReviewSource, type PayrollReviewState, type PayrollReviewValues } from "../lib/payroll-review";
 import { formatVndInput, parseVndInput } from "../lib/format";
@@ -52,7 +54,7 @@ export default function PayrollReviewEditor({ item, busy, onUpdate, onCancel }: 
     <h3 id="payroll-review-title">Cập nhật số liệu · {item.employeeName}</h3>
     <p>{item.employeeCode} · Cập nhật xong, xem lại bảng lương rồi mới chốt.</p>
     {item.review?.stale && <p className="form-message">Dữ liệu nguồn đã thay đổi sau lần cập nhật trước. Kiểm tra lại các số dưới đây.</p>}
-    <form onSubmit={(event) => void submit(event)}>
+    <ActionForm onSubmit={(event) => submit(event)}>
       <fieldset disabled={busy} className={styles.reviewFields}>
         <legend className="sr-only">Giờ, phụ cấp và thưởng của {item.employeeName}</legend>
         <label>Giờ tính lương<input type="number" min="0" max="744" step="any" inputMode="decimal" required value={fields.hours} onChange={(event) => setFields({ ...fields, hours: event.target.value })}/></label>
@@ -65,9 +67,9 @@ export default function PayrollReviewEditor({ item, busy, onUpdate, onCancel }: 
       <p className={styles.reviewHint}>Nhập tổng số cuối cùng cho từng khoản. Lương tính theo đơn giá bình quân của các ca trong kỳ; giờ KPI được xét riêng. Giờ chấm công gốc được giữ để đối chiếu.</p>
       {error && <div className="form-message" role="alert">{error}</div>}
       <div className={styles.reviewActions}>
-        <button type="submit" disabled={busy}>{busy ? "Đang cập nhật…" : "Cập nhật số liệu"}</button>
-        <button type="button" disabled={busy} onClick={onCancel}>Hủy sửa</button>
+        <ActionButton type="submit" disabled={busy}>{busy ? "Đang cập nhật…" : "Cập nhật số liệu"}</ActionButton>
+        <ActionButton type="button" disabled={busy} onClick={onCancel}>Hủy sửa</ActionButton>
       </div>
-    </form>
+    </ActionForm>
   </section>;
 }

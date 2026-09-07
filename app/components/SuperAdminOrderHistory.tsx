@@ -1,5 +1,8 @@
 "use client";
 
+import { ActionButton } from "./ActionFeedback";
+import { actionFetch as fetch } from "../lib/action-feedback";
+
 import { useCallback, useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, History, RefreshCw, Search } from "lucide-react";
 import { formatDateTime24, formatDateVn } from "../lib/format";
@@ -104,7 +107,7 @@ export function SuperAdminOrderHistory({ store }: { store: Store }) {
   return <section className={styles.panel} aria-labelledby="super-admin-order-history-title">
     <header className={styles.header}>
       <div><h2 id="super-admin-order-history-title"><History size={21}/> Lịch sử quản lý sửa/xóa đơn hàng</h2><p>Hiển thị người thực hiện, thời điểm và toàn bộ giá trị trước/sau; dữ liệu chỉ thuộc {store.name}.</p></div>
-      <button type="button" disabled={loading} onClick={() => void load()}><RefreshCw size={17} className={loading ? "spin" : ""}/> Làm mới</button>
+      <ActionButton type="button" disabled={loading} onClick={() => load()}><RefreshCw size={17} className={loading ? "spin" : ""}/> Làm mới</ActionButton>
     </header>
     <div className={styles.filters}>
       <label>Loại thao tác<select value={action} onChange={(event) => changeFilter(() => setAction(event.target.value as "ALL" | "UPDATE" | "VOID"))}><option value="ALL">Tất cả chỉnh sửa và xóa</option><option value="UPDATE">Chỉnh sửa đơn</option><option value="VOID">Xóa/hủy đơn</option></select></label>
@@ -126,6 +129,6 @@ export function SuperAdminOrderHistory({ store }: { store: Store }) {
         })}</tbody>
       </table>}
     </div>
-    <footer className={styles.pagination}><span>{pagination.total} thao tác · Trang {pagination.page}/{pagination.pages}</span><div><button type="button" aria-label="Trang lịch sử trước" disabled={loading || page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}><ChevronLeft size={18}/></button><button type="button" aria-label="Trang lịch sử sau" disabled={loading || page >= pagination.pages} onClick={() => setPage((current) => Math.min(pagination.pages, current + 1))}><ChevronRight size={18}/></button></div></footer>
+    <footer className={styles.pagination}><span>{pagination.total} thao tác · Trang {pagination.page}/{pagination.pages}</span><div><ActionButton type="button" aria-label="Trang lịch sử trước" disabled={loading || page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}><ChevronLeft size={18}/></ActionButton><ActionButton type="button" aria-label="Trang lịch sử sau" disabled={loading || page >= pagination.pages} onClick={() => setPage((current) => Math.min(pagination.pages, current + 1))}><ChevronRight size={18}/></ActionButton></div></footer>
   </section>;
 }

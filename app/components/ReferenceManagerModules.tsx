@@ -1,5 +1,8 @@
 "use client";
 
+import { ActionButton } from "./ActionFeedback";
+import { actionFetch as fetch } from "../lib/action-feedback";
+
 import { useCallback, useEffect, useState } from "react";
 import { BadgeDollarSign, BarChart3, CheckCircle2, ShieldCheck, Store, UserRound, XCircle } from "lucide-react";
 import { formatVndInput, parseVndInput } from "../lib/format";
@@ -61,11 +64,12 @@ export function ReferenceManagerTransfer({ stores }: { stores: ReferenceStore[] 
     const parsedAllowance = parseVndInput(allowance);
     if (!employee || !target || end < start || shifts.length === 0 || parsedHourlyRate <= 0 || parsedAllowance < 0 || !reason.trim()) return setMessage("Vui lòng kiểm tra nhân viên, thời gian, ca, lương và lý do hỗ trợ.");
     setSaving(true);
+    try {
     const response = await fetch("/api/transfers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ employeeId, targetStoreId: target.id, startDate: start, endDate: end, shifts, supportHourlyRate: parsedHourlyRate, supportAllowance: parsedAllowance, reason }) });
     const result = await response.json();
     setMessage(response.ok ? `✓ ${result.message}` : result.message ?? "Không thể tạo điều chuyển.");
-    setSaving(false);
     if (response.ok) await reload();
+    } finally { setSaving(false); }
   }
   async function updateStatus(record: EmployeeTransfer, action: "CANCEL" | "END") {
     const response = await fetch("/api/transfers", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: record.id, action }) });
@@ -80,8 +84,8 @@ export function ReferenceManagerTransfer({ stores }: { stores: ReferenceStore[] 
     <section className="transfer-policy-card"><h2>3. QUYỀN TRUY CẬP HỆ THỐNG</h2><p><ShieldCheck/> <span><b>Được đăng nhập hệ thống của cửa hàng hỗ trợ</b><small>Quyền tại cửa hàng nhận được kích hoạt trong thời gian hỗ trợ.</small></span></p><p><XCircle/> <span><b>Thu hồi quyền sau khi kết thúc thời gian hỗ trợ</b><small>Tự động trả quyền đăng nhập về cửa hàng chính.</small></span></p></section>
     <section className="transfer-policy-card"><h2>4. CHÍNH SÁCH LƯƠNG & PHỤ CẤP</h2><p><BadgeDollarSign/> <span><b>Lương, thưởng và phụ cấp</b><small>Được tính cho cửa hàng nhận hỗ trợ.</small></span></p><p><BarChart3/> <span><b>Ghi nhận chi phí</b><small>Chi phí nhân sự được đưa vào báo cáo cửa hàng nhận.</small></span></p></section>
     </div>
-    <div className="transfer-submit-row"><button className="primary-button transfer-submit" disabled={saving} onClick={save}><CheckCircle2 size={18}/>{saving ? "ĐANG XỬ LÝ..." : "ĐIỀU CHUYỂN"}</button></div>
+    <div className="transfer-submit-row"><ActionButton className="primary-button transfer-submit" disabled={saving} onClick={save}><CheckCircle2 size={18}/>{saving ? "ĐANG XỬ LÝ..." : "ĐIỀU CHUYỂN"}</ActionButton></div>
     {message && <div className={message.startsWith("✓") ? "success-banner" : "form-message"}>{message}</div>}
-    <section className="manager-panel table-panel"><div className="panel-title"><h2>LỊCH SỬ ĐIỀU CHUYỂN</h2><span>{transfers.length} bản ghi</span></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>Thời gian hỗ trợ</th><th>Nhân viên</th><th>Cửa hàng điều đi</th><th>Cửa hàng hỗ trợ</th><th>Ca làm việc</th><th>Lương/giờ</th><th>Phụ cấp</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>{transfers.length === 0 ? <tr><td colSpan={9} className="empty-cell">Chưa có lịch sử điều chuyển.</td></tr> : transfers.map((record) => <tr key={record.id}><td>{record.start_date} → {record.end_date}</td><td><b>{record.employee_code} · {record.employee_name}</b></td><td>{record.source_store_name}</td><td>{record.target_store_name}</td><td>{record.shifts.join(", ") || "—"}</td><td>{money(record.support_hourly_rate)}</td><td>{money(record.support_allowance)}</td><td><span className={`status-pill transfer-${record.status.toLowerCase()}`}>{statusLabel(record.status)}</span></td><td><div className="row-actions">{!["COMPLETED", "CANCELLED"].includes(record.status) && <><button onClick={() => updateStatus(record, "END")}>Kết thúc</button><button className="danger" onClick={() => updateStatus(record, "CANCEL")}>Hủy</button></>}</div></td></tr>)}</tbody></table></div></section>
+    <section className="manager-panel table-panel"><div className="panel-title"><h2>LỊCH SỬ ĐIỀU CHUYỂN</h2><span>{transfers.length} bản ghi</span></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>Thời gian hỗ trợ</th><th>Nhân viên</th><th>Cửa hàng điều đi</th><th>Cửa hàng hỗ trợ</th><th>Ca làm việc</th><th>Lương/giờ</th><th>Phụ cấp</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>{transfers.length === 0 ? <tr><td colSpan={9} className="empty-cell">Chưa có lịch sử điều chuyển.</td></tr> : transfers.map((record) => <tr key={record.id}><td>{record.start_date} → {record.end_date}</td><td><b>{record.employee_code} · {record.employee_name}</b></td><td>{record.source_store_name}</td><td>{record.target_store_name}</td><td>{record.shifts.join(", ") || "—"}</td><td>{money(record.support_hourly_rate)}</td><td>{money(record.support_allowance)}</td><td><span className={`status-pill transfer-${record.status.toLowerCase()}`}>{statusLabel(record.status)}</span></td><td><div className="row-actions">{!["COMPLETED", "CANCELLED"].includes(record.status) && <><ActionButton onClick={() => updateStatus(record, "END")}>Kết thúc</ActionButton><ActionButton className="danger" onClick={() => updateStatus(record, "CANCEL")}>Hủy</ActionButton></>}</div></td></tr>)}</tbody></table></div></section>
   </div>;
 }
