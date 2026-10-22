@@ -1,8 +1,5 @@
 # 02. Đặc tả chức năng và quy trình
 
-> Quy tắc tài chính, lương, lợi nhuận và chốt kỳ chi tiết xem `docs/06-TAI-CHINH-LUONG-LOI-NHUAN-CHOT-KY.md`.
-> Quy tắc ca làm và chấm công thực tế xem `docs/05-TU-DONG-CHUYEN-CA.md` (tên file được giữ để tương thích lịch sử, nội dung hiện tại đã thay thế auto-rollover cũ).
-
 ## 1. Luồng đăng nhập
 
 1. Người dùng nhập tên đăng nhập và mật khẩu.
@@ -22,217 +19,284 @@
 
 ### Dữ liệu đầu ra
 
-- Tổng doanh thu, tổng chi phí, lợi nhuận theo đúng Finance Engine và tỷ lệ lợi nhuận.
-- Danh sách cửa hàng đang hoạt động lấy từ dữ liệu thực, không hard-code số lượng cửa hàng.
+- Tổng doanh thu từ các ca đã hoàn thành, tổng tất cả chi phí, tổng lợi nhuận và tỷ lệ lợi nhuận theo kỳ.
+- Danh sách năm cửa hàng mặc định và mọi cửa hàng mới được thêm.
 - Mỗi thẻ cửa hàng có tên, địa chỉ, trạng thái, doanh thu, lợi nhuận và nút quản lý.
 
 ### Hành động
 
 - Click thẻ/nút cửa hàng để đặt ngữ cảnh `selectedStore` và mở dashboard cửa hàng.
-- Thêm cửa hàng phải tạo bản ghi và các cấu hình/module mặc định cần thiết một cách an toàn.
-- Xóa cửa hàng cần xác nhận và ưu tiên “ngừng hoạt động” nếu cửa hàng đã có dữ liệu phát sinh.
+- Thêm cửa hàng tạo bản ghi cửa hàng và ba định nghĩa ca mặc định trong cùng một batch; các module dùng chung hoạt động ngay theo `store_id` mới.
+- Quản lý thường chỉ chuyển trạng thái giữa `ACTIVE` (đang hoạt động) và `INACTIVE` (ngưng hoạt động). Riêng quản trị cấp cao được xóa mềm cửa hàng chưa từng phát sinh bất kỳ đơn hàng nào; hệ thống không xóa vật lý dữ liệu lịch sử.
+
+### Vòng đời cửa hàng
+
+- Cửa hàng mới luôn được tạo ở trạng thái `ACTIVE`.
+- Trước khi chuyển `ACTIVE → INACTIVE`, backend phải xác nhận cửa hàng không còn ca đang hoạt động; nếu còn, trả lỗi và giữ nguyên trạng thái.
+- Xóa cửa hàng là chuyển sang trạng thái kết thúc `DELETED` trong giao dịch có kiểm tra lại `NOT EXISTS orders`. Mọi ca còn mở của cửa hàng hoặc của nhân viên thuộc cửa hàng phải được đóng tại giờ server, đối soát đơn hàng vào đúng cửa hàng nhận; phiên đăng nhập liên quan bị thu hồi ngay.
+- Cửa hàng `INACTIVE` vẫn xuất hiện trên tổng quan và cho phép quản lý/nhân viên được phân quyền đọc lịch sử ca, đơn hàng, dòng tiền, lương và báo cáo.
+- Mọi thao tác phát sinh dữ liệu mới tại cửa hàng `INACTIVE` phải bị từ chối ở backend, gồm nhân viên, lịch/ca làm, đơn hàng, giao việc, nhập hàng, chấm công, dòng tiền, lương thưởng và điều chuyển mới. Việc ẩn hoặc khóa nút trên giao diện chỉ là lớp hỗ trợ.
+- Kích hoạt lại chuyển `INACTIVE → ACTIVE` và không làm thay đổi dữ liệu lịch sử. Mỗi lần đổi trạng thái phải được ghi audit với trạng thái trước/sau.
 
 ## 3. Không gian cửa hàng
 
-Mọi màn hình nhận `store_id` từ ngữ cảnh/quyền hợp lệ, không tin cậy tùy ý giá trị cửa hàng do client gửi.
+Mọi màn hình nhận `store_id` từ ngữ cảnh quản lý, không nhận tùy ý từ dữ liệu biểu mẫu của nhân viên.
+
+### Liên kết tài khoản nhân viên với cửa hàng
+
+- Khi quản lý tạo nhân viên trong một cửa hàng, backend phải kiểm tra cửa hàng tồn tại và đang `ACTIVE`, kiểm tra đủ mã nhân viên, họ tên, SĐT, tỉnh, phường, đường/ấp, tuổi 15–100 và ảnh CCCD, sau đó lưu cùng một `store_id` vào cả `employees.store_id` và `users.store_id` trong một giao dịch.
+- Ảnh CCCD là JPG/PNG/WebP tối đa 5 MB, lưu ở binding R2 `UPLOADS`; D1 chỉ lưu khóa và tên tệp. Endpoint đọc ảnh phải kiểm tra quyền quản lý.
+- API trả lại `storeId` đã lưu để giao diện đối chiếu. Không được suy ra hoặc sửa cửa hàng của nhân viên từ mã nhân viên, tên đăng nhập, thứ tự tạo hay tên cửa hàng mặc định.
+- Sau đăng nhập, cửa hàng chính lấy từ tài khoản/hồ sơ đã liên kết; nhân viên chỉ thấy dữ liệu cửa hàng đó. Ngoại lệ duy nhất là cửa hàng hiệu lực do một đợt điều chuyển hợp lệ mà backend xác định.
+- Khi quản lý chuyển nhân viên sang cửa hàng chính khác, cả hồ sơ và tài khoản phải được cập nhật đồng nhất; phiên đăng nhập hiện hữu cần được thu hồi hoặc làm mới phạm vi.
 
 | Màn hình | Chức năng chính | Dữ liệu tối thiểu |
 |---|---|---|
 | Tổng quan | KPI, biểu đồ, hoạt động hôm nay | doanh thu, chi phí, lợi nhuận, nhân viên, ca, đơn |
-| Ca làm việc | định nghĩa ca và số người | mã ca, giờ bắt đầu/kết thúc dự kiến, trạng thái |
+| Ca làm việc | định nghĩa ca và số người | mã ca, giờ bắt đầu/kết thúc, trạng thái |
 | Lịch phân ca | xếp nhiều nhân viên theo ngày/ca | ngày, ca, nhân viên, vị trí, ghi chú |
-| Nhân viên | CRUD và tài khoản | mã NV, họ tên, SĐT, chức vụ, cửa hàng, trạng thái |
-| Nhập hàng | mặt hàng và phiếu nhập | số bao, cân nặng, đơn giá/kg, vận chuyển, thành tiền |
-| Chấm công | giờ vào/ra thực tế và lương giờ | ca, thời gian thực tế, số giờ, trạng thái |
-| Lương thưởng | tổng kết tháng | giờ làm, lương, phụ cấp, thưởng, ứng lương, KPI, thực nhận |
+| Nhân viên | tạo, sửa, lưu trữ và tài khoản | mã NV, họ tên, SĐT, tỉnh, phường, đường/ấp, tuổi, ảnh CCCD, chức vụ, lương giờ, phụ cấp TikTok riêng |
+| Nhập hàng | danh sách nhiều dòng và lịch sử phiếu | tên, số lượng, đơn vị, cân nặng, đơn giá/kg, vận chuyển, thành tiền |
+| Chấm công | giờ vào/ra và lương giờ | ca, thời gian thực tế, số giờ, trạng thái đi trễ/vắng |
+| Lương thưởng | tổng kết tháng | giờ làm, lương cứng, phụ cấp, thưởng, thực nhận, trạng thái chi |
 | Đơn hàng | xem toàn bộ đơn cửa hàng | nhân viên, ca, thanh toán, giá trị, trạng thái |
-| Dòng tiền | tiền vào/ra | kỳ, loại giao dịch, số tiền, nguồn, chứng từ, người tạo |
-| Chi phí cuối kỳ | khoản khấu trừ cuối kỳ trước chia lợi nhuận | tháng, loại, số tiền, ghi chú, người tạo |
+| Dòng tiền | doanh thu/chi phí/lợi nhuận | kỳ, loại giao dịch, số tiền, chứng từ, người tạo |
 | Báo cáo | thống kê và xuất tệp | kỳ, cửa hàng, nhóm chỉ số |
-| Cài đặt | cấu hình cửa hàng | phụ cấp, lương quản lý, KPI/config có hiệu lực |
+| Cài đặt | cấu hình cửa hàng | thưởng, chi phí cố định và các thiết lập vận hành khác |
 
 ## 4. Ca làm và chấm công
 
 ### Bắt đầu ca
 
-- Điều kiện: nhân viên có quyền làm việc hợp lệ tại cửa hàng/ca tương ứng theo business rule hiện hành.
-- Nếu đã có phiên làm việc hoạt động, không tạo phiên trùng.
-- Backend lưu phiên chấm công và audit cần thiết.
-
-### Giờ dự kiến và giờ thực tế
-
-Phải phân biệt:
-
-- `scheduled_start_at`;
-- `scheduled_end_at`;
-- `actual_start_at`/`started_at`;
-- `actual_end_at`/`ended_at`.
-
-Lịch ca là kế hoạch; giờ thực tế là dữ liệu tính công.
+- Điều kiện: nhân viên có lịch hợp lệ tại cửa hàng chính hoặc cửa hàng hỗ trợ.
+- Nếu đã có ca hoạt động, không tạo ca thứ hai.
+- Backend lưu `shift_active`, `current_shift`, `shift_started_at` và audit log.
+- Phiên ca lưu riêng mã phiên duy nhất `shift_code` và tên hiển thị `shift_name` (Ca 1/Ca 2/Ca 3), cùng `work_date`, giờ lịch, cửa hàng chịu chi phí, mã điều chuyển nếu có và lương giờ áp dụng.
+- `work_date` được xác định theo `Asia/Ho_Chi_Minh`; không cắt trực tiếp ngày UTC để lọc lịch sử.
 
 ### Kết ca
 
-- Điều kiện: đang có phiên làm việc hoạt động.
-- Ghi nhận thời gian kết thúc thực tế, trạng thái công việc và các dữ liệu liên quan.
-- Nếu có phụ cấp TikTok hoặc phụ cấp theo ca, sử dụng cấu hình áp dụng và snapshot giá trị, không hard-code trong Finance Engine.
-- Sau khi kết ca, các thao tác nghiệp vụ cần tuân thủ rule quyền và trạng thái ca hiện hành.
+- Điều kiện: đang có ca hoạt động; toàn bộ công việc bắt buộc đã hoàn thành; nhân viên đã nhập chi phí, tiền mặt và chuyển khoản. Không có chi phí hoặc một hình thức doanh thu vẫn phải nhập giá trị 0.
+- Nếu chi phí lớn hơn 0, nội dung chi là bắt buộc.
+- Nếu `tiền mặt + chuyển khoản > 0`, backend phải tìm thấy ít nhất một đơn `COMPLETED` có đúng cửa hàng, nhân viên và `shift_code` của ca hiện tại; đơn hủy, đơn ca khác hoặc nhân viên khác không thỏa điều kiện.
+- Ghi nhận thời gian kết thúc, trạng thái công việc, doanh thu/chi phí ca và cờ TikTok vào `shift_sessions` trước khi xóa trạng thái ca đang mở của tài khoản.
+- Nếu cờ TikTok bật, sinh đúng một khoản phụ cấp từ mức riêng của nhân viên đã snapshot khi bắt đầu ca; không đọc mức mặc định toàn hệ thống và không tính lại lịch sử khi hồ sơ thay đổi.
+- Sau khi kết ca, khóa thao tác thêm/sửa/hủy đơn của ca vừa kết thúc.
+- API trả thời gian kết thúc và thông báo đã ghi lịch sử; lịch sử dùng `shift_name`, `work_date`, mã/tên nhân viên từ bản ghi nguồn.
 
-### Overtime
+### Tự chuyển sang ca kế tiếp
 
-Nếu nhân viên làm quá giờ kết thúc dự kiến nhưng chưa kết ca:
+- API `GET /api/shift` đối chiếu phiên đang mở. Khi đã đến `scheduled_end_at + 60 phút`, backend kết thúc phiên cũ tại chính `scheduled_end_at` với `close_reason = AUTO_ROLLOVER`, tách doanh thu/đơn hàng theo ranh giới và tạo ca kế tiếp từ cấu hình cửa hàng.
+- Phiên kế tiếp bắt đầu đúng tại ranh giới kết thúc phiên trước để số giờ tính lương liên tục. Hai phiên có `shift_code` riêng và xuất hiện thành hai dòng lịch sử.
+- Các đơn có `created_at >= scheduled_end_at` được chuyển sang `shift_code` mới; doanh thu trước ranh giới vẫn thuộc phiên cũ.
+- `previous_session_id` có chỉ mục duy nhất có điều kiện và câu lệnh tạo ca dùng kiểm tra tồn tại, nên gọi lặp hoặc nhiều request đồng thời không tạo trùng ca kế tiếp.
+- Giao diện nhân viên kiểm tra trạng thái định kỳ và khi cửa sổ lấy lại tiêu điểm; khi rollover xảy ra, tên ca, lịch, đơn và biểu mẫu kết ca được làm mới mà không dừng đồng hồ làm việc.
 
-- tiếp tục giữ cùng phiên làm việc;
-- thời gian vượt giờ là overtime;
-- không tự động đóng ca cũ và tạo ca kế tiếp chỉ vì vượt một grace period;
-- một phiên có thể đi qua 00:00.
+### Số giờ và lương cứng
 
-### Số giờ và lương
-
-- `Số giờ = Giờ kết thúc thực tế - Giờ bắt đầu thực tế`.
-- `Lương = Số giờ hợp lệ × Lương giờ áp dụng`.
-- Lương giờ/config áp dụng phải được snapshot/version phù hợp để thay đổi sau này không làm sai lịch sử.
-
-### Quản lý điều chỉnh
-
-Quản lý được tạo ca linh động, sửa lịch ca hoặc điều chỉnh giờ chấm công hợp lệ trước khi kỳ khóa. Các thay đổi ảnh hưởng lịch sử phải có audit gồm before, after, actor, reason và timestamp.
+- `Số giờ = duration_seconds / 3.600`; hệ thống lưu số giây thực tế, chỉ làm tròn số giờ khi hiển thị.
+- `Lương cứng = Số giờ × Lương giờ áp dụng tại thời điểm làm`.
+- Lương giờ phải được snapshot vào bản ghi ca để thay đổi sau này không làm sai lịch sử.
 
 ## 5. Đơn hàng nhân viên
 
 ### Danh sách
 
-API trả dữ liệu theo đúng quyền cửa hàng, nhân viên và ca/phiên hợp lệ.
+API trả dữ liệu khi đồng thời đúng:
 
-Các thống kê doanh thu chỉ cộng đơn hợp lệ ở trạng thái `COMPLETED` sau khi áp dụng bộ lọc hiện tại.
+```text
+store_id = cửa hàng trong phiên
+employee_id = nhân viên đăng nhập
+shift_code = mã ca đang hoạt động
+created_at nằm trong thời gian ca
+```
+
+Các thẻ thống kê chỉ cộng đơn có trạng thái `COMPLETED` sau khi áp dụng bộ lọc hiện tại.
 
 ### Tạo đơn
 
-1. Nhân viên mở biểu mẫu khi có quyền nghiệp vụ hợp lệ.
+1. Nhân viên mở biểu mẫu trong khi ca đang hoạt động.
 2. Nhập khách hàng tùy chọn, giá trị bắt buộc và hình thức thanh toán.
-3. Backend không tin cậy các trường identity/scope nhạy cảm do client tự gán; phải xác minh từ session/quyền.
-4. Backend tạo mã đơn, gắn scope hợp lệ và ghi audit log.
+3. Backend bỏ qua mọi trường cửa hàng/nhân viên/ca do client gửi.
+4. Backend tạo mã `DHxxxxx`, gắn thông tin từ phiên và ghi audit log.
 
 ### Sửa đơn
 
-- Chỉ cho phép theo đúng quyền và trạng thái nghiệp vụ.
-- Không sửa các identity field nhạy cảm nếu business rule không cho phép.
+- Chỉ sửa đơn `COMPLETED` của chính nhân viên trong ca đang hoạt động.
+- Chỉ sửa thông tin khách hàng, tuổi, SĐT, giá trị và hình thức thanh toán.
+- Không sửa mã đơn, nhân viên, cửa hàng, ca hay thời gian tạo.
 
 ### Hủy đơn
 
-- Ưu tiên soft-delete/VOID để giữ lịch sử.
-- Đơn hủy không tính vào doanh thu nhưng vẫn audit được.
+- Không xóa bản ghi; chuyển `status` sang `VOID`.
+- Đơn hủy không tính vào doanh thu nhưng vẫn hiển thị cho quản lý và audit.
 
 ## 6. Giao việc
 
 - Quản lý chọn cửa hàng, ca, ngày và nhập một hoặc nhiều nhiệm vụ.
 - Mỗi nhiệm vụ gồm nội dung, mô tả, thứ tự và trạng thái.
-- Nhân viên trong phạm vi phù hợp nhìn thấy danh sách và tick hoàn thành.
-- Có thể yêu cầu hoàn tất nhiệm vụ bắt buộc trước khi kết ca nếu business rule hiện hành yêu cầu.
+- Nhân viên trong ca nhìn thấy danh sách và tick hoàn thành.
+- Có thể yêu cầu hoàn tất tất cả nhiệm vụ bắt buộc trước khi kết ca.
 
-## 7. Lương thưởng và chốt kỳ
+### Lịch phân ca
 
-### Nguyên tắc
+- Mỗi cửa hàng có danh sách ca riêng; khung ban đầu là Ca 1 `07:00–12:00`, Ca 2 `12:00–17:00`, Ca 3 `17:00–23:00`. Quản lý được sửa tên và khung giờ phù hợp cửa hàng.
+- Quy trình lưu lịch là **chọn ngày → chọn ca → chọn một hoặc nhiều nhân viên → LƯU**. Backend lưu đầy đủ ranh giới UTC, ngày làm Việt Nam và từ chối lịch trùng của cùng nhân viên.
+- Màn hình quản lý xem lịch theo ngày/tuần. `/api/schedule` chỉ trả lịch của nhân viên đăng nhập trong khoảng ngày được yêu cầu và trang chủ nhân viên hiển thị lịch đó.
 
-Payroll phải dùng cùng nguồn dữ liệu với Finance Engine và chấm công thực tế.
+## 7. Lương thưởng
 
-Nhân viên đã làm trong kỳ vẫn phải được tính đầy đủ dù sau đó nghỉ việc, archive hoặc chuyển cửa hàng.
+### Quy trình tổng kết tháng
 
-Ứng lương là khoản trả trước, không được làm chi phí lương bị tính lần hai.
+1. Tổng hợp doanh thu ca, chi phí cố định/phát sinh, nhập hàng, vận chuyển, lương, phụ cấp và thưởng thủ công của cửa hàng theo kỳ.
+2. Tính lợi nhuận trước thưởng hiệu quả, tổng giờ thực tế, lương cứng và phụ cấp theo từng nhân viên/cửa hàng chịu chi.
+3. Chọn đúng một ngưỡng KPI và lưu `KPI_SUMMARY` khóa khi quản lý chốt lương nhân viên.
+4. Chốt lương cố định và thưởng lợi nhuận của quản lý thành `PAYROLL_CLOSING/MANAGER_FINALIZED`.
+5. Xác nhận riêng khoản chi lương (`SALARY_CONFIRMED`) và khoản thưởng/phụ cấp (`REWARDS_CONFIRMED`).
+6. Xác nhận đã chi (`PAYMENT_CONFIRMED`), ghi người/thời gian và tổng số tiền.
+7. Kết sổ thành `LOCKED`. Kỳ đã khóa không có nghiệp vụ mở lại hoặc sửa/xóa qua API chung.
 
-### Workflow kỳ chuẩn
+### Hợp đồng snapshot KPI
 
-`DRAFT → CALCULATED → RECONCILING → CONFIRMED → PAID → LOCKED`
-
-1. Trong `DRAFT`, nghiệp vụ tháng hoạt động bình thường.
-2. Khi hết kỳ, hệ thống tổng hợp sang `CALCULATED`; có thể tự chuyển lúc 00:00 ngày 01 tháng kế tiếp nhưng không auto-lock.
-3. Trong `RECONCILING`, quản lý đối soát doanh thu, chi phí, chấm công, lương, thưởng, phụ cấp, ứng lương, KPI và chi phí cuối kỳ; nếu sai thì sửa dữ liệu nguồn hợp lệ và recalculate.
-4. `CONFIRMED`: xác nhận số liệu và tạo snapshot.
-5. `PAID`: ghi nhận đã chi lương/thưởng theo quy trình.
-6. `LOCKED`: khóa kỳ và giữ lịch sử bất biến.
-
-Kỳ `LOCKED` không được mở lại để rewrite lịch sử. Nếu cần điều chỉnh, phải dùng adjustment/workflow điều chỉnh có audit.
+- Preview tháng tổng hợp các `shift_sessions` đã hoàn thành theo cửa hàng chịu chi phí và kỳ Việt Nam.
+- Lương cứng dùng `applied_hourly_rate` đã snapshot tại lúc bắt đầu ca; ca hỗ trợ dùng lương hỗ trợ của đợt điều chuyển.
+- Tỷ lệ KPI được chọn một lần từ `P/H`: dưới 7,000 là 0%; từ 7,000 là 3%; từ 15,000 là 5%; từ 30,000 là 7%. Các ngưỡng không cộng dồn.
+- Thưởng từng người là `(giờ người đó / tổng giờ cửa hàng) × tỷ lệ × lợi nhuận` và được làm tròn về số nguyên đồng.
+- Khi quản lý bấm tổng kết, hệ thống lưu một bản ghi `KPI_SUMMARY` trạng thái `LOCKED` duy nhất theo `store_id + period`, gồm toàn bộ đầu vào, tỷ lệ và kết quả từng nhân viên.
+- GET kỳ đã khóa luôn trả snapshot; tài khoản nhân viên chỉ nhận dòng lương của chính mình.
+- GET cho nhân viên còn trả `sources` và `shiftDetails`: cửa hàng trả lương, vai trò chính/hỗ trợ, cửa hàng nguồn, giờ thực tế, lương/giờ đã áp dụng, lương cứng, phụ cấp hỗ trợ phân bổ theo giây làm, phụ cấp TikTok, thực nhận và trạng thái chi.
 
 ## 8. Điều chuyển nhân sự
 
 ### Tạo và duyệt
 
-- Cửa hàng điều đi lấy từ hồ sơ chính.
+- Cửa hàng điều đi lấy tự động từ hồ sơ chính.
 - Cửa hàng nhận không được trùng cửa hàng chính.
 - Ngày kết thúc không nhỏ hơn ngày bắt đầu.
-- Phải chọn ít nhất một ca hoặc “Cả ngày” nếu flow hiện hành sử dụng khái niệm này.
-- Người tạo và người duyệt được lưu riêng.
+- Phải chọn ít nhất một ca hoặc “Cả ngày”.
+- Người tạo và thời điểm tạo được lưu cùng đợt hỗ trợ.
 
 ### Quyền truy cập
 
-- Quyền cửa hàng nhận chỉ tồn tại trong phạm vi thời gian/ca hỗ trợ hợp lệ.
-- Hết hạn/hủy/kết thúc sớm phải thu hồi quyền.
-- Backend luôn xác minh scope, không phụ thuộc riêng UI.
+- Trước thời gian bắt đầu: chỉ quyền cửa hàng chính.
+- Trong khoảng hỗ trợ: backend xác định cửa hàng hiệu lực là cửa hàng nhận từ `employee_transfers`; ca áp dụng được lưu cùng đợt hỗ trợ và lịch phân ca của cửa hàng nhận quyết định ca thực tế.
+- Hết hạn/hủy/kết thúc sớm: thu hồi ngay quyền cửa hàng nhận.
+- Kiểm tra thời gian tại mỗi request bảo đảm quyền hết hiệu lực ngay cả khi chưa chạy tác vụ đồng bộ trạng thái; API điều chuyển đồng thời tự chuyển `SCHEDULED → ACTIVE → COMPLETED` theo ngày Việt Nam.
+- Nếu nhân viên đang ở trong một ca hỗ trợ, `shift_sessions.store_id`, `transfer_id` và `applied_hourly_rate` là snapshot của ca đó; quyền và hạch toán ca không bị đổi giữa chừng.
 
 ### Hạch toán
 
-Ca làm tại cửa hàng nhận hỗ trợ chịu chi phí theo business rule đã xác nhận. Hồ sơ và lịch sử nhân viên vẫn được giữ nguyên.
+Ca làm tại cửa hàng nhận hỗ trợ chịu lương, thưởng và phụ cấp của ca đó. Hồ sơ nhân viên và lịch sử tại cửa hàng chính vẫn được giữ nguyên.
 
-## 9. Dòng tiền, chi phí và báo cáo
+## 9. Dòng tiền và báo cáo
 
-### Dòng tiền
+- Doanh thu cửa hàng lấy từ `cash_revenue + transfer_revenue` của các `shift_sessions` đã hoàn thành trong kỳ; đơn hàng là nguồn đối soát khi kết ca.
+- Chi phí phải có loại, cửa hàng, kỳ, số tiền, người tạo và ghi chú/chứng từ.
+- Mục **Dòng tiền** có biểu mẫu **Tạo chi phí phát sinh** gồm ngày chi, loại/tên chi phí, số tiền VND dương và ghi chú. Mỗi lần lưu tạo một bản ghi `DONG_TIEN` riêng, hỗ trợ xuất CSV; kỳ đã khóa KPI không nhận thêm, sửa hoặc xóa khoản chi.
+- Báo cáo cửa hàng luôn lọc một `store_id`; báo cáo toàn hệ thống cộng kết quả thực của các cửa hàng, so sánh kỳ trước và đánh giá biên lợi nhuận, xếp loại, chiều hướng.
+- Xuất CSV dùng cùng truy vấn và bộ lọc với giao diện để tránh lệch số.
 
-`Cashflow != Expense`.
+### Chi phí cố định theo cửa hàng
 
-Dòng tiền phản ánh tiền vào/ra thực tế. Chi phí là nghiệp vụ ảnh hưởng P&L/lợi nhuận.
+- Mỗi cửa hàng có cấu hình riêng cho tối thiểu: setup, mặt bằng, điện, nước, wifi, rác, marketing và chi phí khác.
+- Nút **Tạo chi phí cố định** hiển thị với cửa hàng `ACTIVE`. Mỗi bản ghi có `store_id`, kỳ, từng loại chi phí, tổng, ghi chú, người cập nhật, `created_at`, `updated_at` và mảng `changeHistory`; mỗi lần bấm **LƯU** thêm một mốc ngày giờ cập nhật 24 giờ.
+- Khi tổng kết tháng, hệ thống chỉ lấy các mức chi phí có hiệu lực của đúng cửa hàng và đúng kỳ; chi phí marketing là một khoản độc lập, không gộp ngầm vào “khác”.
+- Tổng chi phí cửa hàng gồm chi phí cố định, chi phí phát sinh trong ca, tiền nhập hàng, vận chuyển, lương nhân viên, lương quản lý, phụ cấp TikTok/hỗ trợ/khác, thưởng thủ công, thưởng KPI và thưởng quản lý. Tổng quan và báo cáo dùng cùng bộ tổng hợp, đồng thời chỉ rõ từng nhóm để đối soát.
 
-Nếu một dòng tiền phát sinh từ một expense/payroll/inventory đã tồn tại, phải liên kết qua `sourceType/sourceId` hoặc reference tương đương và không được cộng thêm lần hai vào profit.
+### Phiếu nhập hàng
 
-### Finance Engine
+- Biểu mẫu là danh sách luôn hiển thị, có nút thêm dòng và giới hạn 1–100 dòng/phiếu. Đơn vị hợp lệ gồm Bao, Kiện, Thùng, Cái và Kg.
+- Mỗi dòng bắt buộc có tên, số lượng nguyên dương, đơn vị, cân nặng dương, đơn giá nguyên dương và phí vận chuyển không âm. Backend tính `goodsAmount = round(weight × unitPrice)` và `amount = goodsAmount + shipping`.
+- Khi lưu thành công, server thêm `receiptNo`, `savedAt`, `savedBy`, lưu cả phiếu vào lịch sử rồi giao diện mới đặt lại danh sách về một dòng trống. Lỗi lưu giữ nguyên dữ liệu đang nhập.
 
-Chuỗi chuẩn:
+### Quy ước tiền tệ và thời gian
 
-`Revenue → Fixed Expense → Variable Expense → Inventory → Shipping → Salary → Bonus → Allowance → Operating Profit → Employee KPI → Manager KPI → Profit After KPI → Month-End Expense → Final Profit → Distributable Profit`
+- Mọi số tiền VND lưu bằng `INTEGER` 64-bit của SQLite/D1, đơn vị đồng, không dùng `float` và không lưu chuỗi đã định dạng. Phép nhân tỷ lệ/chia phân bổ dùng hàm decimal/số nguyên dùng chung và làm tròn một lần về đồng.
+- Giao diện định dạng bằng dấu phẩy hàng nghìn và chữ `đồng`: `15,000 đồng`, `12,890 đồng`.
+- Timestamp kỹ thuật (`created_at`, `updated_at`, giờ vào/ra thực tế, audit) lưu theo UTC chuẩn ISO 8601. Ngày làm việc, kỳ tháng và nội dung hiển thị được chuyển theo `Asia/Ho_Chi_Minh` và đồng hồ 24 giờ (`h23`); không cắt trực tiếp ngày từ chuỗi UTC.
 
-Chi phí cố định phải cộng toàn bộ bản ghi hợp lệ trong kỳ, không chỉ lấy bản ghi mới nhất.
+## 10. Cổ tức
 
-### Chi phí cuối kỳ
-
-Quản lý có thể nhập nhiều khoản chi phí cuối kỳ trong tháng trước khi khóa kỳ. Tổng các khoản hợp lệ tạo thành `MONTH_END_EXPENSE`.
-
-`FINAL_PROFIT = PROFIT_AFTER_KPI - MONTH_END_EXPENSE`
-
-Final Profit có thể âm.
-
-### Báo cáo
-
-- Báo cáo cửa hàng lọc đúng store/kỳ.
-- Báo cáo toàn hệ thống tổng hợp từ cùng Finance Engine hoặc snapshot.
-- Xuất Excel/PDF phải dùng cùng nguồn/bộ lọc với giao diện.
-- Không hard-code số lượng cửa hàng, % tăng trưởng, ngày tháng hoặc dữ liệu demo vào production report.
-
-## 10. Cổ tức / chia lợi nhuận
-
-1. Lấy `FINAL_PROFIT` từ Finance Engine/snapshot của kỳ.
-2. Nếu `FINAL_PROFIT <= 0` thì `DISTRIBUTABLE_PROFIT = 0` và không chia.
-3. Nếu `FINAL_PROFIT > 0` thì `DISTRIBUTABLE_PROFIT = FINAL_PROFIT`.
-4. Chỉ `DISTRIBUTABLE_PROFIT` được dùng để tính chia lợi nhuận/cổ tức theo tỷ lệ áp dụng của kỳ.
-5. Cho quản lý xem trước và xác nhận theo workflow.
-6. Sau khi khóa kỳ, chỉ xem/in/xuất; điều chỉnh phải qua adjustment có audit.
-
-Không dùng Revenue, Operating Profit hoặc Profit After KPI để chia lợi nhuận.
+1. Tổng hợp doanh thu và tất cả chi phí đã khóa của kỳ.
+2. Tính lợi nhuận sau cùng và tỷ lệ lợi nhuận.
+3. Tính cổ tức theo danh sách người nhận và tỷ lệ chính sách có hiệu lực tại kỳ đó; tổng tỷ lệ phải đúng 100%.
+4. Chỉ cho quản lý xác nhận khi mọi cửa hàng `ACTIVE` đã có `PAYROLL_CLOSING/LOCKED` của kỳ; lưu thành `DIVIDEND/LOCKED` cùng snapshot thành viên/tỷ lệ/số tiền và audit.
+5. Khi kỳ chưa đủ điều kiện chốt, giao diện vẫn hiển thị cấu hình chia lợi nhuận đã lưu để đối soát, nhưng không được giả lập nó thành snapshot đã khóa.
+6. Sau khi khóa, chỉ được xem/in/xuất; mọi điều chỉnh phải tạo kỳ điều chỉnh có audit.
 
 ## 11. Tiêu chí nghiệm thu chính
 
 - Hai vai trò điều hướng đúng sau đăng nhập.
-- Cơ chế khóa đăng nhập hoạt động đúng theo policy hiện hành.
-- Nhân viên không có quyền/ca hợp lệ không tạo được đơn cả ở UI và API.
-- Không thể dùng API để bypass scope cửa hàng/nhân viên.
-- Thêm cửa hàng mới xuất hiện từ dữ liệu thực; UI không hard-code số lượng cửa hàng.
-- Mọi báo cáo khớp Finance Engine/snapshot cùng kỳ.
-- Overtime không tự tạo ca kế tiếp.
-- Chấm công qua 00:00 tính đúng giờ thực tế.
-- Lương lấy từ giờ thực tế hợp lệ.
-- Kỳ `LOCKED` không bị rewrite.
-- Fixed Expense cộng đúng tất cả khoản hợp lệ.
-- Cashflow không double-count expense.
-- `Final Profit = Profit After KPI - Month-End Expense`.
-- Chỉ `Distributable Profit` được dùng để chia lợi nhuận/cổ tức.
-- Giao diện dùng tốt tối thiểu ở 360 px, 390 px, 430 px, máy tính bảng và desktop.
+- Sai mật khẩu 10 lần kích hoạt khóa tạm.
+- Nhân viên chưa vào ca không tạo được đơn cả ở UI và API.
+- Không thể dùng API để đọc/sửa/hủy đơn của người khác hoặc ca khác.
+- Thêm cửa hàng mới xuất hiện ở tổng quan và có đầy đủ không gian quản lý.
+- Quản lý thường không thể xóa cửa hàng; quản trị cấp cao chỉ xóa mềm được cửa hàng chưa từng có đơn. Cửa hàng `DELETED` biến mất khỏi danh sách vận hành và tài khoản liên quan không thể tiếp tục sử dụng; dữ liệu phụ và lịch sử vẫn được giữ. Cửa hàng `INACTIVE` đọc được lịch sử nhưng mọi API ghi nghiệp vụ trả lỗi. Không thể ngưng cửa hàng khi còn ca hoạt động.
+- Nhân viên mới đăng nhập chỉ thấy đúng cửa hàng nơi tài khoản được tạo; mã/tên đăng nhập không được dùng để suy luận hoặc làm thay đổi `store_id`.
+- Hồ sơ thiếu tỉnh, phường, đường/ấp, tuổi hợp lệ hoặc ảnh CCCD phải bị từ chối; tệp sai loại hoặc lớn hơn 5 MB không được tải lên.
+- Mọi báo cáo cửa hàng khớp tổng chi tiết cùng bộ lọc.
+- Chi phí cố định được áp dụng đúng cửa hàng/kỳ, gồm ô marketing riêng và không thay đổi kỳ đã khóa.
+- Số tiền lớn vẫn giữ chính xác trong miền `INTEGER` 64-bit; ca qua nửa đêm được gán đúng ngày/kỳ `Asia/Ho_Chi_Minh` dù timestamp lưu UTC.
+- Công thức lương/thưởng có kiểm thử tại các ngưỡng 7,000, 15,000 và 30,000.
+- Thưởng KPI chưa xuất hiện như kết quả chính thức trước khi quản lý tổng kết; gửi tổng kết lần hai cho cùng cửa hàng/kỳ bị từ chối.
+- Không thể kết ca với doanh thu dương nếu không có đơn hoàn tất đúng ca; nhập 0 cho chi phí và hai hình thức doanh thu vẫn được chấp nhận.
+- Sau giờ kết thúc ca 60 phút, ca chưa kết tự tách tại ranh giới sang ca kế tiếp; giờ lương liên tục, hai lịch sử riêng và gọi lặp không tạo ca thứ ba.
+- Phiếu nhập nhiều dòng chỉ reset sau khi lưu thành công; lịch sử giữ đúng số phiếu, tổng tiền hàng/vận chuyển và ngày giờ lưu.
+- Mọi số tiền hiển thị bằng dấu phẩy và `đồng`; mọi thời gian hiển thị theo 24 giờ Việt Nam.
+- Lịch sử ca hiển thị/lọc theo `shift_name` và `work_date` Việt Nam, không theo mã phiên ngẫu nhiên.
+- Kết thúc điều chuyển tự thu hồi quyền và giữ lịch sử.
+- Khóa kỳ cổ tức ngăn chỉnh sửa sau xác nhận.
+- Giao diện dùng tốt ở 360 px, máy tính bảng và desktop.
 
-## 12. Lịch phân ca thật và đổi ca
+## 12. Ma trận giao diện tham chiếu
 
-Module /manager hỗ trợ định nghĩa ca, tạo/hủy phân công và đổi đúng hai ca cùng cửa hàng/ngày, kể cả nhân viên có nhiều ca. Quyền, điều kiện chặn và ví dụ: [07-DOI-CA-LAM-VIEC.md](07-DOI-CA-LAM-VIEC.md).
+### Quản lý toàn hệ thống
+
+- Tổng quan: `ql_giaodienchinh.png`.
+- Cửa hàng: `ql_qlch.png`.
+- Giao việc: `ql_giaoviec.png`.
+- Dòng tiền: `ql_dongtien.png`.
+- Lương thưởng quản lý: `ql_luongthuong.png` (không có phụ cấp; lương cố định 3,000,000 đồng/cửa hàng, 140 giờ quản lý/cửa hàng và thưởng từ quỹ KPI 3%/5%/7% được chia theo tỷ trọng giờ sau khi kỳ đã khóa).
+- Báo cáo: `ql_chinh.png`.
+- Cổ tức: `ql_cotuc.png`.
+- Điều chuyển nhân sự: `ql_nvhotro.png`.
+- Cài đặt: `ql_caidat.png`.
+
+### Không gian quản lý từng cửa hàng
+
+- Ca làm việc: `ql_calamviec.png`; lịch phân ca: `ql_lichphanca.png`.
+- Nhân viên: `ql_nvch.png`; nhập hàng: `ql_nhaphang.png`; chấm công: `ql_chamcongnv.png`.
+- Lương thưởng: `ql_luongthuongnv.png`; dòng tiền: `ql_dongtien_CH.png`; báo cáo: `ql_baocao_CH.png`.
+- Mọi cửa hàng dùng cùng cấu trúc màn hình và chức năng nhưng dữ liệu luôn tách biệt theo `store_id`.
+
+### Nhân viên
+
+- Trang chủ: `nv_giaodienchinh.png`; đơn hàng: `nv_donhang.png`.
+- Bảng lương: `nv_bangluong.png`; dòng tiền: `nv_dongtien.png`; lịch sử ca: `nv_lichsuca.png`.
+- Mọi thống kê đơn hàng của nhân viên chỉ dùng dữ liệu thuộc ca đang hoạt động.
+
+## 13. Bổ sung nghiệm thu giao diện và nghiệp vụ cửa hàng (08/2026)
+
+### Trang chủ nhân viên và kết ca
+
+- Giao diện trang chủ bám theo `nv_giaodienchinh.png`: điểm danh, thông tin nhân viên, ca hôm nay, bảng công việc, thông tin kết ca, TikTok và lịch sử ca.
+- Nút **KẾT CA** chỉ được mở khi đồng thời thỏa mãn: đang có ca hoạt động; tất cả công việc bắt buộc đã được tick; đã nhập chi phí (nhập 0 nếu không có); đã nhập doanh thu tiền mặt; đã nhập doanh thu chuyển khoản; nếu chi phí phát sinh lớn hơn 0 thì phải nhập nội dung chi.
+- Khi doanh thu dương mà chưa có đơn hoàn tất trong ca, giao diện hiển thị yêu cầu nhập đơn và backend từ chối kết ca. Backend kiểm tra lại toàn bộ điều kiện, không tin trạng thái nút ở trình duyệt; dữ liệu kết ca được lưu gồm doanh thu theo hình thức thanh toán, chi phí, nội dung chi, trạng thái công việc và cờ TikTok.
+
+### Ca làm việc và lịch phân ca
+
+- Ca làm việc có tên ca, giờ bắt đầu và giờ kết thúc; hỗ trợ thêm, sửa, xóa và xem lịch theo ngày hoặc theo tuần.
+- Lịch phân ca bám theo `ql_lichphanca.png`; quản lý chọn ngày, ca và nhiều nhân viên, sau đó có thể lưu, sửa, xóa, lọc và xuất dữ liệu.
+
+### Nhân viên, nhập hàng, chấm công, dòng tiền và báo cáo
+
+- Danh mục nhân viên bám theo `ql_nvch.png`, hỗ trợ tìm kiếm, lọc trạng thái, thêm, sửa, lưu trữ và quản lý tài khoản đăng nhập.
+- Nhập hàng bám theo `ql_nhaphang.png`, luôn hiển thị danh sách nhiều dòng, tự tính thành tiền từ cân nặng, đơn giá và phí vận chuyển; hỗ trợ lưu phiếu, lịch sử và xuất dữ liệu.
+- Chấm công bám theo `ql_chamcongnv.png`, lấy dữ liệu ca thực tế, có lọc ngày/ca/trạng thái và xuất dữ liệu.
+- Dòng tiền và báo cáo bám theo `ql_dongtien_CH.png` và `ql_baocao_CH.png`, mọi số liệu luôn theo cửa hàng đang chọn và các bộ lọc đang áp dụng.
+
+### Tạo phụ cấp và thưởng nhân viên
+
+- Màn hình lương thưởng bám theo `ql_luongthuongnv.png` và có hai hành động riêng: **Tạo phụ cấp** và **Tạo thưởng**.
+- Mỗi lần tạo bắt buộc chọn nhân viên, nhập số tiền lớn hơn 0 và nội dung chi; hệ thống tự gắn cửa hàng, người tạo và thời điểm tạo.
+- Lịch sử phụ cấp/thưởng hiển thị đúng nhân viên nhận, loại khoản, số tiền, nội dung và ngày tạo; quản lý có thể lọc, xuất và xóa bản ghi khi kỳ chưa khóa.

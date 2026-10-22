@@ -1,0 +1,47 @@
+.memberHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.memberHeader small { margin: 0; }
+
+.memberHeader button,
+.removeMember {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 44px;
+  border: 1px solid #bcd7c5;
+  border-radius: 10px;
+  background: #fff;
+  color: #087d36;
+  font-weight: 800;
+  padding: 8px 12px;
+}
+
+.members { display: grid; gap: 9px; }
+
+.memberRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(130px, 220px) 44px;
+  gap: 10px;
+  align-items: end;
+  padding: 10px;
+  border: 1px solid #dce7df;
+  border-radius: 11px;
+  background: #fff;
+}
+
+.memberRow label { margin: 0; }
+.removeMember { width: 44px; padding: 0; color: #b42318; border-color: #f1c4c1; }
+.memberEmpty { margin: 0; padding: 12px; border: 1px dashed #b7cec0; border-radius: 10px; color: #667085; background: #f8fbf9; }
+
+@media (max-width: 800px) {
+  .memberHeader { align-items: stretch; flex-direction: column; }
+  .memberHeader button { width: 100%; }
+  .memberRow { grid-template-columns: minmax(0, 1fr) 100px 44px; }
+}

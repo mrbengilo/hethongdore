@@ -1,0 +1,38 @@
+{
+	admin 127.0.0.1:2019
+}
+
+www.doregroup.io.vn {
+	redir https://doregroup.io.vn{uri} permanent
+}
+
+doregroup.io.vn {
+	encode zstd gzip
+
+	header {
+		-Server
+		Strict-Transport-Security "max-age=15552000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# Clock-in captures one location snapshot from this first-party site only.
+		# Keep camera/microphone disabled and never delegate location to embeds.
+		Permissions-Policy "camera=(), geolocation=(self), microphone=()"
+	}
+
+	reverse_proxy 127.0.0.1:3000 {
+		health_uri /api/health
+		health_interval 30s
+		health_timeout 5s
+		fail_duration 30s
+	}
+
+	log {
+		output file /var/log/caddy/dore-access.log {
+			roll_size 25MiB
+			roll_keep 10
+			roll_keep_for 720h
+		}
+		format json
+	}
+}

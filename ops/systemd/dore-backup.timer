@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily DORE backup schedule
+
+[Timer]
+OnCalendar=*-*-* 02:15:00 Asia/Ho_Chi_Minh
+RandomizedDelaySec=15m
+Persistent=true
+Unit=dore-backup.service
+
+[Install]
+WantedBy=timers.target

@@ -1,23 +1,30 @@
 # Hệ thống quản lý chuỗi cửa hàng DORE
 
-Ứng dụng quản lý vận hành chuỗi cửa hàng DORE dành cho hai vai trò **Quản lý** và **Nhân viên**. Hệ thống bao gồm quản lý cửa hàng, nhân sự, ca làm, chấm công, đơn hàng, dòng tiền, lương thưởng, báo cáo, điều chuyển nhân sự và cổ tức.
-
-## Bản chạy thực tế
-
-- Website: <https://dore-store-management.mrbengilo-76.chatgpt.site>
-- Quản lý thử nghiệm: `admin` / `dore2026`
-- Nhân viên thử nghiệm: `nv001` / `dore2026`
-
-> Tài khoản trên chỉ dùng cho môi trường trình diễn. Khi triển khai chính thức phải thay mật khẩu, tắt dữ liệu mẫu và cấu hình chính sách sao lưu.
+Ứng dụng vận hành chuỗi cửa hàng DORE dành cho hai vai trò **Quản lý** và **Nhân viên**. Hệ thống quản lý cửa hàng, nhân sự, ca làm, lịch phân ca, đơn hàng, nhập hàng, chi phí, bảng lương, khóa sổ, báo cáo và cổ tức trên dữ liệu D1 bền vững.
 
 ## Công nghệ
 
 - React 19, TypeScript và Vinext.
 - Cloudflare Worker-compatible runtime.
-- Cloudflare D1/SQLite và Drizzle ORM.
-- Cookie phiên `HttpOnly`; mật khẩu băm PBKDF2, không lưu mật khẩu thuần.
-- Lucide Icons và font Be Vietnam Pro.
-- Giao diện responsive cho máy tính, máy tính bảng và điện thoại.
+- Cloudflare D1/SQLite, Drizzle ORM và Cloudflare R2 cho ảnh CCCD.
+- Cookie phiên `HttpOnly`; mật khẩu băm PBKDF2.
+- Giao diện responsive với Lucide Icons và Be Vietnam Pro.
+
+## Chức năng vận hành hiện có
+
+1. **Ca làm liên tục:** nếu đã quá giờ kết thúc ca 60 phút mà nhân viên chưa kết ca, hệ thống tự tách ca tại đúng ranh giới lịch và chuyển sang ca kế tiếp. Đồng hồ lương tiếp tục không gián đoạn nhưng lịch sử vẫn là hai phiên ca riêng; thao tác được chống tạo trùng bằng `previous_session_id` duy nhất.
+2. **Tiền tệ và thời gian:** VND hiển thị bằng dấu phẩy, ví dụ `15,000 đồng` và `12,890 đồng`. Thời gian hiển thị theo `Asia/Ho_Chi_Minh` với đồng hồ 24 giờ.
+3. **Nhân viên hỗ trợ:** bảng lương nhân viên tách từng cửa hàng và từng ca, nêu rõ nhân viên chính/hỗ trợ, cửa hàng nguồn, giờ thực tế, lương hỗ trợ mỗi giờ, lương cứng, phụ cấp hỗ trợ, thực nhận và trạng thái chi.
+4. **Chi phí cố định:** nút tạo luôn hiển thị tại cửa hàng hoạt động; mỗi lần lưu có ngày giờ và người cập nhật. Tổng quan cửa hàng cộng chi phí cố định vào toàn bộ chi phí thực tế.
+5. **Chi lương và khóa kỳ:** quản lý lần lượt chốt lương nhân viên, chốt lương quản lý, xác nhận chi lương, xác nhận thưởng/phụ cấp, xác nhận đã chi, rồi kết sổ khóa kỳ. Mọi bước có lịch sử kiểm toán và kỳ khóa không thể sửa/xóa.
+6. **Báo cáo và cổ tức:** báo cáo dùng số liệu thực theo cửa hàng/kỳ, so sánh kỳ trước, phân tích biên lợi nhuận, chiều hướng và hiệu quả. Cổ tức chỉ được chốt sau khi tất cả cửa hàng đang hoạt động đã khóa kỳ lương; lịch sử chia 60%/40% được lưu bất biến.
+7. **Nhập hàng nhiều dòng:** danh sách hàng luôn sẵn để nhập và có nút thêm dòng. Mỗi dòng gồm tên, số lượng, đơn vị, cân nặng, đơn giá/kg, vận chuyển và thành tiền. Sau khi lưu thành công, phiếu được ghi lịch sử và danh sách trở về một dòng trống.
+8. **Ca theo từng cửa hàng:** quản lý chỉnh được tên và khung giờ ca; cấu hình ban đầu là Ca 1 `07:00–12:00`, Ca 2 `12:00–17:00`, Ca 3 `17:00–23:00`.
+9. **Hồ sơ nhân viên đầy đủ:** mã nhân viên, họ tên, SĐT, tỉnh/thành, phường/xã, đường/ấp, tuổi và ảnh CCCD; ảnh JPG/PNG/WebP tối đa 5 MB được lưu riêng trên R2.
+10. **Lịch phân ca:** quản lý chọn ngày, ca và nhân viên rồi lưu; hỗ trợ xem theo ngày/tuần. Nhân viên xem lịch của chính mình trên trang chủ.
+11. **Doanh thu từ ca:** doanh thu cửa hàng được tổng hợp từ tiền mặt và chuyển khoản của các ca đã hoàn thành trong kỳ.
+12. **Tổng chi phí thực:** gồm chi phí cố định, chi phí phát sinh trong ca, nhập hàng, vận chuyển, lương nhân viên, lương quản lý, phụ cấp TikTok/hỗ trợ/khác, thưởng thủ công, thưởng KPI và thưởng quản lý.
+13. **KPI tháng:** lợi nhuận trước thưởng hiệu quả được dùng để chọn đúng một ngưỡng KPI 3%, 5% hoặc 7% và phân bổ theo giờ thực tế. Sau khi cộng thưởng KPI và thưởng quản lý, hệ thống tính lợi nhuận cuối rồi đưa kỳ qua quy trình xác nhận chi và khóa sổ.
 
 ## Tài liệu
 
@@ -46,7 +53,7 @@ pnpm test
 
 ```text
 app/                 Giao diện và API
-app/api/             Đăng nhập, cửa hàng, ca làm và đơn hàng
+app/api/             Xác thực và các API nghiệp vụ
 app/components/      Portal quản lý/cửa hàng/nhân viên
 db/                  Schema và lớp truy cập D1
 drizzle/             Migration cơ sở dữ liệu
@@ -55,17 +62,10 @@ tests/               Kiểm thử tự động
 worker/              Điểm vào Cloudflare Worker
 ```
 
-## Quy tắc nghiệp vụ nổi bật
+## Quy tắc dữ liệu quan trọng
 
-- Quản lý xem toàn hệ thống và truy cập không gian quản trị độc lập của từng cửa hàng.
-- Nhân viên chỉ xem dữ liệu cửa hàng trực thuộc và ca đang hoạt động.
-- Đơn hàng nhân viên được backend tự gắn cửa hàng, nhân viên và mã ca.
-- Nhân viên không thể xem, sửa hoặc hủy đơn của ca khác hay người khác.
-- Lương quản lý cố định 3.000.000 đồng/cửa hàng/tháng; thưởng quản lý bằng 2% lợi nhuận dương của cửa hàng.
-- Phụ cấp TikTok được ghi nhận theo từng ca khi nhân viên xác nhận có làm clip.
-- Lợi nhuận và báo cáo được tách độc lập theo cửa hàng trước khi cộng dồn toàn hệ thống.
-
-## Trạng thái sản phẩm
-
-Đây là bản ứng dụng vận hành có đăng nhập, phân quyền, D1 và luồng đơn hàng/ca làm thực tế. Một số màn hình báo cáo, nhân sự, lương thưởng và điều chuyển hiện sử dụng dữ liệu trình diễn; danh sách hạng mục cần hoàn thiện để vận hành chính thức được ghi rõ trong tài liệu đặc tả.
-
+- Mọi dữ liệu cửa hàng đều được giới hạn bằng `store_id`; cửa hàng `INACTIVE` chỉ đọc lịch sử.
+- Đơn hàng nhân viên được backend tự gắn cửa hàng, nhân viên và mã phiên ca.
+- Phiên ca snapshot cửa hàng, tên ca, lịch ca, ngày làm và mức lương giờ để lịch sử không đổi khi cấu hình được sửa.
+- Snapshot `KPI_SUMMARY`, `PAYROLL_CLOSING` và `DIVIDEND` đã khóa không được sửa hoặc xóa qua API dữ liệu chung.
+- Tiền lưu bằng số nguyên đồng; timestamp lưu UTC và được chuyển sang giờ Việt Nam khi hiển thị/tính kỳ.

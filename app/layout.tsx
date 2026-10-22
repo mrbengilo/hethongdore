@@ -5,27 +5,30 @@ import "@fontsource/be-vietnam-pro/500.css";
 import "@fontsource/be-vietnam-pro/600.css";
 import "@fontsource/be-vietnam-pro/700.css";
 import "@fontsource/be-vietnam-pro/800.css";
+import ActionNotifications from "./components/ActionFeedback";
 import "./globals.css";
-import "./brand.css";
-import "./operations.css";
-import "./employee-operations.css";
+import "./compact-layout.css";
 
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
   const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host") ?? "localhost:5173";
   const protocol = requestHeaders.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
-  const imageUrl = `${protocol}://${host}/og.png`;
+  const imageUrl = `${protocol}://${host}/og-v3.png`;
   const title = "DORE · Quản lý chuỗi cửa hàng";
   const description = "Hệ thống quản lý vận hành, nhân sự, dòng tiền và lương thưởng của chuỗi cửa hàng DORE.";
   return {
     title,
     description,
-    icons: { icon: "/dore-manager-logo.svg", shortcut: "/dore-manager-logo.svg", apple: "/dore-manager-logo.svg" },
-    openGraph: { title, description, type: "website", locale: "vi_VN", images: [{ url: imageUrl, width: 1680, height: 945, alt: "DORE · Quản lý chuỗi cửa hàng" }] },
+    icons: {
+      icon: [{ url: "/logo.jpg?v=20260808-2", type: "image/jpeg", sizes: "any" }],
+      shortcut: [{ url: "/logo.jpg?v=20260808-2", type: "image/jpeg" }],
+      apple: [{ url: "/logo.jpg?v=20260808-2", type: "image/jpeg" }],
+    },
+    openGraph: { title, description, type: "website", locale: "vi_VN", images: [{ url: imageUrl, width: 1672, height: 941, alt: "DORE · Quản lý ca làm, tài chính và hàng hóa" }] },
     twitter: { card: "summary_large_image", title, description, images: [imageUrl] },
   };
 }
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="vi"><body>{children}</body></html>;
+  return <html lang="vi"><body>{children}<ActionNotifications/></body></html>;
 }

@@ -1,0 +1,886 @@
+"use client";
+
+import { ActionButton } from "./ActionFeedback";
+import { actionFetch as fetch } from "../lib/action-feedback";
+
+import { formatVndInput, parseVndInput } from "../lib/format";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  BadgeDollarSign,
+  BarChart3,
+  Calendar,
+  CheckCircle2,
+  Download,
+  LockKeyhole,
+  RefreshCw,
+  Save,
+  TrendingUp,
+  WalletCards,
+  type LucideIcon,
+} from "lucide-react";
+
+import { calculateProfitSharing } from "../lib/profit-sharing";
+import { readFinancialResponse } from "../lib/financial-response";
+import type { SavedSetupRepayment } from "../lib/profit-setup-repayments";
+import ScrollableTable from "./ScrollableTable";
+
+type ExpenseBreakdown = {
+  fixedCosts: number;
+  incidentalCosts: number;
+  inventoryGoods: number;
+  inventoryShipping: number;
+  employeeBaseSalary: number;
+  tiktokAllowance: number;
+  supportAllowance: number;
+  manualAllowance: number;
+  manualBonus: number;
+  managerSalary: number;
+  employeeKpiBonus: number;
+  managerBonus: number;
+  monthEndExpenses: number;
+};
+
+type FinancialSnapshot = {
+  id?: string;
+  name?: string;
+  address?: string;
+  status?: string;
+  period?: string;
+  revenue: number;
+  expense: number;
+  profit: number;
+  profitBeforePerformanceRewards?: number;
+  expenseBreakdown?: ExpenseBreakdown;
+};
+
+type Evaluation = {
+  margin: number;
+  revenueChange: number | null;
+  expenseChange: number | null;
+  profitChange: number | null;
+  rating: string;
+  direction: string;
+};
+
+type StoreFinancialRow = {
+  current: FinancialSnapshot;
+  previous: FinancialSnapshot | null;
+  evaluation: Evaluation;
+};
+
+type Comparison = {
+  revenueChange: number | null;
+  expenseChange: number | null;
+  profitChange: number | null;
+};
+
+type MemberProfitAllocation = {
+  memberId: string;
+  memberName: string;
+  percentage: number;
+  amount: number;
+};
+
+type ProfitSharingMember = {
+  id: string;
+  name: string;
+  percentage: number;
+};
+
+type StoreProfitAllocation = {
+  storeId: string;
+  storeName: string;
+  revenue: number;
+  expense: number;
+  finalProfit: number;
+  setupRepayment: number;
+  profitAfterSetup: number;
+  distributableProfit: number;
+  settlementStatus: "LOCKED" | "PAYMENT_CONFIRMED" | "OPEN" | "PROVISIONAL";
+  memberAllocations: MemberProfitAllocation[];
+};
+
+type ProfitSharingSummary = {
+  setupRepayment: number;
+  period: string;
+  revenue: number;
+  expense: number;
+  finalProfit: number;
+  distributableProfit: number;
+  memberAllocations: MemberProfitAllocation[];
+  storeAllocations: StoreProfitAllocation[];
+};
+
+type ProfitSharingHistoryItem = {
+  setupRepayment: number;
+  period: string;
+  revenue: number;
+  expense: number;
+  profit: number;
+  accountingProfit: number;
+  distributableProfit: number;
+  memberAllocations: MemberProfitAllocation[];
+  storeAllocations: StoreProfitAllocation[];
+  status: string;
+  closedAt: string;
+  closedBy: string;
+  legacy?: boolean;
+};
+
+type FinancialReportResponse = {
+  period: string;
+  previousPeriod: string;
+  stores: StoreFinancialRow[];
+  totals: FinancialSnapshot;
+  previousTotals: FinancialSnapshot;
+  comparison: Comparison;
+  profitSharingMembers?: ProfitSharingMember[];
+  configuredProfitSharingMembers?: ProfitSharingMember[];
+  profitSharingMemberSource?: {
+    type: "LOCKED_DISTRIBUTION_SNAPSHOT" | "LOCKED_PERIOD_PREVIEW" | "FINANCIAL_POLICY" | "UNCONFIGURED" | "HIDDEN";
+    policyVersionId: string | null;
+    policyVersion: number | null;
+    effectiveFromPeriod: string | null;
+    immutable: boolean;
+  };
+  profitSharingPolicy?: {
+    id: string;
+    version: number;
+    effectiveFromPeriod: string;
+  } | null;
+  profitSharingPreview?: ProfitSharingSummary | null;
+  profitSharingSetupRepayments?: SavedSetupRepayment[];
+  profitSharingHistory: ProfitSharingHistoryItem[];
+  dividendHistory?: ProfitSharingHistoryItem[];
+  profitSharingReadiness?: {
+    ready: boolean;
+    status: "READY" | "PARTIAL" | "LOCKED" | "UNAVAILABLE";
+    code: string;
+    message: string;
+    expectedStoreCount?: number;
+    pendingStores?: { storeId: string; storeName: string; status: string }[];
+  } | null;
+  profitSharingMessage?: string | null;
+  message?: string;
+};
+
+type StoreRef = {
+  id: string;
+  name: string;
+};
+
+const EXPENSE_FIELDS: Array<{ key: keyof ExpenseBreakdown; label: string }> = [
+  { key: "fixedCosts", label: "Chi phí cố định" },
+  { key: "incidentalCosts", label: "Chi phí phát sinh" },
+  { key: "inventoryGoods", label: "Chi phí hàng nhập" },
+  { key: "inventoryShipping", label: "Phí vận chuyển nhập hàng" },
+  { key: "employeeBaseSalary", label: "Lương cứng nhân viên" },
+  { key: "tiktokAllowance", label: "Phụ cấp TikTok" },
+  { key: "supportAllowance", label: "Phụ cấp hỗ trợ" },
+  { key: "manualAllowance", label: "Phụ cấp phát sinh" },
+  { key: "manualBonus", label: "Thưởng nhân viên phát sinh" },
+  { key: "managerSalary", label: "Lương quản lý" },
+  { key: "employeeKpiBonus", label: "Thưởng KPI nhân viên" },
+  { key: "managerBonus", label: "Thưởng quản lý" },
+  { key: "monthEndExpenses", label: "Chi phí cuối kỳ" },
+];
+
+const moneyFormatter = new Intl.NumberFormat("en-US", {
+  maximumFractionDigits: 0,
+  minimumFractionDigits: 0,
+});
+
+const dateTimeFormatter = new Intl.DateTimeFormat("vi-VN", {
+  timeZone: "Asia/Ho_Chi_Minh",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
+
+function finiteNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const number = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function money(value: unknown) {
+  const number = finiteNumber(value);
+  return number === null ? "—" : `${moneyFormatter.format(Math.round(number))} đồng`;
+}
+
+function percent(value: unknown) {
+  const number = finiteNumber(value);
+  return number === null ? "—" : `${number.toFixed(2)}%`;
+}
+
+function normalizedMemberName(value: unknown) {
+  return String(value ?? "").normalize("NFKC").trim().toLocaleLowerCase("vi-VN");
+}
+
+function allocationKey(member: Pick<MemberProfitAllocation, "memberId" | "memberName">) {
+  const id = member.memberId?.trim();
+  return id ? `id:${id}` : `name:${normalizedMemberName(member.memberName)}`;
+}
+
+function memberKey(member: ProfitSharingMember) {
+  const id = member.id?.trim();
+  return id ? `id:${id}` : `name:${normalizedMemberName(member.name)}`;
+}
+
+function profitSharingMemberCatalog(
+  allocations: MemberProfitAllocation[],
+  configured: ProfitSharingMember[] = [],
+) {
+  const members = new Map<string, ProfitSharingMember>();
+  for (const allocation of allocations) {
+    const member: ProfitSharingMember = {
+      id: allocation.memberId?.trim() ?? "",
+      name: allocation.memberName?.trim() || "Thành viên chưa đặt tên",
+      percentage: finiteNumber(allocation.percentage) ?? 0,
+    };
+    members.set(allocationKey(allocation), member);
+  }
+  for (const configuredMember of configured) {
+    const member: ProfitSharingMember = {
+      id: configuredMember.id?.trim() ?? "",
+      name: configuredMember.name?.trim() || "Thành viên chưa đặt tên",
+      percentage: finiteNumber(configuredMember.percentage) ?? 0,
+    };
+    const key = memberKey(member);
+    if (!members.has(key)) members.set(key, member);
+  }
+  return [...members.values()];
+}
+
+function memberAllocation(
+  allocations: MemberProfitAllocation[] | undefined,
+  member: ProfitSharingMember,
+) {
+  const rows = allocations ?? [];
+  const id = member.id.trim();
+  const name = normalizedMemberName(member.name);
+  return rows.find((allocation) => (id && allocation.memberId === id)
+    || normalizedMemberName(allocation.memberName) === name);
+}
+
+function memberColumnLabel(member: ProfitSharingMember) {
+  return member.name || "Thành viên";
+}
+
+function allocationPercentage(allocation: MemberProfitAllocation | undefined, member: ProfitSharingMember) {
+  return percent(allocation?.percentage ?? member.percentage);
+}
+
+function profitSharingStatusLabel(item: Pick<ProfitSharingHistoryItem, "status" | "legacy">) {
+  if (item.legacy) return "LỊCH SỬ CŨ · LOCKED · CHỈ ĐỌC";
+  const status = item.status?.trim().toUpperCase();
+  if (status === "LOCKED") return "ĐÃ KHÓA (LOCKED)";
+  if (status === "PAID") return "ĐÃ CHI (PAID)";
+  if (status === "CONFIRMED") return "ĐÃ XÁC NHẬN (CONFIRMED)";
+  return status || "CHƯA XÁC ĐỊNH";
+}
+
+function settlementStatusLabel(status: StoreProfitAllocation["settlementStatus"]) {
+  if (status === "LOCKED") return "ĐÃ KHÓA (LOCKED)";
+  if (status === "PAYMENT_CONFIRMED") return "ĐÃ XÁC NHẬN CHI";
+  if (status === "OPEN") return "ĐANG MỞ";
+  return "TẠM TÍNH";
+}
+
+function currentPeriod() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    year: "numeric",
+    month: "2-digit",
+  }).formatToParts(new Date());
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  return year && month ? `${year}-${month}` : "";
+}
+
+function periodLabel(value: string | undefined) {
+  if (!value || !/^\d{4}-\d{2}$/.test(value)) return "—";
+  return `Tháng ${value.slice(5, 7)}/${value.slice(0, 4)}`;
+}
+
+function dateTime(value: string | undefined) {
+  if (!value) return "—";
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) ? dateTimeFormatter.format(parsed) : "—";
+}
+
+function changeFromValues(current: unknown, previous: unknown) {
+  const currentNumber = finiteNumber(current);
+  const previousNumber = finiteNumber(previous);
+  if (currentNumber === null || previousNumber === null || previousNumber === 0) return null;
+  return ((currentNumber - previousNumber) / Math.abs(previousNumber)) * 100;
+}
+
+function changeText(value: unknown) {
+  const number = finiteNumber(value);
+  if (number === null) return "Chưa có dữ liệu kỳ trước";
+  if (Math.abs(number) < 0.005) return "→ 0.00% so với kỳ trước";
+  return `${number > 0 ? "↑" : "↓"} ${Math.abs(number).toFixed(2)}% so với kỳ trước`;
+}
+
+function directionText(value: string | undefined) {
+  const normalized = value?.trim().toLocaleUpperCase("vi-VN") ?? "";
+  if (["UP", "INCREASE", "GROWTH", "POSITIVE", "TĂNG", "TANG"].includes(normalized)) return "↑ Tăng trưởng";
+  if (["DOWN", "DECREASE", "DECLINE", "NEGATIVE", "GIẢM", "GIAM"].includes(normalized)) return "↓ Suy giảm";
+  if (["STABLE", "FLAT", "NEUTRAL", "ỔN ĐỊNH", "ON DINH"].includes(normalized)) return "→ Ổn định";
+  return value?.trim() || "Chưa đánh giá";
+}
+
+function completeTotals(data: FinancialReportResponse, side: "current" | "previous") {
+  const provided = side === "current" ? data.totals : data.previousTotals;
+  const snapshots = data.stores.flatMap((store) => {
+    const snapshot = side === "current" ? store.current : store.previous;
+    return snapshot ? [snapshot] : [];
+  });
+  const expenseBreakdown = Object.fromEntries(EXPENSE_FIELDS.map(({ key }) => [
+    key,
+    finiteNumber(provided.expenseBreakdown?.[key])
+      ?? snapshots.reduce((sum, snapshot) => sum + (finiteNumber(snapshot.expenseBreakdown?.[key]) ?? 0), 0),
+  ])) as ExpenseBreakdown;
+  const profitBeforePerformanceRewards = finiteNumber(provided.profitBeforePerformanceRewards)
+    ?? snapshots.reduce((sum, snapshot) => sum + (finiteNumber(snapshot.profitBeforePerformanceRewards) ?? 0), 0);
+  return { ...provided, expenseBreakdown, profitBeforePerformanceRewards };
+}
+
+function overallEvaluation(data: FinancialReportResponse, totals: FinancialSnapshot): Evaluation {
+  const margin = totals.revenue ? totals.profit / totals.revenue * 100 : 0;
+  const { revenueChange, expenseChange, profitChange } = data.comparison;
+  const score = (margin >= 15 ? 2 : margin >= 5 ? 1 : 0)
+    + ((revenueChange ?? 0) > 0 ? 1 : 0)
+    + ((profitChange ?? 0) > 0 ? 1 : 0)
+    + ((expenseChange ?? 0) <= (revenueChange ?? 0) ? 1 : 0);
+  const rating = score >= 4 ? "TỐT" : score >= 2 ? "CẦN THEO DÕI" : "CẦN CẢI THIỆN";
+  const direction = (profitChange ?? 0) > 0 && (revenueChange ?? 0) > 0
+    ? "TĂNG TRƯỞNG"
+    : (profitChange ?? 0) < 0 ? "SUY GIẢM" : "ỔN ĐỊNH";
+  return { margin, revenueChange, expenseChange, profitChange, rating, direction };
+}
+
+function safeCsvCell(value: unknown) {
+  const raw = String(value ?? "");
+  const protectedValue = /^[=+\-@]/.test(raw) ? `'${raw}` : raw;
+  return `"${protectedValue.replaceAll('"', '""')}"`;
+}
+
+function downloadCsv(filename: string, rows: unknown[][]) {
+  const csv = `\uFEFF${rows.map((row) => row.map(safeCsvCell).join(",")).join("\r\n")}`;
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function useFinancialReport(period: string, storeId?: string) {
+  const [data, setData] = useState<FinancialReportResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const requestVersion = useRef(0);
+
+  const load = useCallback(async (signal?: AbortSignal) => {
+    if (!period) return;
+    const version = ++requestVersion.current;
+    const isCurrent = () => !signal?.aborted && version === requestVersion.current;
+    setLoading(true);
+    setError("");
+    const query = new URLSearchParams({ period });
+    if (storeId) query.set("storeId", storeId);
+    try {
+      const response = await fetch(`/api/reports?${query.toString()}`, { cache: "no-store", signal });
+      const payload = await readFinancialResponse<FinancialReportResponse>(response);
+      if (isCurrent()) setData(payload);
+    } catch (cause) {
+      if (!isCurrent()) return;
+      setData(null);
+      setError(cause instanceof Error ? cause.message : "Không thể tải báo cáo tài chính.");
+    } finally {
+      if (isCurrent()) setLoading(false);
+    }
+  }, [period, storeId]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void load(controller.signal);
+    return () => controller.abort();
+  }, [load]);
+
+  return { data, loading, error, reload: () => load() };
+}
+
+function Metric({ icon: Icon, label, value, note, tone = "green" }: {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+  note?: string;
+  tone?: string;
+}) {
+  return <article className={`manager-metric ${tone}`}><i><Icon size={24}/></i><div><span>{label}</span><strong>{value}</strong>{note && <small>{note}</small>}</div></article>;
+}
+
+function showMonthPicker(input: HTMLInputElement) {
+  if (typeof input.showPicker !== "function") return false;
+  try {
+    input.showPicker();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function MonthPickerControl({ period, setPeriod }: { period: string; setPeriod: (period: string) => void }) {
+  return <label className="date-control month-picker-control report-month-control">
+    <Calendar size={18} aria-hidden="true"/>
+    <span aria-hidden="true">{periodLabel(period)}</span>
+    <input
+      className="month-picker-native"
+      aria-label="Kỳ báo cáo"
+      type="month"
+      value={period}
+      onChange={(event) => setPeriod(event.target.value)}
+      onClick={(event) => showMonthPicker(event.currentTarget)}
+      onKeyDown={(event) => {
+        if ((event.key === "Enter" || event.key === " ") && showMonthPicker(event.currentTarget)) event.preventDefault();
+      }}
+    />
+  </label>;
+}
+
+function ReportToolbar({ title, description, period, setPeriod, onRefresh, onExport, loading, exportDisabled = false }: {
+  title: string;
+  description: string;
+  period: string;
+  setPeriod: (period: string) => void;
+  onRefresh: () => void;
+  onExport: () => void;
+  loading: boolean;
+  exportDisabled?: boolean;
+}) {
+  return <div className="ref-toolbar"><div><h2>{title}</h2><p>{description}</p></div><div className="ref-toolbar-actions">
+    <MonthPickerControl period={period} setPeriod={setPeriod}/>
+    <ActionButton onClick={onRefresh} disabled={loading}><RefreshCw size={16}/> {loading ? "Đang tải…" : "Làm mới"}</ActionButton>
+    <ActionButton onClick={onExport} disabled={exportDisabled}><Download size={16}/> Xuất CSV</ActionButton>
+  </div></div>;
+}
+
+function SummaryMetrics({ current, previous, evaluation }: {
+  current: FinancialSnapshot;
+  previous?: FinancialSnapshot | null;
+  evaluation: Evaluation;
+}) {
+  return <div className="manager-metrics four">
+    <Metric icon={TrendingUp} label="DOANH THU" value={money(current.revenue)} note={changeText(evaluation.revenueChange ?? changeFromValues(current.revenue, previous?.revenue))}/>
+    <Metric icon={WalletCards} label="TỔNG CHI PHÍ" value={money(current.expense)} note={changeText(evaluation.expenseChange ?? changeFromValues(current.expense, previous?.expense))} tone="orange"/>
+    <Metric icon={BadgeDollarSign} label="LỢI NHUẬN" value={money(current.profit)} note={changeText(evaluation.profitChange ?? changeFromValues(current.profit, previous?.profit))} tone="blue"/>
+    <Metric icon={BarChart3} label="BIÊN LỢI NHUẬN" value={percent(evaluation.margin)} note={`${evaluation.rating || "Chưa đánh giá"} · ${directionText(evaluation.direction)}`} tone="purple"/>
+  </div>;
+}
+
+function ExpenseBreakdownTable({ current, previous }: {
+  current: FinancialSnapshot;
+  previous?: FinancialSnapshot | null;
+}) {
+  return <section className="manager-panel table-panel financial-expense-table"><div className="panel-title"><div><h2>CƠ CẤU CHI PHÍ ĐẦY ĐỦ</h2><p>Đối chiếu từng nhóm chi phí với kỳ trước</p></div></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>Nhóm chi phí</th><th>Kỳ hiện tại</th><th>Kỳ trước</th><th>Chênh lệch</th><th>Biến động</th></tr></thead><tbody>
+    {EXPENSE_FIELDS.map(({ key, label }) => {
+      const currentValue = current.expenseBreakdown?.[key];
+      const previousValue = previous?.expenseBreakdown?.[key];
+      const currentNumber = finiteNumber(currentValue);
+      const previousNumber = finiteNumber(previousValue);
+      const difference = currentNumber !== null && previousNumber !== null ? currentNumber - previousNumber : null;
+      return <tr key={key}><td><b>{label}</b></td><td>{money(currentValue)}</td><td>{money(previousValue)}</td><td className={difference !== null && difference > 0 ? "money-orange" : "money-green"}>{difference === null ? "—" : money(difference)}</td><td>{changeText(changeFromValues(currentValue, previousValue))}</td></tr>;
+    })}
+  </tbody><tfoot><tr><td>TỔNG CHI PHÍ</td><td>{money(current.expense)}</td><td>{money(previous?.expense)}</td><td>{previous ? money(current.expense - previous.expense) : "—"}</td><td>{changeText(changeFromValues(current.expense, previous?.expense))}</td></tr></tfoot></table></div></section>;
+}
+
+function EvaluationPanels({ period, previousPeriod, current, previous, evaluation }: {
+  period: string;
+  previousPeriod: string;
+  current: FinancialSnapshot;
+  previous?: FinancialSnapshot | null;
+  evaluation: Evaluation;
+}) {
+  return <div className="comparison-grid"><section className="manager-panel"><h2>SO SÁNH KỲ TRƯỚC</h2>
+    <p><span>Doanh thu · {periodLabel(previousPeriod)}</span><b>{money(previous?.revenue)}</b><em>{changeText(evaluation.revenueChange)}</em></p>
+    <p><span>Chi phí · {periodLabel(previousPeriod)}</span><b>{money(previous?.expense)}</b><em>{changeText(evaluation.expenseChange)}</em></p>
+    <p><span>Lợi nhuận · {periodLabel(previousPeriod)}</span><b>{money(previous?.profit)}</b><em>{changeText(evaluation.profitChange)}</em></p>
+  </section><section className="manager-panel"><h2>ĐÁNH GIÁ HIỆU QUẢ · {periodLabel(period)}</h2>
+    <p><span>Xếp loại</span><b>{evaluation.rating || "Chưa đánh giá"}</b><em>{percent(evaluation.margin)}</em></p>
+    <p><span>Chiều hướng</span><b>{directionText(evaluation.direction)}</b><em>{changeText(evaluation.profitChange)}</em></p>
+    <p><span>Lợi nhuận trước thưởng hiệu quả</span><b>{money(current.profitBeforePerformanceRewards)}</b><em>Lợi nhuận cuối: {money(current.profit)}</em></p>
+  </section></div>;
+}
+
+function reportCsvRows(data: FinancialReportResponse, selectedStores = data.stores) {
+  const header = [
+    "Cửa hàng", "Kỳ", "Doanh thu", ...EXPENSE_FIELDS.map((field) => field.label),
+    "Tổng chi phí", "Lợi nhuận trước thưởng hiệu quả", "Lợi nhuận", "Biên lợi nhuận", "Xếp loại", "Chiều hướng",
+  ];
+  const rows = selectedStores.flatMap((store) => {
+    const current = [store.current.name ?? store.current.id ?? "", data.period, store.current.revenue, ...EXPENSE_FIELDS.map(({ key }) => store.current.expenseBreakdown?.[key]), store.current.expense, store.current.profitBeforePerformanceRewards, store.current.profit, store.evaluation.margin, store.evaluation.rating, store.evaluation.direction];
+    const previousSnapshot = store.previous;
+    const previous = previousSnapshot
+      ? [[store.current.name ?? store.current.id ?? "", data.previousPeriod, previousSnapshot.revenue, ...EXPENSE_FIELDS.map(({ key }) => previousSnapshot.expenseBreakdown?.[key]), previousSnapshot.expense, previousSnapshot.profitBeforePerformanceRewards, previousSnapshot.profit, "", "", ""]]
+      : [];
+    return [current, ...previous];
+  });
+  return [header, ...rows];
+}
+
+export function ManagerFinancialReports({ initialPeriod }: { initialPeriod?: string } = {}) {
+  const [period, setPeriod] = useState(initialPeriod ?? currentPeriod());
+  const { data, loading, error, reload } = useFinancialReport(period);
+  const totals = useMemo(() => data ? completeTotals(data, "current") : null, [data]);
+  const previousTotals = useMemo(() => data ? completeTotals(data, "previous") : null, [data]);
+  const evaluation = useMemo(() => data && totals ? overallEvaluation(data, totals) : null, [data, totals]);
+
+  const exportReport = () => {
+    if (!data) return;
+    downloadCsv(`bao-cao-tai-chinh-${data.period}.csv`, reportCsvRows(data));
+  };
+
+  return <div className="page-content manager-reference">
+    <ReportToolbar title="BÁO CÁO TÀI CHÍNH TOÀN HỆ THỐNG" description="Số liệu thực theo kỳ, so sánh kỳ trước và đánh giá hiệu quả từng cửa hàng" period={period} setPeriod={setPeriod} onRefresh={reload} onExport={exportReport} loading={loading} exportDisabled={!data}/>
+    {error && <div className="form-message">{error}</div>}
+    {loading && !data && <div className="report-profit-note"><RefreshCw size={17}/> Đang tổng hợp số liệu thực của kỳ…</div>}
+    {data && totals && previousTotals && evaluation && <>
+      <SummaryMetrics current={totals} previous={previousTotals} evaluation={evaluation}/>
+      <EvaluationPanels period={data.period} previousPeriod={data.previousPeriod} current={totals} previous={previousTotals} evaluation={evaluation}/>
+      <ExpenseBreakdownTable current={totals} previous={previousTotals}/>
+      <section className="manager-panel table-panel"><div className="panel-title"><div><h2>HIỆU QUẢ THEO TỪNG CỬA HÀNG</h2><p>{periodLabel(data.period)} so với {periodLabel(data.previousPeriod)}</p></div><span>{data.stores.length} cửa hàng</span></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>Cửa hàng</th><th>Doanh thu</th><th>Tổng chi phí</th><th>Lợi nhuận trước thưởng</th><th>Lợi nhuận cuối</th><th>Biên lợi nhuận</th><th>So kỳ trước</th><th>Đánh giá</th><th>Chiều hướng</th></tr></thead><tbody>
+        {data.stores.length === 0 ? <tr><td colSpan={9} className="empty-cell">Không có dữ liệu cửa hàng trong kỳ đã chọn.</td></tr> : data.stores.map((store) => <tr key={store.current.id ?? store.current.name}><td><b>{store.current.name ?? store.current.id ?? "—"}</b></td><td>{money(store.current.revenue)}</td><td>{money(store.current.expense)}</td><td>{money(store.current.profitBeforePerformanceRewards)}</td><td className="money-green"><b>{money(store.current.profit)}</b></td><td>{percent(store.evaluation.margin)}</td><td>{changeText(store.evaluation.profitChange)}</td><td><span className="status-pill">{store.evaluation.rating || "Chưa đánh giá"}</span></td><td>{directionText(store.evaluation.direction)}</td></tr>)}
+      </tbody></table></div></section>
+    </>}
+  </div>;
+}
+
+export function StoreFinancialReport({ store, initialPeriod, onPeriodChange }: { store: StoreRef; initialPeriod?: string; onPeriodChange?: (period: string) => void }) {
+  const [localPeriod, setLocalPeriod] = useState(initialPeriod ?? currentPeriod());
+  const period = onPeriodChange ? (initialPeriod ?? localPeriod) : localPeriod;
+  const setPeriod = onPeriodChange ?? setLocalPeriod;
+  const { data, loading, error, reload } = useFinancialReport(period, store.id);
+  const report = data?.stores.find((item) => item.current.id === store.id) ?? data?.stores[0];
+
+  const exportReport = () => {
+    if (!data || !report) return;
+    downloadCsv(`bao-cao-tai-chinh-${store.id}-${data.period}.csv`, reportCsvRows(data, [report]));
+  };
+
+  return <div className="reference-module manager-reference">
+    <ReportToolbar title={`BÁO CÁO TÀI CHÍNH · ${store.name}`} description="Doanh thu từ ca làm và toàn bộ chi phí thực tế của cửa hàng" period={period} setPeriod={setPeriod} onRefresh={reload} onExport={exportReport} loading={loading} exportDisabled={!report}/>
+    {error && <div className="form-message">{error}</div>}
+    {loading && !report && <div className="report-profit-note"><RefreshCw size={17}/> Đang tổng hợp số liệu cửa hàng…</div>}
+    {!loading && data && !report && <div className="empty-cell">Không có dữ liệu của {store.name} trong kỳ {period}.</div>}
+    {data && report && <>
+      <SummaryMetrics current={report.current} previous={report.previous} evaluation={report.evaluation}/>
+      <EvaluationPanels period={data.period} previousPeriod={data.previousPeriod} current={report.current} previous={report.previous} evaluation={report.evaluation}/>
+      <ExpenseBreakdownTable current={report.current} previous={report.previous}/>
+    </>}
+  </div>;
+}
+
+export function ManagerProfitSharingClosing({ initialPeriod, onPeriodChange }: { initialPeriod?: string; onPeriodChange?: (period: string) => void } = {}) {
+  const [localPeriod, setLocalPeriod] = useState(initialPeriod ?? currentPeriod());
+  const period = onPeriodChange ? initialPeriod ?? localPeriod : localPeriod;
+  const setPeriod = onPeriodChange ?? setLocalPeriod;
+  const { data: reportData, loading, error, reload } = useFinancialReport(period);
+  const data = reportData?.period === period ? reportData : null;
+  const [setupDrafts, setSetupDrafts] = useState<Record<string, Record<string, { value: string; version: number }>>>({});
+  const [setupStoreId, setSetupStoreId] = useState("");
+  const actionInFlight = useRef(false);
+  const activePeriod = useRef(period);
+  useEffect(() => {
+    activePeriod.current = period;
+    return () => { activePeriod.current = ""; };
+  }, [period]);
+  const [saving, setSaving] = useState(false);
+  const [savingSetup, setSavingSetup] = useState(false);
+  const [actionPeriod, setActionPeriod] = useState(period);
+  const [actionError, setActionError] = useState("");
+  const [message, setMessage] = useState("");
+  const history = data?.profitSharingHistory ?? data?.dividendHistory ?? [];
+  const currentHistory = history.find((item) => item.period === period);
+  const sourcePreview = data?.profitSharingPreview;
+  const savedSetup = new Map((data?.profitSharingSetupRepayments ?? []).map((row) => [row.storeId, row]));
+  const setupRepayments = (sourcePreview?.storeAllocations ?? []).map((store) => {
+    const draft = setupDrafts[period]?.[store.storeId];
+    return { storeId: store.storeId, amount: draft
+      ? draft.value.trim() ? parseVndInput(draft.value) : NaN
+      : store.setupRepayment };
+  });
+  const hasUnsavedSetup = setupRepayments.some((entry) => entry.amount !== (savedSetup.get(entry.storeId)?.amount ?? 0));
+  let preview = sourcePreview;
+  let calculationError = "";
+  if (sourcePreview && !currentHistory) {
+    try {
+      const calculation = calculateProfitSharing(sourcePreview.storeAllocations,
+        sourcePreview.memberAllocations.map((member) => ({
+          ...member, rateBasisPoints: Math.round(member.percentage * 100),
+        })), setupRepayments);
+      preview = {
+        ...sourcePreview,
+        setupRepayment: calculation.totalSetupRepayment,
+        distributableProfit: calculation.totalDistributableProfit,
+        memberAllocations: calculation.members,
+        storeAllocations: calculation.stores.map((store) => ({ ...store, memberAllocations: store.members })),
+      };
+    } catch (cause) {
+      calculationError = cause instanceof Error ? cause.message : "Chi phí hoàn trả setup không hợp lệ.";
+    }
+  }
+  const currentRevenue = currentHistory?.revenue ?? preview?.revenue ?? 0;
+  const currentExpense = currentHistory?.expense ?? preview?.expense ?? 0;
+  const finalProfit = finiteNumber(currentHistory?.accountingProfit)
+    ?? finiteNumber(currentHistory?.profit)
+    ?? preview?.finalProfit
+    ?? 0;
+  const distributableProfit = currentHistory?.distributableProfit ?? preview?.distributableProfit ?? 0;
+  const setupRepayment = currentHistory?.setupRepayment ?? preview?.setupRepayment ?? 0;
+  const allocations = currentHistory?.memberAllocations ?? preview?.memberAllocations ?? [];
+  const storeAllocations = currentHistory?.storeAllocations ?? preview?.storeAllocations ?? [];
+  const setupStore = storeAllocations.find((store) => store.storeId === setupStoreId) ?? storeAllocations[0];
+  const selectedSavedSetup = setupStore ? savedSetup.get(setupStore.storeId) : undefined;
+  const selectedDraft = setupStore ? setupDrafts[period]?.[setupStore.storeId] : undefined;
+  const selectedAmount = selectedDraft ? selectedDraft.value.trim() ? parseVndInput(selectedDraft.value) : NaN : selectedSavedSetup?.amount ?? 0;
+  const invalidSelectedAmount = !Number.isSafeInteger(selectedAmount) || selectedAmount < 0;
+  const selectedSetupChanged = selectedAmount !== (selectedSavedSetup?.amount ?? 0);
+  const setupConflict = selectedDraft !== undefined && selectedDraft.version !== (selectedSavedSetup?.version ?? 0);
+  const snapshotMembers = data?.profitSharingMembers ?? [];
+  const configuredMembers = data?.configuredProfitSharingMembers ?? snapshotMembers;
+  const currentFallbackMembers = currentHistory || preview ? snapshotMembers : configuredMembers;
+  const currentMembers = profitSharingMemberCatalog([
+    ...allocations,
+    ...storeAllocations.flatMap((store) => store.memberAllocations ?? []),
+  ], currentFallbackMembers);
+  const historyMembers = profitSharingMemberCatalog(
+    history.flatMap((item) => item.memberAllocations ?? []),
+    [],
+  );
+  const allocatedTotal = allocations.reduce((sum, allocation) => sum + (finiteNumber(allocation.amount) ?? 0), 0);
+  const periodClosed = period < currentPeriod();
+  const allStoresLocked = data?.profitSharingReadiness?.ready === true;
+  const pendingStores = data?.profitSharingReadiness?.pendingStores ?? [];
+  const sourceScope = `${storeAllocations.length}/${data?.profitSharingReadiness?.expectedStoreCount ?? storeAllocations.length} cửa hàng đã khóa kỳ`;
+  const currentStatus = currentHistory
+    ? profitSharingStatusLabel(currentHistory)
+    : preview
+      ? "BẢN XEM TRƯỚC"
+      : configuredMembers.length > 0
+        ? "CHÍNH SÁCH ĐÃ LƯU"
+        : "CHƯA CẤU HÌNH";
+  const readinessMessage = data?.profitSharingReadiness?.message ?? data?.profitSharingMessage ?? "";
+  const currentSourceDescription = currentHistory
+    ? currentHistory.legacy
+      ? "Lịch sử cũ · chỉ đọc"
+      : `Snapshot khóa bởi ${currentHistory.closedBy || "tài khoản không xác định"}`
+    : preview
+      ? "Snapshot các kỳ cửa hàng đã khóa"
+      : data?.profitSharingPolicy
+        ? `Chính sách v${data.profitSharingPolicy.version} · hiệu lực từ ${periodLabel(data.profitSharingPolicy.effectiveFromPeriod)}`
+        : "Chưa có chính sách phân chia";
+
+  const clearSetupDraft = (draftPeriod: string, storeId: string) => {
+    setSetupDrafts((previous) => {
+      const next = { ...previous[draftPeriod] };
+      delete next[storeId];
+      return { ...previous, [draftPeriod]: next };
+    });
+  };
+
+  const saveSelectedSetup = async () => {
+    if (!setupStore || !data || currentHistory || loading || invalidSelectedAmount || setupConflict || actionInFlight.current) return;
+    const storeId = setupStore.storeId;
+    actionInFlight.current = true;
+    setSavingSetup(true);
+    setActionPeriod(period);
+    setActionError("");
+    setMessage("");
+    try {
+      const response = await fetch("/api/reports", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "SAVE_SETUP_REPAYMENT", period, storeId,
+          amount: selectedAmount, expectedVersion: selectedDraft?.version ?? selectedSavedSetup?.version ?? 0 }),
+      });
+      await readFinancialResponse<{ repayment: SavedSetupRepayment }>(response);
+      if (activePeriod.current === period) await reload();
+      clearSetupDraft(period, storeId);
+      setMessage(`Đã lưu hoàn trả setup ${money(selectedAmount)} cho ${setupStore.storeName} · ${periodLabel(period)}.`);
+    } catch (cause) {
+      if (activePeriod.current === period) await reload();
+      setActionError(cause instanceof Error ? cause.message : "Không thể lưu hoàn trả setup.");
+    } finally {
+      actionInFlight.current = false;
+      setSavingSetup(false);
+    }
+  };
+
+  const closeProfitSharing = async () => {
+    if (!data || !preview || !allStoresLocked || !periodClosed || currentHistory || loading || calculationError || hasUnsavedSetup || actionInFlight.current) return;
+    if (currentMembers.length === 0) {
+      setActionError("Chưa có cấu hình thành viên nhận phân chia lợi nhuận.");
+      return;
+    }
+    if (!window.confirm(`Đã trừ ${money(setupRepayment)} hoàn trả setup. Xác nhận chia ${money(distributableProfit)} lợi nhuận cho ${currentMembers.length} thành viên và khóa kỳ ${period}?`)) return;
+    actionInFlight.current = true;
+    setSaving(true);
+    setActionPeriod(period);
+    setActionError("");
+    setMessage("");
+    try {
+      const response = await fetch("/api/reports", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "CLOSE_PROFIT_SHARING", period,
+          expectedSetupVersions: storeAllocations.map((store) => ({
+            storeId: store.storeId, version: savedSetup.get(store.storeId)?.version ?? 0,
+          })) }),
+      });
+      const payload = await readFinancialResponse<{ message?: string }>(response);
+      setMessage(payload.message || "Đã xác nhận chia lợi nhuận và khóa kỳ.");
+      if (activePeriod.current === period) await reload();
+    } catch (cause) {
+      if (activePeriod.current === period) await reload();
+      setActionError(cause instanceof Error ? cause.message : "Không thể xác nhận chia lợi nhuận.");
+    } finally {
+      actionInFlight.current = false;
+      setSaving(false);
+    }
+  };
+
+  const exportHistory = () => {
+    if (!data) return;
+    const memberHeaders = historyMembers.flatMap((member) => [
+      `${memberColumnLabel(member)} · Tỷ lệ snapshot`,
+      `${memberColumnLabel(member)} · Số tiền`,
+    ]);
+    downloadCsv(`lich-su-chia-loi-nhuan-${period}.csv`, [
+      ["Kỳ", "Doanh thu", "Tổng chi phí", "Lợi nhuận sau cùng", "Hoàn trả setup", "Lợi nhuận được chia", ...memberHeaders, "Số cửa hàng", "Trạng thái", "Khóa lúc", "Người khóa", "Nguồn dữ liệu"],
+      ...history.map((item) => [
+        item.period,
+        item.revenue,
+        item.expense,
+        finiteNumber(item.accountingProfit) ?? item.profit,
+        item.setupRepayment ?? 0,
+        item.distributableProfit,
+        ...historyMembers.flatMap((member) => {
+          const allocation = memberAllocation(item.memberAllocations, member);
+          return [allocation?.percentage ?? "", allocation?.amount ?? 0];
+        }),
+        item.storeAllocations?.length ?? 0,
+        profitSharingStatusLabel(item),
+        dateTime(item.closedAt),
+        item.closedBy,
+        item.legacy ? "Lịch sử cũ · chỉ đọc" : "Snapshot khóa sổ",
+      ]),
+    ]);
+  };
+
+  return <div className="page-content manager-reference profit-sharing-reference">
+    <ReportToolbar title="CHỐT SỔ CHIA LỢI NHUẬN" description="Chọn kỳ, nhập hoàn trả setup từng cửa hàng, kiểm tra số tiền chia và khóa kỳ" period={period} setPeriod={(nextPeriod) => {
+      if (actionInFlight.current) return;
+      setPeriod(nextPeriod);
+      setActionError("");
+      setMessage("");
+    }} onRefresh={reload} onExport={exportHistory} loading={loading || saving || savingSetup} exportDisabled={!data || history.length === 0}/>
+    {(error || (actionPeriod === period && actionError)) && <div className="form-message">{(actionPeriod === period && actionError) || error}</div>}
+    {actionPeriod === period && message && <div className="success-banner" role="status">{message}</div>}
+    {calculationError && <div className="form-message" role="alert">{calculationError}</div>}
+    {loading && !data && <div className="report-profit-note"><RefreshCw size={17}/> Đang tải số liệu chia lợi nhuận…</div>}
+    {data && currentHistory?.legacy && <div className="report-profit-note"><LockKeyhole size={17}/> Kỳ này là lịch sử cũ chỉ đọc. Tổng số tiền được giữ nguyên; chi tiết cửa hàng hoặc cấu hình nguồn có thể chưa được lưu đầy đủ.</div>}
+    {data && !currentHistory && currentMembers.length === 0 && <div className="report-profit-note">Chưa có cấu hình thành viên nhận phân chia lợi nhuận. Không thể xác nhận khóa kỳ.</div>}
+    {data && !currentHistory && currentMembers.length > 0 && data.profitSharingReadiness && !data.profitSharingReadiness.ready && <div className="report-profit-note"><LockKeyhole size={17}/> {readinessMessage}</div>}
+    {data && <>
+      <div className="manager-metrics four">
+        <Metric icon={TrendingUp} label="DOANH THU ĐÃ CHỐT" value={preview || currentHistory ? money(currentRevenue) : "—"} note={sourceScope}/>
+        <Metric icon={WalletCards} label="TỔNG CHI PHÍ ĐÃ CHỐT" value={preview || currentHistory ? money(currentExpense) : "—"} note="Đã gồm lương thưởng nhân viên và quản lý" tone="orange"/>
+        <Metric icon={BadgeDollarSign} label="LỢI NHUẬN SAU CÙNG" value={preview || currentHistory ? money(finalProfit) : "—"} note={sourceScope} tone="blue"/>
+        <Metric icon={currentHistory ? CheckCircle2 : LockKeyhole} label="TRẠNG THÁI KỲ" value={currentStatus} note={currentHistory ? `${dateTime(currentHistory.closedAt)} · ${currentHistory.closedBy || "Không rõ người khóa"}` : periodLabel(period)} tone="purple"/>
+      </div>
+      {pendingStores.length > 0 && <details className="manager-panel pending-store-panel">
+        <summary>Còn {pendingStores.length} cửa hàng chờ khóa kỳ</summary>
+        <ul>{pendingStores.map((store) => <li key={store.storeId}>
+          <b>{store.storeName}</b> · {store.status === "MISSING" ? "Chưa tạo kỳ" : store.status === "PAID" ? "Đã chi, chờ khóa kỳ" : "Chưa hoàn tất chốt kỳ"}
+        </li>)}</ul>
+      </details>}
+      {preview && !currentHistory && setupStore && <section className="manager-panel setup-repayment-panel">
+        <h2>HOÀN TRẢ SETUP CỬA HÀNG</h2>
+        <div className="setup-repayment-fields">
+          <label>Cửa hàng
+            <select value={setupStore.storeId} disabled={loading || saving || savingSetup} onChange={(event) => setSetupStoreId(event.target.value)}>
+              {storeAllocations.map((store) => <option key={store.storeId} value={store.storeId}>{store.storeName}</option>)}
+            </select>
+          </label>
+          <label>Chi phí hoàn trả setup (đồng)
+            <input type="text" inputMode="numeric" pattern="[0-9,]*"
+              placeholder="0" value={selectedDraft?.value ?? formatVndInput(selectedSavedSetup?.amount ?? 0)}
+              disabled={loading || saving || savingSetup} aria-describedby="setup-repayment-note setup-repayment-status"
+              onChange={(event) => setSetupDrafts((previous) => ({
+                ...previous,
+                [period]: { ...previous[period], [setupStore.storeId]: {
+                  value: formatVndInput(event.target.value), version: selectedDraft?.version ?? selectedSavedSetup?.version ?? 0,
+                } },
+              }))}/>
+          </label>
+        </div>
+        <p id="setup-repayment-note">{invalidSelectedAmount ? "Nhập số tiền đồng nguyên, không âm." : `Lợi nhuận sau lương thưởng ${money(setupStore.finalProfit)} − hoàn trả setup ${money(selectedAmount)} = còn lại ${money(setupStore.finalProfit - selectedAmount)}.`}</p>
+        <div className="setup-repayment-actions">
+          <ActionButton className="primary-button" disabled={loading || saving || savingSetup || invalidSelectedAmount || setupConflict || Boolean(selectedSavedSetup && !selectedSetupChanged)}
+            onClick={() => saveSelectedSetup()}><Save size={17}/>{savingSetup ? "Đang lưu…" : "Lưu hoàn trả setup"}</ActionButton>
+          <span id="setup-repayment-status" role="status">{setupConflict
+            ? "Số đã lưu vừa thay đổi. Tải số mới trước khi sửa tiếp."
+            : selectedSetupChanged ? "Chưa lưu thay đổi"
+              : selectedSavedSetup ? `Đã lưu ${dateTime(selectedSavedSetup.updatedAt)}` : "Không hoàn trả setup: để 0 đồng."}</span>
+          {setupConflict && <ActionButton className="ghost-button" disabled={loading || saving || savingSetup}
+            onClick={() => clearSetupDraft(period, setupStore.storeId)}>Tải số đã lưu</ActionButton>}
+        </div>
+        <p>Lưu riêng từng cửa hàng và kỳ; có thể sửa trước khi khóa kỳ chia lợi nhuận.</p>
+      </section>}
+      <div className="comparison-grid"><section className="manager-panel"><h2>THÀNH VIÊN VÀ TỶ LỆ PHÂN CHIA</h2>
+        {currentMembers.length === 0
+          ? <p><span>Chưa có thành viên</span><b>—</b><em>Vui lòng cấu hình trước khi khóa kỳ</em></p>
+          : currentMembers.map((member) => {
+            const allocation = memberAllocation(allocations, member);
+            return <p key={memberKey(member)}><span>{memberColumnLabel(member)} · {allocationPercentage(allocation, member)}</span><b>{money(allocation?.amount ?? 0)}</b><em>{currentHistory ? currentStatus : preview ? "Bản xem trước từ snapshot kỳ đã khóa" : "Tỷ lệ từ chính sách đã lưu; chờ kỳ đủ điều kiện tính"}</em></p>;
+          })}
+        <p><span>Tổng lợi nhuận được chia</span><b>{money(distributableProfit)}</b><em>{periodLabel(period)}</em></p>
+        {hasUnsavedSetup && <p role="status">Lưu hoàn trả setup đã nhập trước khi khóa kỳ chia lợi nhuận.</p>}
+        <ActionButton className="primary-button wide" disabled={saving || savingSetup || loading || hasUnsavedSetup || Boolean(calculationError) || Boolean(currentHistory) || currentMembers.length === 0 || !periodClosed || !allStoresLocked} onClick={() => closeProfitSharing()}><LockKeyhole size={17}/> {saving ? "ĐANG KHÓA KỲ…" : currentHistory ? "KỲ CHIA LỢI NHUẬN ĐÃ KHÓA" : currentMembers.length === 0 ? "CHƯA CÓ CẤU HÌNH THÀNH VIÊN" : !periodClosed ? "CHỜ KẾT THÚC KỲ" : !allStoresLocked ? "CHỜ CỬA HÀNG KHÓA KỲ" : "XÁC NHẬN CHIA VÀ KHÓA KỲ"}</ActionButton>
+      </section><section className="manager-panel"><h2>NGUYÊN TẮC GHI NHẬN</h2>
+        <p><span>Nguồn tính</span><b>Lợi nhuận sau cùng đã khóa</b><em>Từng cửa hàng</em></p>
+        <p><span>Hoàn trả setup trong kỳ</span><b>{money(setupRepayment)}</b><em>Trừ riêng tại từng cửa hàng sau lương thưởng</em></p>
+        <p><span>Điều kiện phân chia</span><b>Lợi nhuận còn lại sau hoàn trả setup dương</b><em>Còn lại ≤ 0 thì không chia; không bù lỗ giữa các cửa hàng</em></p>
+        <p><span>Tổng phân bổ cho thành viên</span><b>{money(allocatedTotal)}</b><em>Đối chiếu với lợi nhuận được chia</em></p>
+        <p><span>Trạng thái và nguồn</span><b>{currentStatus}</b><em>{currentSourceDescription}</em></p>
+      </section></div>
+      <section className="manager-panel table-panel"><div className="panel-title"><div><h2>THỐNG KÊ PHÂN CHIA THEO TỪNG CỬA HÀNG</h2><p>Lợi nhuận sau lương thưởng − hoàn trả setup; chia từng cửa hàng rồi cộng cho mỗi thành viên</p></div><span>{storeAllocations.length} cửa hàng</span></div><p className="table-scroll-hint">Cuộn ngang bảng để xem đủ số tiền của từng thành viên.</p><ScrollableTable label="Phân chia theo cửa hàng"><table className="data-table"><thead><tr><th>Cửa hàng</th><th>Trạng thái số liệu</th><th>Doanh thu</th><th>Tổng chi phí</th><th>Lợi nhuận sau cùng</th><th>Hoàn trả setup</th><th>Lợi nhuận được chia</th>{currentMembers.map((member) => <th key={memberKey(member)}>{memberColumnLabel(member)}</th>)}</tr></thead><tbody>
+        {storeAllocations.length === 0
+          ? <tr><td colSpan={7 + currentMembers.length} className="empty-cell">{currentHistory?.legacy ? "Lịch sử cũ chưa lưu chi tiết theo cửa hàng; tổng phân chia vẫn được bảo toàn ở chế độ chỉ đọc." : "Chưa có số liệu cửa hàng trong kỳ."}</td></tr>
+          : storeAllocations.map((store) => <tr key={store.storeId}><td><b>{store.storeName}</b></td><td><span className="status-pill">{settlementStatusLabel(store.settlementStatus)}</span></td><td>{money(store.revenue)}</td><td>{money(store.expense)}</td><td className={store.finalProfit >= 0 ? "money-green" : "money-orange"}><b>{money(store.finalProfit)}</b></td><td>{money(store.setupRepayment ?? 0)}</td><td>{money(store.distributableProfit)}</td>{currentMembers.map((member) => {
+            const allocation = memberAllocation(store.memberAllocations, member);
+            return <td key={memberKey(member)}><b>{money(allocation?.amount ?? 0)}</b><br/><small>{allocationPercentage(allocation, member)}</small></td>;
+          })}</tr>)}
+      </tbody><tfoot><tr><td colSpan={2}>TỔNG CỬA HÀNG ĐÃ KHÓA KỲ</td><td>{money(currentRevenue)}</td><td>{money(currentExpense)}</td><td>{money(finalProfit)}</td><td>{money(setupRepayment)}</td><td>{money(distributableProfit)}</td>{currentMembers.map((member) => <td key={memberKey(member)}>{money(memberAllocation(allocations, member)?.amount ?? 0)}</td>)}</tr></tfoot></table></ScrollableTable></section>
+      <section className="manager-panel table-panel"><div className="panel-title"><div><h2>LỊCH SỬ CHIA LỢI NHUẬN</h2><p>Snapshot LOCKED bất biến; lịch sử cũ được giữ ở chế độ chỉ đọc</p></div><span>{history.length} kỳ</span></div><p className="table-scroll-hint">Cuộn ngang bảng để xem đủ lịch sử phân chia.</p><ScrollableTable label="Lịch sử chia lợi nhuận"><table className="data-table"><thead><tr><th>Kỳ</th><th>Doanh thu</th><th>Tổng chi phí</th><th>Lợi nhuận sau cùng</th><th>Hoàn trả setup</th><th>Lợi nhuận được chia</th>{historyMembers.map((member) => <th key={memberKey(member)}>{memberColumnLabel(member)}</th>)}<th>Trạng thái</th><th>Ngày giờ khóa</th><th>Người khóa</th><th>Nguồn dữ liệu</th></tr></thead><tbody>
+        {history.length === 0
+          ? <tr><td colSpan={10 + historyMembers.length} className="empty-cell">Chưa có lịch sử chia lợi nhuận đã khóa.</td></tr>
+          : history.map((item) => {
+            const itemProfit = finiteNumber(item.accountingProfit) ?? item.profit;
+            return <tr key={item.period}><td><b>{periodLabel(item.period)}</b></td><td>{money(item.revenue)}</td><td>{money(item.expense)}</td><td className={itemProfit >= 0 ? "money-green" : "money-orange"}><b>{money(itemProfit)}</b></td><td>{money(item.setupRepayment ?? 0)}</td><td>{money(item.distributableProfit)}</td>{historyMembers.map((member) => {
+              const allocation = memberAllocation(item.memberAllocations, member);
+              return <td key={memberKey(member)}><b>{money(allocation?.amount ?? 0)}</b><br/><small>{allocation ? allocationPercentage(allocation, member) : "—"}</small></td>;
+            })}<td><span className="status-pill">{profitSharingStatusLabel(item)}</span></td><td>{dateTime(item.closedAt)}</td><td>{item.closedBy || "—"}</td><td>{item.legacy ? "Lịch sử cũ · chỉ đọc" : "Snapshot khóa sổ"}</td></tr>;
+          })}
+      </tbody></table></ScrollableTable></section>
+    </>}
+  </div>;
+}
