@@ -126,3 +126,7 @@ API mới nên theo cùng nguyên tắc: lấy danh tính và phạm vi cửa h�
 - Theo dõi tỷ lệ lỗi API, đăng nhập thất bại, thời gian phản hồi và sai lệch báo cáo.
 - Tách môi trường development, staging và production; không dùng chung dữ liệu/tài khoản.
 
+
+## 10. Lịch phân ca đã triển khai
+
+Nguồn lịch thật: shift_definitions, shift_assignments, shift_assignment_sessions, shift_swaps và user_store_scopes. MANAGER giữ quyền quản trị toàn chuỗi; STORE_MANAGER/HTKD chỉ dùng module lịch trong scope được cấp. Schema, trigger atomic D1, idempotency và compatibility: [07-DOI-CA-LAM-VIEC.md](07-DOI-CA-LAM-VIEC.md).

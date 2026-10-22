@@ -4,7 +4,7 @@ import { calculateStoreFinance, normalizeMonth, previousMonth } from "../_lib/fi
 
 type Row = Record<string, unknown>;
 
-function parseRow(row: Row) {
+function parseRow(row: Row): Row & { data: Record<string, unknown> } {
   let data: Record<string, unknown> = {};
   try { data = JSON.parse(String(row.data_json ?? "{}")); } catch { data = {}; }
   return { ...row, data };

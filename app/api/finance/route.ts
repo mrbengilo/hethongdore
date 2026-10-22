@@ -22,6 +22,7 @@ function totalsOf(items: Array<{ revenue: number; expense: number; profit: numbe
 export async function GET(request: Request) {
   const user = await getSessionUser(request);
   if (!user) return json({ message: "Chưa đăng nhập" }, 401);
+  if (user.role !== "MANAGER" && user.role !== "EMPLOYEE") return json({ message: "Không có quyền truy cập danh mục này" }, 403);
   const params = new URL(request.url).searchParams;
   const month = normalizeMonth(params.get("month"));
   const previous = previousMonth(month);

@@ -51,6 +51,7 @@ export default defineConfig(async () => {
       vinext(),
       sites(),
       cloudflare({
+        persistState: process.env.DORE_TEST_STATE ? { path: process.env.DORE_TEST_STATE } : true,
         viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },
         config: localBindingConfig,
       }),

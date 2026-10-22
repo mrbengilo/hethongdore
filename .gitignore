@@ -38,3 +38,6 @@ yarn-error.log*
 /.wrangler/
 /outputs/
 /work/
+
+# TypeScript incremental cache
+*.tsbuildinfo

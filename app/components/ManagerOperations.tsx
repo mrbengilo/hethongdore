@@ -1,15 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowLeft, BarChart3, Boxes, Building2, ChevronRight, Clock3, FileBarChart, LogOut, Menu, PackagePlus, ReceiptText, Store, UsersRound, WalletCards, X } from "lucide-react";
+import { ArrowLeft, BarChart3, Boxes, Building2, ChevronRight, Clock3, CalendarDays, FileBarChart, LogOut, Menu, PackagePlus, ReceiptText, Store, UsersRound, WalletCards, X } from "lucide-react";
 import CostsPanel from "./operations/CostsPanel";
 import EmployeesPanel from "./operations/EmployeesPanel";
 import InventoryPanel from "./operations/InventoryPanel";
+import ShiftSchedulePanel from "./operations/ShiftSchedulePanel";
 import PayrollPanel from "./operations/PayrollPanel";
 import { DividendPanel, ReportsPanel } from "./operations/ReportsDividendPanel";
 import { comparisonLabel, dateTime24, money, monthNow, Notice, Panel, Stat, StoreFinance } from "./operations/shared";
 
-type User = { id: string; name: string; role: "MANAGER" | "EMPLOYEE" };
+type User = { id: string; name: string; role: "MANAGER" | "EMPLOYEE" | "HTKD" | "STORE_MANAGER" };
 type FinanceResponse = {
   month: string;
   stores: StoreFinance[];
@@ -19,13 +20,13 @@ type FinanceResponse = {
 type Order = { id: string; code: string; employeeName: string; customer_name: string | null; amount: number; payment_method: string; status: string; created_at: string };
 type Shift = { id: string; shift_code: string; started_at: string; ended_at: string | null; tiktok_allowance: number; employeeCode: string; employeeName: string; hourlyRate: number; status: string };
 
-const systemMenu = ["Tổng quan", "Báo cáo", "Cổ tức"] as const;
-const storeMenu = ["Tổng quan", "Chi phí", "Nhập hàng", "Nhân viên", "Ca làm việc", "Đơn hàng", "Lương thưởng", "Báo cáo"] as const;
+const systemMenu = ["Tổng quan", "Lịch phân ca", "Báo cáo", "Cổ tức"] as const;
+const storeMenu = ["Tổng quan", "Chi phí", "Nhập hàng", "Nhân viên", "Ca làm việc", "Lịch phân ca", "Đơn hàng", "Lương thưởng", "Báo cáo"] as const;
 type SystemView = typeof systemMenu[number];
 type StoreView = typeof storeMenu[number];
 
-const systemIcons = { "Tổng quan": BarChart3, "Báo cáo": FileBarChart, "Cổ tức": WalletCards };
-const storeIcons = { "Tổng quan": BarChart3, "Chi phí": ReceiptText, "Nhập hàng": PackagePlus, "Nhân viên": UsersRound, "Ca làm việc": Clock3, "Đơn hàng": Boxes, "Lương thưởng": WalletCards, "Báo cáo": FileBarChart };
+const systemIcons = { "Tổng quan": BarChart3, "Lịch phân ca": CalendarDays, "Báo cáo": FileBarChart, "Cổ tức": WalletCards };
+const storeIcons = { "Tổng quan": BarChart3, "Chi phí": ReceiptText, "Nhập hàng": PackagePlus, "Nhân viên": UsersRound, "Ca làm việc": Clock3, "Lịch phân ca": CalendarDays, "Đơn hàng": Boxes, "Lương thưởng": WalletCards, "Báo cáo": FileBarChart };
 
 function localMonth(value: string) {
   const date = new Date(value);
@@ -48,7 +49,8 @@ export default function ManagerOperations() {
   useEffect(() => {
     fetch("/api/auth/me").then(async (response) => response.ok ? response.json() : null).then((result) => {
       if (!result?.user) return window.location.replace("/");
-      if (result.user.role !== "MANAGER") return window.location.replace("/employee");
+      if (result.user.role === "EMPLOYEE") return window.location.replace("/employee");
+      if (!["MANAGER", "STORE_MANAGER", "HTKD"].includes(result.user.role)) return window.location.replace("/");
       setUser(result.user);
     });
   }, []);
@@ -66,7 +68,7 @@ export default function ManagerOperations() {
     else setFinance(result);
     setLoading(false);
   }, [month]);
-  useEffect(() => { if (user) void loadFinance(); }, [user, loadFinance]);
+  useEffect(() => { if (user?.role === "MANAGER") void loadFinance(); }, [user, loadFinance]);
 
   const selectedStore = useMemo(() => finance?.stores.find((store) => store.id === selectedStoreId) ?? null, [finance, selectedStoreId]);
   useEffect(() => { if (selectedStoreId && finance && !selectedStore) setSelectedStoreId(null); }, [finance, selectedStore, selectedStoreId]);
@@ -74,6 +76,8 @@ export default function ManagerOperations() {
   async function logout() { await fetch("/api/auth/logout", { method: "POST" }); window.location.href = "/"; }
   function openStore(id: string) { setSelectedStoreId(id); setStoreView("Tổng quan"); setMenuOpen(false); }
   function closeStore() { setSelectedStoreId(null); setSystemView("Tổng quan"); setMenuOpen(false); }
+
+  if (user && (user.role === "HTKD" || user.role === "STORE_MANAGER")) return <SchedulingWorkspace user={user} logout={logout} />;
 
   if (!user || loading && !finance) return <div className="op-loading"><div>DORE</div><p>Đang tổng hợp dữ liệu vận hành thực...</p></div>;
   if (!finance) return <div className="op-loading"><Notice kind="warning">{message || "Không tải được dữ liệu."}</Notice></div>;
@@ -93,14 +97,15 @@ export default function ManagerOperations() {
       <header className="op-header"><div className="op-header-title"><button className="op-mobile-menu" onClick={() => setMenuOpen(true)} aria-label="Mở menu"><Menu size={22} /></button><div><span>{selectedStore ? `CỬA HÀNG · ${selectedStore.address}` : "HỆ THỐNG DORE"}</span><h1>{selectedStore ? `${storeView} · ${selectedStore.name}` : systemView}</h1></div></div><div className="op-header-controls"><label>Kỳ dữ liệu<input type="month" value={month} onChange={(event) => setMonth(event.target.value)} /></label><div className="op-clock"><Clock3 size={17} /><span>{clock}</span></div></div></header>
       <section className="op-content">
         {message && <Notice kind="warning">{message}</Notice>}
-        {selectedStore ? <StoreWorkspace store={selectedStore} view={storeView} month={month} reload={loadFinance} /> : <SystemWorkspace finance={finance} view={systemView} month={month} openStore={openStore} />}
+        {selectedStore ? <StoreWorkspace actorId={user.id} store={selectedStore} view={storeView} month={month} reload={loadFinance} /> : <SystemWorkspace actorId={user.id} finance={finance} view={systemView} month={month} openStore={openStore} />}
       </section>
     </main>
     {menuOpen && <button className="op-overlay" aria-label="Đóng menu" onClick={() => setMenuOpen(false)} />}
   </div>;
 }
 
-function SystemWorkspace({ finance, view, month, openStore }: { finance: FinanceResponse; view: SystemView; month: string; openStore: (id: string) => void }) {
+function SystemWorkspace({ actorId, finance, view, month, openStore }: { actorId: string; finance: FinanceResponse; view: SystemView; month: string; openStore: (id: string) => void }) {
+  if (view === "Lịch phân ca") return <ShiftSchedulePanel actorId={actorId} />;
   if (view === "Báo cáo") return <ReportsPanel month={month} />;
   if (view === "Cổ tức") return <DividendPanel month={month} />;
   const totals = finance.totals;
@@ -111,7 +116,8 @@ function SystemWorkspace({ finance, view, month, openStore }: { finance: Finance
   </div>;
 }
 
-function StoreWorkspace({ store, view, month, reload }: { store: StoreFinance; view: StoreView; month: string; reload: () => Promise<void> }) {
+function StoreWorkspace({ actorId, store, view, month, reload }: { actorId: string; store: StoreFinance; view: StoreView; month: string; reload: () => Promise<void> }) {
+  if (view === "Lịch phân ca") return <ShiftSchedulePanel actorId={actorId} key={store.id} initialStoreId={store.id} />;
   if (view === "Chi phí") return <CostsPanel store={store} month={month} onChanged={reload} />;
   if (view === "Nhập hàng") return <InventoryPanel store={store} month={month} onChanged={reload} />;
   if (view === "Nhân viên") return <EmployeesPanel store={store} />;
@@ -152,4 +158,18 @@ function ShiftsPanel({ store, month }: { store: StoreFinance; month: string }) {
   }, [store.id]);
   const rows = shifts.filter((shift) => localMonth(shift.started_at) === month);
   return <div className="op-stack"><div className="op-stats three"><Stat label="SỐ CA GHI NHẬN" value={String(rows.length)} /><Stat label="TỔNG GIỜ LÀM" value={`${store.totalHours.toFixed(2)} giờ`} tone="blue" /><Stat label="PHỤ CẤP TIKTOK" value={money(rows.reduce((sum, row) => sum + Number(row.tiktok_allowance ?? 0), 0))} tone="orange" /></div><Panel title={`Lịch sử ca làm việc · ${month}`}>{loading ? <p>Đang tải...</p> : <div className="op-table-wrap"><table><thead><tr><th>Mã ca</th><th>Nhân viên</th><th>Vào ca</th><th>Kết ca</th><th>Số giờ</th><th>Lương/giờ</th><th>Phụ cấp</th></tr></thead><tbody>{rows.length === 0 ? <tr><td colSpan={7}>Chưa có ca làm việc trong kỳ.</td></tr> : rows.map((shift) => { const start = new Date(shift.started_at).getTime(); const end = shift.ended_at ? new Date(shift.ended_at).getTime() : nowMs ?? start; const hours = Math.max(0, Math.min(24, (end - start) / 3_600_000)); return <tr key={shift.id}><td><b>{shift.shift_code}</b></td><td>{shift.employeeCode} · {shift.employeeName}</td><td>{dateTime24(shift.started_at)}</td><td>{shift.ended_at ? dateTime24(shift.ended_at) : "Đang làm"}</td><td>{hours.toFixed(2)} giờ</td><td>{money(shift.hourlyRate)}</td><td>{money(shift.tiktok_allowance)}</td></tr>; })}</tbody></table></div>}</Panel></div>;
+}
+
+function SchedulingWorkspace({ user, logout }: { user: User; logout: () => Promise<void> }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  return <div className="op-shell">
+    <aside className={`op-sidebar ${menuOpen ? "open" : ""}`}>
+      <div className="op-brand"><div className="op-brand-mark"><Store size={25} /></div><div><strong>DORE</strong><span>LỊCH PHÂN CA</span></div><button className="op-sidebar-close" onClick={() => setMenuOpen(false)} aria-label="Đóng menu"><X size={20} /></button></div>
+      <nav aria-label="Quản lý lịch"><button className="active" onClick={() => setMenuOpen(false)}><CalendarDays size={19} />Lịch phân ca</button></nav>
+      <div className="op-sidebar-user"><span>{user.role === "HTKD" ? "Hỗ trợ kinh doanh" : "Quản lý cửa hàng"}</span><b>{user.name}</b></div>
+      <button className="op-logout" onClick={logout}><LogOut size={18} />Đăng xuất</button>
+    </aside>
+    <main className="op-main"><header className="op-header"><div className="op-header-title"><button className="op-mobile-menu" onClick={() => setMenuOpen(true)} aria-label="Mở menu"><Menu size={22} /></button><div><span>HỆ THỐNG DORE</span><h1>Lịch phân ca</h1></div></div></header><section className="op-content"><ShiftSchedulePanel actorId={user.id} /></section></main>
+    {menuOpen && <button className="op-overlay" aria-label="Đóng menu" onClick={() => setMenuOpen(false)} />}
+  </div>;
 }

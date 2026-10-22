@@ -6,7 +6,7 @@ import { Banknote, Clock3, History, Home, LogOut, Menu, RefreshCw, ShoppingCart,
 type User = {
   id: string;
   username: string;
-  role: "MANAGER" | "EMPLOYEE";
+  role: "MANAGER" | "EMPLOYEE" | "HTKD" | "STORE_MANAGER";
   name: string;
   employeeId: string | null;
   storeId: string | null;

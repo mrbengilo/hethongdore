@@ -5,7 +5,7 @@ import { calculateStoreFinance, normalizeMonth } from "../_lib/finance";
 type PayrollAction = "CONFIRM_SALARY" | "CONFIRM_BONUS_ALLOWANCE" | "MARK_PAID" | "LOCK";
 type Row = Record<string, unknown>;
 
-function parseRow(row?: Row | null) {
+function parseRow(row?: Row | null): (Row & { data: Record<string, unknown> }) | null {
   if (!row) return null;
   let data: Record<string, unknown> = {};
   try { data = JSON.parse(String(row.data_json ?? "{}")); } catch { data = {}; }

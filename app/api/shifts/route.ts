@@ -5,6 +5,7 @@ import { ensureActiveShiftRollover, reconcileActiveShifts } from "../_lib/shift-
 export async function GET(request: Request) {
   const user = await getSessionUser(request);
   if (!user) return json({ message: "Chưa đăng nhập" }, 401);
+  if (user.role !== "MANAGER" && user.role !== "EMPLOYEE") return json({ message: "Không có quyền truy cập danh mục này" }, 403);
   const db = await initDb();
   const storeId = new URL(request.url).searchParams.get("storeId");
 

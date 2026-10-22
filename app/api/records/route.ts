@@ -28,6 +28,7 @@ function parseRow(row: Record<string, unknown>) {
 export async function GET(request: Request) {
   const user = await getSessionUser(request);
   if (!user) return json({ message: "Chưa đăng nhập" }, 401);
+  if (user.role !== "MANAGER" && user.role !== "EMPLOYEE") return json({ message: "Không có quyền truy cập danh mục này" }, 403);
   const params = new URL(request.url).searchParams;
   const category = params.get("category") ?? "";
   if (!allowedCategories.has(category)) return json({ message: "Danh mục không hợp lệ" }, 400);
@@ -46,6 +47,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const user = await getSessionUser(request);
   if (!user) return json({ message: "Chưa đăng nhập" }, 401);
+  if (user.role !== "MANAGER" && user.role !== "EMPLOYEE") return json({ message: "Không có quyền truy cập danh mục này" }, 403);
   const body = await request.json().catch(() => ({})) as RecordBody;
   if (!body.category || !allowedCategories.has(body.category) || !body.title?.trim()) return json({ message: "Dữ liệu chưa đầy đủ" }, 400);
   if (user.role !== "MANAGER") return json({ message: "Chỉ quản lý được tạo dữ liệu" }, 403);
@@ -61,6 +63,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const user = await getSessionUser(request);
   if (!user) return json({ message: "Chưa đăng nhập" }, 401);
+  if (user.role !== "MANAGER" && user.role !== "EMPLOYEE") return json({ message: "Không có quyền truy cập danh mục này" }, 403);
   const body = await request.json().catch(() => ({})) as RecordBody;
   if (!body.id) return json({ message: "Thiếu mã dữ liệu" }, 400);
   const db = await initDb();
