@@ -3,7 +3,7 @@ import { initDb } from "../../../db/runtime";
 export type SessionUser = {
   id: string;
   username: string;
-  role: "MANAGER" | "EMPLOYEE";
+  role: "MANAGER" | "EMPLOYEE" | "STORE_MANAGER" | "HTKD";
   name: string;
   employeeId: string | null;
   storeId: string | null;
@@ -11,6 +11,10 @@ export type SessionUser = {
   currentShift: string | null;
   shiftStartedAt: string | null;
 };
+
+export function isSupportedRole(role: unknown): role is SessionUser["role"] {
+  return role === "MANAGER" || role === "EMPLOYEE" || role === "STORE_MANAGER" || role === "HTKD";
+}
 
 function bytesToBase64(bytes: Uint8Array) {
   let binary = "";
@@ -63,7 +67,8 @@ export async function getSessionUser(request: Request): Promise<SessionUser | nu
   const db = await initDb();
   const tokenHash = await sha256(token);
   const row = await db.prepare(`SELECT u.id, u.username, u.role, u.name, u.employee_id AS employeeId, u.store_id AS storeId, u.shift_active AS shiftActive, u.current_shift AS currentShift, u.shift_started_at AS shiftStartedAt FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.expires_at > ?`).bind(tokenHash, Date.now()).first<SessionUser>();
-  return row ?? null;
+  // Read roles from the current DB row on every request so revocation is immediate.
+  return row && isSupportedRole(row.role) ? row : null;
 }
 
 export function json(data: unknown, status = 200, headers?: HeadersInit) {

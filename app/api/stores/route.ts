@@ -4,6 +4,7 @@ import { getSessionUser, json } from "../_lib/auth";
 export async function GET(request: Request) {
   const user = await getSessionUser(request);
   if (!user) return json({ message: "Chưa đăng nhập" }, 401);
+  if (user.role !== "MANAGER" && user.role !== "EMPLOYEE") return json({ message: "Không có quyền truy cập danh mục này" }, 403);
   const db = await initDb();
   const result = user.role === "MANAGER"
     ? await db.prepare("SELECT *, revenue - expense AS profit FROM stores WHERE status != 'ARCHIVED' ORDER BY created_at").all()

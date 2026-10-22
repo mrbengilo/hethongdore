@@ -1,5 +1,5 @@
 import { initDb, writeAudit } from "../../../../db/runtime";
-import { json, sha256, verifyPassword } from "../../_lib/auth";
+import { isSupportedRole, json, sha256, verifyPassword } from "../../_lib/auth";
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => ({})) as { username?: string; password?: string; remember?: boolean };
@@ -25,6 +25,8 @@ export async function POST(request: Request) {
     return json({ message: "Tên đăng nhập hoặc mật khẩu không đúng." }, 401);
   }
 
+  if (!isSupportedRole(user.role)) return json({ message: "Tài khoản không có quyền truy cập." }, 403);
+
   await db.prepare("UPDATE users SET failed_attempts = 0, locked_until = NULL WHERE id = ?").bind(String(user.id)).run();
   const bytes = crypto.getRandomValues(new Uint8Array(32));
   const token = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -37,6 +39,6 @@ export async function POST(request: Request) {
 
   const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
   const cookie = `dore_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure}`;
-  return json({ role: user.role, redirect: user.role === "MANAGER" ? "/manager" : "/employee" }, 200, { "Set-Cookie": cookie });
+  return json({ role: user.role, redirect: user.role === "EMPLOYEE" ? "/employee" : "/manager" }, 200, { "Set-Cookie": cookie });
 }
 

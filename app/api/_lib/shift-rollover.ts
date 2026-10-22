@@ -1,8 +1,13 @@
-import { initDb, writeAudit } from "../../../db/runtime";
+import type { initDb } from "../../../db/runtime";
 import type { SessionUser } from "./auth";
 
 type Db = Awaited<ReturnType<typeof initDb>>;
 type Row = Record<string, unknown>;
+
+async function writeShiftAudit(db: Db, userId: string, action: string, entityType: string, entityId: string, detail: string) {
+  await db.prepare("INSERT INTO audit_logs(id,user_id,action,entity_type,entity_id,detail,created_at) VALUES(?,?,?,?,?,?,?)")
+    .bind(crypto.randomUUID(),userId,action,entityType,entityId,detail,new Date().toISOString()).run();
+}
 
 const VN_OFFSET_MS = 7 * 60 * 60 * 1000;
 export const SHIFT_GRACE_MINUTES = 60;
@@ -147,6 +152,28 @@ async function ensureLegacyRow(user: ActiveUser, db: Db) {
 
 export async function startEmployeeShift(user: ActiveUser, db: Db, now = new Date()) {
   if (!user.employeeId || !user.storeId) throw new Error("Tài khoản chưa được gắn với nhân viên/cửa hàng.");
+  const assigned = await db.prepare("SELECT * FROM shift_assignments WHERE employee_id=? AND store_id=? AND status='PLANNED' AND scheduled_start_at<=? AND scheduled_end_at>? ORDER BY scheduled_start_at")
+    .bind(user.employeeId,user.storeId,now.toISOString(),now.toISOString()).all<Row>();
+  if (assigned.results.length > 1) throw new Error("Lịch bị chồng giờ. Liên hệ quản lý.");
+  const plan = assigned.results[0];
+  if (plan) {
+    const sessionId = crypto.randomUUID(), shiftCode = `ASG-${crypto.randomUUID()}`, startedAt = now.toISOString();
+    // The link trigger rechecks the current employee and schedule inside this
+    // batch. A swap winning after the SELECT makes this start roll back fully.
+    await db.batch([
+      db.prepare("INSERT INTO shift_sessions (id,shift_code,shift_name,store_id,employee_id,started_at,scheduled_start_at,scheduled_end_at,work_session_id,status) VALUES(?,?,?,?,?,?,?,?,?,'ACTIVE')")
+        .bind(sessionId,shiftCode,String(plan.shift_name),user.storeId,user.employeeId,startedAt,String(plan.scheduled_start_at),String(plan.scheduled_end_at),crypto.randomUUID()),
+      db.prepare("INSERT INTO shift_assignment_sessions(assignment_id,session_id) VALUES(?,?)").bind(String(plan.id),sessionId),
+      db.prepare("UPDATE users SET shift_active=1,current_shift=?,shift_started_at=? WHERE id=?").bind(shiftCode,startedAt,user.id),
+      db.prepare("INSERT INTO audit_logs(id,user_id,action,entity_type,entity_id,detail,created_at) VALUES(?,?,'SHIFT_START','SHIFT',?,?,?)")
+        .bind(crypto.randomUUID(),user.id,sessionId,JSON.stringify({ assignmentId:plan.id, reason:"Bắt đầu ca theo lịch được phân" }),startedAt),
+    ]);
+    return stateFromRow(await findActiveRow(db,user.employeeId,shiftCode));
+  }
+  const scheduledDay = await db.prepare("SELECT id FROM shift_assignments WHERE employee_id=? AND status='PLANNED' AND business_date=? LIMIT 1").bind(user.employeeId,localDateKey(now)).first();
+  if (scheduledDay) throw new Error("Chưa đến giờ ca được phân hoặc ca đã kết thúc. Kiểm tra lịch phân ca.");
+  // Employees without a real assignment retain the legacy start behavior.
+  // Never infer/backfill a historical assignment from a legacy shift name.
   const schedule = slotForInstant(now);
   const window = scheduleFor(schedule.slot, schedule.dateKey);
   const shiftCode = newShiftCode(schedule.slot, schedule.dateKey);
@@ -157,7 +184,7 @@ export async function startEmployeeShift(user: ActiveUser, db: Db, now = new Dat
     db.prepare("INSERT INTO shift_sessions (id, shift_code, shift_name, store_id, employee_id, started_at, scheduled_start_at, scheduled_end_at, work_session_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE')")
       .bind(crypto.randomUUID(), shiftCode, schedule.slot.name, user.storeId, user.employeeId, startedAt, window.scheduledStartAt, window.scheduledEndAt, workSessionId),
   ]);
-  await writeAudit(user.id, "SHIFT_START", "SHIFT", shiftCode, `${schedule.slot.name}; grace=${SHIFT_GRACE_MINUTES}m`);
+  await writeShiftAudit(db, user.id, "SHIFT_START", "SHIFT", shiftCode, `${schedule.slot.name}; grace=${SHIFT_GRACE_MINUTES}m`);
   return stateFromRow(await findActiveRow(db, user.employeeId, shiftCode));
 }
 
@@ -165,6 +192,9 @@ export async function ensureActiveShiftRollover(user: ActiveUser, db: Db, now = 
   if (!user.shiftActive || !user.employeeId || !user.storeId || !user.currentShift) return stateFromRow(null);
   let active = await ensureLegacyRow(user, db);
   if (!active) return stateFromRow(null);
+  // Planned attendance keeps its actual session through overtime/midnight.
+  // The existing legacy rollover path below is intentionally unchanged.
+  if (String(active.shift_code).startsWith("ASG-")) return stateFromRow(active);
   const rollovers: ShiftRolloverEvent[] = [];
 
   for (let guard = 0; guard < 12; guard += 1) {
@@ -206,7 +236,7 @@ export async function ensureActiveShiftRollover(user: ActiveUser, db: Db, now = 
       splitAt,
     };
     rollovers.push(event);
-    await writeAudit(user.id, "SHIFT_AUTO_ROLLOVER", "SHIFT", nextCode, `${event.fromCode} -> ${event.toCode}; split=${splitAt}; grace=${SHIFT_GRACE_MINUTES}m`);
+    await writeShiftAudit(db, user.id, "SHIFT_AUTO_ROLLOVER", "SHIFT", nextCode, `${event.fromCode} -> ${event.toCode}; split=${splitAt}; grace=${SHIFT_GRACE_MINUTES}m`);
     active = nextActive;
   }
 
@@ -230,6 +260,6 @@ export async function endEmployeeShift(user: ActiveUser, db: Db, tiktok: boolean
       .bind(endedAt, tiktok ? 1 : 0, tiktokAllowance, user.employeeId, current.shiftCode),
     db.prepare("UPDATE users SET shift_active = 0, current_shift = NULL, shift_started_at = NULL WHERE id = ?").bind(user.id),
   ]);
-  await writeAudit(user.id, "SHIFT_END", "SHIFT", current.shiftCode, tiktok ? "TikTok=1" : "TikTok=0");
+  await writeShiftAudit(db, user.id, "SHIFT_END", "SHIFT", current.shiftCode, tiktok ? "TikTok=1" : "TikTok=0");
   return { active: false, shiftCode: current.shiftCode, shiftName: current.shiftName, startedAt: current.startedAt, endedAt, tiktokAllowance, rollovers: current.rollovers };
 }

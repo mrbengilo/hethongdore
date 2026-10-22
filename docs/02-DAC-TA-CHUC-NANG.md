@@ -232,3 +232,7 @@ Không dùng Revenue, Operating Profit hoặc Profit After KPI để chia lợi 
 - `Final Profit = Profit After KPI - Month-End Expense`.
 - Chỉ `Distributable Profit` được dùng để chia lợi nhuận/cổ tức.
 - Giao diện dùng tốt tối thiểu ở 360 px, 390 px, 430 px, máy tính bảng và desktop.
+
+## 12. Lịch phân ca thật và đổi ca
+
+Module /manager hỗ trợ định nghĩa ca, tạo/hủy phân công và đổi đúng hai ca cùng cửa hàng/ngày, kể cả nhân viên có nhiều ca. Quyền, điều kiện chặn và ví dụ: [07-DOI-CA-LAM-VIEC.md](07-DOI-CA-LAM-VIEC.md).

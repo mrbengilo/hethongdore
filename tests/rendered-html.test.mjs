@@ -44,7 +44,7 @@ test("contains core role and finance rules", async () => {
   assert.match(portal, /0\.03/u);
   assert.match(portal, /0\.05/u);
   assert.match(portal, /0\.07/u);
-  assert.match(runtime, /DORE SÓC TRĂNG/u);
+  assert.doesNotMatch(runtime, /MANAGER_HASH|EMPLOYEE_HASH|initialStores|INSERT OR IGNORE INTO users/u);
   assert.match(login, /attempts >= 10/u);
   assert.match(login, /15 \* 60 \* 1000/u);
   assert.match(orders, /ensureActiveShiftRollover/u);

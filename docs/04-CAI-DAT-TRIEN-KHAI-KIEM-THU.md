@@ -110,3 +110,7 @@ Bản build phải tạo entrypoint Worker tương thích và không còn lỗi 
 - [ ] Khóa các kỳ lương/cổ tức đã chốt.
 - [ ] Kiểm tra responsive và khả năng truy cập.
 
+
+## 10. Kiểm thử lịch phân ca và triển khai VPS
+
+Cài bằng pnpm install --frozen-lockfile. Chạy pnpm lint, pnpm exec tsc --noEmit, pnpm test:integration (D1 cô lập), pnpm test:e2e (browser/API thật) và pnpm test (bao gồm production build). CI chạy các suite này. Runtime không còn seed tài khoản/mật khẩu demo. Chi tiết [07-DOI-CA-LAM-VIEC.md](07-DOI-CA-LAM-VIEC.md); điều kiện VPS và rollback [DEPLOY_VPS.md](DEPLOY_VPS.md).
