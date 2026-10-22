@@ -1,0 +1,54 @@
+.page { display: grid; gap: 18px; }
+.warning { display: flex; gap: 12px; align-items: flex-start; padding: 15px 17px; border: 1px solid #f1c27d; border-radius: 14px; background: #fff8e8; color: #704500; }
+.warning svg { flex: 0 0 auto; margin-top: 2px; }
+.panel { border: 1px solid #dbe7df; border-radius: 18px; background: #fff; overflow: hidden; }
+.panelHeader { padding: 20px 22px 14px; border-bottom: 1px solid #e7eee9; }
+.panelHeader h2 { margin: 0 0 5px; color: #075b35; font-size: 22px; }
+.panelHeader p { margin: 0; color: #66756d; }
+.filters { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 14px; padding: 18px 22px; }
+.filters label { display: grid; gap: 7px; color: #22543d; font-weight: 700; font-size: 13px; }
+.pickerField { display: grid; gap: 7px; color: #22543d; font-weight: 700; font-size: 13px; }
+.pickerField > label { width: 100%; min-width: 0; }
+.filters select, .filters input, .confirmation input { width: 100%; min-height: 46px; padding: 0 12px; border: 1px solid #ccd9d1; border-radius: 11px; background: #fff; color: #13251b; font: inherit; }
+.actions { display: flex; justify-content: flex-end; gap: 10px; padding: 0 22px 18px; }
+.previewButton, .resetButton { min-height: 44px; border-radius: 11px; padding: 0 18px; font-weight: 800; cursor: pointer; }
+.previewButton { border: 1px solid #138a50; background: #effaf3; color: #08713e; }
+.resetButton { border: 1px solid #bc2525; background: #c92c2c; color: #fff; }
+.previewButton:disabled, .resetButton:disabled { opacity: .55; cursor: not-allowed; }
+.summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 18px 22px 0; }
+.summary div { padding: 14px; border-radius: 13px; background: #f3f8f5; }
+.summary span { display: block; color: #64746b; font-size: 12px; }
+.summary strong { display: block; margin-top: 5px; color: #075b35; font-size: 20px; }
+.tableWrap { overflow-x: auto; padding: 16px 22px; }
+.table { width: 100%; border-collapse: collapse; min-width: 720px; }
+.table th, .table td { padding: 11px 12px; border-bottom: 1px solid #e8eee9; text-align: left; font-size: 13px; }
+.table th { background: #f2f8f4; color: #1f6745; }
+.table td b, .table td small { display: block; }
+.table td small { margin-top: 4px; color: #68776f; font-size: 11px; }
+.empty { padding: 30px 22px; text-align: center; color: #718078; }
+.confirmation { margin: 0 22px 20px; padding: 16px; border: 1px solid #efc0c0; border-radius: 14px; background: #fff7f7; }
+.confirmation p { margin: 0 0 12px; color: #6c2525; }
+.confirmation strong { color: #9c1717; }
+.confirmActions { display: flex; align-items: end; gap: 10px; }
+.confirmActions label { flex: 1; display: grid; gap: 6px; color: #5e2929; font-weight: 700; font-size: 13px; }
+.feedback { margin: 0 22px 20px; padding: 12px 14px; border-radius: 11px; background: #eef8f1; color: #086a3a; }
+.error { background: #fff0f0; color: #a31919; }
+
+@media (max-width: 760px) {
+  .filters { grid-template-columns: 1fr 1fr; padding: 15px; gap: 11px; }
+  .panelHeader { padding: 17px 15px 13px; }
+  .panelHeader h2 { font-size: 19px; }
+  .actions { padding: 0 15px 15px; }
+  .summary { grid-template-columns: 1fr; padding: 15px 15px 0; }
+  .tableWrap { padding: 13px 15px; }
+  .confirmation { margin: 0 15px 15px; }
+  .confirmActions { align-items: stretch; flex-direction: column; }
+  .resetButton, .previewButton { min-height: 44px; padding: 0 14px; }
+  .feedback { margin: 0 15px 15px; }
+}
+
+@media (max-width: 430px) {
+  .filters { grid-template-columns: 1fr; }
+  .actions { justify-content: stretch; }
+  .previewButton { width: 100%; }
+}

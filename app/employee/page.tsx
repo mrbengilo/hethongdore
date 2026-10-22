@@ -1,6 +1,5 @@
-import DisplayConventions from "../components/DisplayConventions";
-import EmployeeOperations from "../components/EmployeeOperations";
+import Portal from "../components/Portal";
 
 export default function EmployeePage() {
-  return <><DisplayConventions /><EmployeeOperations /></>;
+  return <Portal expectedRole="EMPLOYEE" />;
 }

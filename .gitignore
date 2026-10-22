@@ -12,6 +12,13 @@
 
 # testing
 /coverage
+/test-results/
+/playwright-report/
+/.qa-*/
+/.codex-dev/
+/.vps-access/
+*.sqlite*
+tsconfig.tsbuildinfo
 
 # next.js
 /.next/
@@ -38,6 +45,3 @@ yarn-error.log*
 /.wrangler/
 /outputs/
 /work/
-
-# TypeScript incremental cache
-*.tsbuildinfo

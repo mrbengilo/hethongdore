@@ -1,77 +1,49 @@
-# 07. Lịch phân ca và đổi ca
+# Đổi ca trên lịch production
 
-## Quyền và thao tác
+## Nền tảng
+Bản tích hợp dùng nền production 380f28970a7ce360fa8d766526878516f74cc2bc: Next.js standalone, Node22, SQLite qua adapter D1-shaped. Chủ hệ thống đã duyệt hòa giải với main, giữ production và SQLite. PR14 dùng mô hình lịch riêng chưa được deploy VPS, được thay bằng thiết kế này.
 
-`MANAGER` là quyền quản trị toàn chuỗi đã tồn tại trong repo. Không chuyển các tài khoản này thành HTKD. Hai quyền mới `STORE_MANAGER` và `HTKD` chỉ được dùng module lịch phân ca, theo từng bản ghi `user_store_scopes`. Các API tài chính, nhân sự, đơn hàng, cửa hàng và hồ sơ cũ tiếp tục từ chối hai quyền mới. Nhân viên không được gọi API lịch/đổi ca.
+Nguồn lịch thật vẫn là business_records category LICH_PHAN_CA, data_json.employeeIds và daily_shift_definitions. Không backfill lịch sử. Giữ module tài chính/lương/chấm công và lineage shift_sessions.source_schedule_record_id/source_schedule_updated_at.
 
-Trong `/manager`, mở **Lịch phân ca**. Chọn cửa hàng và ngày, tạo định nghĩa ca (tên/giờ) rồi phân công nhân viên đang ACTIVE tại cửa hàng. Tab **Đổi ca** dùng cùng dữ liệu bền trong D1. Một ca được chọn sẵn; nhiều ca bắt buộc chọn chính xác. Form hiển thị tên/mã nhân viên, tên ca, giờ, bản xem trước và kết quả server. Đổi ngày/cửa hàng reset lựa chọn; response cũ bị bỏ qua. Kết quả chưa xác định giữ nguyên payload và idempotency key để thử lại, kể cả reload cùng tab trình duyệt.
+## Sử dụng và quyền
+Quản lý mở **Cửa hàng → chọn cửa hàng → Lịch phân ca → Đổi ca**, chọn ngày, hai nhân viên và đúng ca. Một assignment được chọn tự động; nhiều assignment bắt buộc chọn rõ. Preview trước/sau. A có sáng+tối, B có chiều: đổi sáng/chiều giữ nguyên ca tối.
 
-Ví dụ: A có Ca 1 và Ca 3, B có Ca 2. Chọn Ca 1 của A và Ca 2 của B → A có Ca 2 và Ca 3, B có Ca 1. Không tác động Ca 3. Hai ca sát nhau không chồng giờ. Ca kết thúc trước giờ bắt đầu được hiểu là qua đêm, tối đa dưới 24 giờ; hai mốc giờ giống nhau bị từ chối. Ngày nghiệp vụ dùng Asia/Ho_Chi_Minh (UTC+7).
+MANAGER giữ scope production: có store_id thì chỉ cửa hàng đó; superadmin hoặc manager không gắn cửa hàng có scope toàn chuỗi. HTKD chỉ module /scheduling theo schedule_store_grants. API quản trị cũ từ chối HTKD tập trung tại getSessionUser. EMPLOYEE không được đổi ca. Không cấp role/grant production trong deployment.
 
-Chỉ cho đổi lịch PLANNED chưa đến giờ bắt đầu, chưa liên kết chấm công, không có phiên đang hoạt động/phát sinh thực tế giao ca và không thuộc kỳ LOCKED. Kiểm tra kỳ cả hai tháng khi ca qua biên tháng. Nhân viên nghỉ, ARCHIVED hoặc đã chuyển cửa hàng bị từ chối; chưa bổ sung điều chuyển tạm vì repo chưa có nguồn quyền điều chuyển đủ tin cậy. Không dùng chức danh/tên tài khoản để suy quyền.
+Ngày UTC+7, khoảng ca [start,end), cho phép hai ca sát nhau. End nhỏ hơn start là qua đêm; hai mốc bằng nhau không hợp lệ. Overlap kiểm xuyên ngày/cửa hàng. Nhân viên điều chuyển phải hợp lệ tại cửa hàng và ca đích theo chính sách attendance.
 
-## Dữ liệu và semantics
-
-- `shift_definitions`: định nghĩa giờ theo cửa hàng. Định nghĩa mới không sửa snapshot của lịch cũ.
-- `shift_assignments`: ID vị trí ca ổn định, cửa hàng/ngày/định nghĩa/tên/giờ snapshot, người được phân, status/version, actor và timestamp. Không có ghi chú cá nhân trên row; lý do thuộc operation.
-- Đổi ca chỉ đổi `employee_id` trên đúng hai vị trí ca, version +1; giữ vị trí, giờ, số nhân viên mỗi ca và số phân công mỗi người. Không xóa/tạo lại assignment.
-- `shift_assignment_sessions`: liên kết riêng giữa lịch và phiên thực tế; không backfill lịch sử bằng tên ca.
-- `shift_swaps`: request và response bền, UNIQUE(actor_id,idempotency_key), bất biến sau DONE.
-- `audit_logs`: SHIFT_SWAP chứa actor ID/name/role, operation, store/day, hai assignment/person IDs, giờ và version trước/sau, lý do, thời điểm. Audit tạo/hủy lịch cũng cùng statement. Audit lịch không được cập nhật/xóa qua SQL ứng dụng.
-
-Không sửa `employee_id`, giờ thực tế, chủ đơn, doanh thu, phụ cấp hoặc snapshot lương của `shift_sessions`/orders/payroll khi đổi lịch.
+Chỉ đổi lịch ACTIVE, cửa hàng/nhân viên ACTIVE, chưa bắt đầu/chấm công, kỳ chưa chốt/khóa. Qua tháng kiểm cả kỳ có thời gian thực sự thuộc ca. Không sửa người chấm công, chủ đơn, giờ thực tế, doanh thu hoặc snapshot lương.
 
 ## API
-
-Mọi API xác thực bằng session hiện tại, đọc lại role/scope từ DB; body actorId/role không được dùng. Ngoài scope trả 404 với thông báo chung, không tiết lộ bản ghi. EMPLOYEE trả 403; chưa đăng nhập 401.
-
-| API | Body/query | Kết quả |
+| API | Input | Output |
 |---|---|---|
-| GET /api/shift-assignments | date, storeId tùy chọn | stores được cấp; employees ACTIVE, definitions, assignments của đúng store/day |
-| POST /api/shift-definitions | storeId,name,startTime,endTime | definition |
-| POST /api/shift-assignments | storeId,date,employeeId,definitionId | assignment |
-| DELETE /api/shift-assignments | storeId,assignmentId,expectedVersion | hủy mềm, version +1 |
-| POST /api/shift-swaps | storeId,date,assignmentAId,assignmentBId,expectedVersionA,expectedVersionB,idempotencyKey,reason tùy chọn | operationId, hai assignments đã lưu, replayed |
+| GET /api/shift-swaps?stores=1 | Session | actorId, stores được cấp |
+| GET /api/shift-swaps?storeId=…&date=YYYY-MM-DD | Store/day | actorId, employees, assignments, serverTime |
+| POST /api/shift-swaps | storeId,date,assignmentAId,assignmentBId,expectedVersionA,expectedVersionB,idempotencyKey,reason,expectedActorId | ok,operationId,idempotent,hai assignments |
 
-Ngày phải là YYYY-MM-DD hợp lệ, giờ HH:mm, version nguyên dương, IDs/key tối đa 128 ký tự và reason tối đa 500 ký tự. Lý do mặc định luôn được lưu khi người dùng để trống.
+Assignment gồm id,recordId,employeeId,shiftName,start,end,startAt,endAt,workDate,version,eligible,blockedReason. Version SHA256 của JSON lịch+updated_at, dùng nguyên giá trị server. Actor lấy từ session và quyền hiện tại; expectedActorId chỉ assertion chống đổi tài khoản lúc form đang mở.
 
-Các mã lỗi: INVALID_INPUT/INVALID_DATE/INVALID_TIME/INVALID_VERSION (400), FORBIDDEN (403), NOT_FOUND (404), SCHEDULE_CONFLICT/OVERLAP/STARTED/LOCKED/ELIGIBILITY/NOOP và IDEMPOTENCY_CONFLICT (409). Lỗi chưa xác định/5xx giữ nguyên request để retry. Không thay key sau timeout.
+Reason chuẩn hóa 5–500 ký tự; UI cung cấp mặc định khi trống. Key16–200 ký tự chữ/số/:_-. Input400, chưa đăng nhập401, sai quyền403, stale/overlap/locked/started/idempotency mismatch409. Lỗi ghi chưa rõ500 giữ request.
 
-## Atomicity và concurrency trên D1
+UI lưu nguyên payload/key trong sessionStorage theo actor/store/day trước khi gửi. Mất phản hồi/reload không dựng request đảo chiều. Retry cùng key/payload trả kết quả lưu, khác payload bị từ chối. Đổi store/day reset form, response cũ không ghi đè scope mới; thành công reload lịch hiện hữu.
 
-Domain chèn một row `shift_swaps`. Trigger BEFORE kiểm tra scope hiện tại, cặp assignment, version và overlap trên lịch kết quả của cả hai người, loại đúng hai assignment cũ. Trigger AFTER ghi audit trước/sau, cập nhật A, kiểm `changes()=1`, cập nhật B, kiểm `changes()=1`, rồi lưu response và DONE. Tất cả nằm trong **một statement SQLite**. `RAISE(ABORT)` ở update/audit hoặc số dòng khác 1 rollback toàn statement. Không dùng interactive transaction hoặc hai PATCH client. D1 metadata changes có thể gồm trigger writes nên API hủy dùng RETURNING để xác minh CAS.
+## Identity và transaction
+Legacy assignment ID đọc bằng recordId:index, không rewrite dữ liệu. Khi sửa, data_json.assignmentIds lưu ID thuộc vị trí; swap giữ ID và chỉ đổi hai employeeIds/employeeNames. Generic edit giữ ID của người còn lại, UUID cho vị trí thêm. PATCH/DELETE lịch yêu cầu expectedUpdatedAt; timestamp tăng đơn điệu chống stale editor.
 
-Các trigger ở assignment tạo/cập nhật/hủy kiểm eligibility, overlap tất cả ngày/cửa hàng, kỳ khóa và chấm công ngay tại write. Không có API sửa vị trí/giờ/xóa vật lý; SQL trigger từ chối thay identity/time, delete hoặc version sai. Khóa riêng endpoint không được dùng làm bảo vệ. Các write D1 tuần tự tại DB: nếu lock kỳ thắng trước thì swap bị chặn; nếu swap thắng trước thì lock thấy lịch đã đổi. Swap không thay số liệu lương nên không làm stale snapshot tài chính. Existing payroll lock implementation ngoài phạm vi được giữ nguyên.
+shift_swap_operations có UNIQUE(actor_id,request_key), payload_hash, before/after, result_json, trạng thái COMPLETED. Một INSERT là transaction boundary. Trigger kiểm lại scope/version/eligibility/overlap/attendance/period sau write lock, update A/B, kiểm changes()=1 từng bước, audit, hoàn tất operation. ABORT hoặc IGNORE thiếu bước rollback toàn statement. Không dùng hai PATCH client.
 
-Start ca đọc assignment đang đến giờ của nhân viên và liên kết trong cùng D1 batch với insert session/update user/audit. Link trigger đọc lại owner và giờ để chặn stale start sau swap. Legacy start gặp lịch mới đồng thời bị chặn. Phiên có mã ASG giữ cùng phiên khi overtime/qua ngày. Nhân viên chưa có lịch thật giữ start/rollover legacy; đây là compatibility có chủ đích, không thay toàn bộ chính sách overtime trong task này.
-
-Retry cùng key/payload trả response lưu trước đó, không chạy lại swap. Cùng key khác payload bị 409; hai request khác key dùng cùng version chỉ một thắng. Idempotency lưu lâu dài, chưa có TTL hoặc công việc dọn tự động.
+Audit SWAP_SCHEDULE ghi actor/store/operation, JSON trước/sau, record/slot/date/reason/time. Operation COMPLETED và audit swap không được update/delete. Replay bền không có TTL tự xóa. Generic schedule-write guard chặn overlap, sửa lịch bắt đầu/chấm công/khóa kỳ. Attendance production kiểm record+updated_at+employee khi start: xác nhận trước swap bị stale, người nhận đọc lịch mới.
 
 ## Migration và cấp quyền
+Migration additive drizzle/0037_shift_swaps.sql, runtime db/shift-swap.ts gọi từ initDb. Hai bảng mới và trigger; không chuyển/xóa dữ liệu cũ. Kiểm fresh/upgraded schema, chạy hai lần và preservation backup thực.
 
-Migration additive: `drizzle/0001_shift_scheduling.sql`, chia bằng statement-breakpoint để giữ nguyên trigger body. `db/scheduling.ts` dùng chính SQL đó cho runtime, không duy trì bộ trigger thứ hai. Runtime giữ các additive column migrations cũ. Không sửa migration 0000. Runtime đã ngừng seed tài khoản/dữ liệu demo và ngừng reset password hash; dữ liệu hiện hữu giữ nguyên. DB mới cần được cấp tài khoản quản trị bằng quy trình vận hành; không có tài khoản/mật khẩu mặc định.
+Cấp HTKD là thao tác quản trị riêng sau xác minh user/store, ghi audit vận hành; không thuộc deployment. Trong một transaction đổi role user được chỉ định thành HTKD, thêm schedule_store_grants(user_id,store_id), xóa sessions của user đó. Không đổi hàng loạt MANAGER. Thu hồi DELETE grant; API/trigger kiểm quyền hiện tại.
 
-Cấp scope do operator có quyền DB thực hiện sau khi xác minh ID tài khoản/cửa hàng thật. Ví dụ SQL dưới là template, không tự chạy production:
+## Kiểm chứng
+- pnpm test: hồi quy production finance/payroll/attendance/auth/ops.
+- pnpm test:production-shift-swap: SQLite native, real routes, fault injection, hai connection, TOCTOU, replay, scope, attendance, migration.
+- pnpm verify:selfhost: Next standalone build+typecheck.
+- pnpm test:e2e:selfhost: Chromium trên standalone với DB fixture, API thật; build trước.
+- pnpm lint.
 
-```sql
--- Tài khoản đã tồn tại, được chủ hệ thống chỉ định là HTKD (hoặc STORE_MANAGER).
-UPDATE users SET role='HTKD' WHERE id='<verified-user-id>';
-INSERT INTO user_store_scopes(user_id,store_id) VALUES('<verified-user-id>','<verified-store-id>');
-DELETE FROM sessions WHERE user_id='<verified-user-id>';
--- Thu hồi một cửa hàng:
-DELETE FROM user_store_scopes WHERE user_id='<verified-user-id>' AND store_id='<verified-store-id>';
-```
-
-Ghi lại người cấp quyền, lý do và trước/sau trong audit vận hành; chạy grant/revoke cùng batch. Không đổi quyền MANAGER hàng loạt. Đăng nhập lại kiểm `/api/auth/me`, scoped GET và thử trực tiếp API ngoài scope. Tests fixture chứng minh grant/revoke và deny module khác; không thử bằng dữ liệu production.
-
-## Kiểm thử và phát hành
-
-`pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm exec tsc --noEmit`, `pnpm test:integration`, `pnpm test:e2e`, `pnpm test`. Integration chạy Miniflare/workerd D1; E2E dùng DB test riêng và các API thật. Test source cũ chỉ là regression bổ sung, không thay transaction test. CI chạy các suite mới và build cuối. Xem test cases trong tests và báo cáo evidence của lần chạy, không coi danh sách lệnh này là bằng chứng PASS.
-
-Triển khai VPS và rollback theo [DEPLOY_VPS.md](DEPLOY_VPS.md). Không coi Worker build là runtime Node/VPS. Phải xác minh runtime/DB, backup + restore rehearsal, merged/running SHA và watcher trước khi triển khai. Chỉ kiểm tra đọc trên production; thao tác đổi ca ghi dữ liệu chỉ chạy DB cô lập. Giữ schema additive khi rollback app; không restore đè production làm mất giao dịch mới.
-
-### Giới hạn rollback ứng dụng
-
-Schema là additive nhưng bản app trước tính năng không hiểu assignment. Khi đã có lịch thật, trigger cố ý chặn legacy start bỏ qua lịch. Vì vậy không rollback mù về e22a656: phải dùng release tương thích giữ adapter bắt đầu ca theo assignment và safety triggers, hoặc forward-fix. Chỉ có thể quay về app cũ sau khi kiểm chứng dữ liệu không có phân công còn hiệu lực; không xóa lịch để ép rollback. Runbook phải ghi rõ điều kiện này trước khi phát hành thực tế.
-
-Tham khảo runtime: [Cloudflare D1 batch](https://developers.cloudflare.com/d1/worker-api/d1-database/#batch) và [SQLite RAISE trong trigger](https://www.sqlite.org/lang_createtrigger.html#the_raise_function). Các kiểm thử fault injection trong repo kiểm chứng cơ chế thực thi, không chỉ dựa trên tài liệu.
+Fixture chỉ dùng test; không business writes production. Tách local/CI/rehearsal/deploy/production trong báo cáo. Xem [DEPLOY_VPS.md](DEPLOY_VPS.md).

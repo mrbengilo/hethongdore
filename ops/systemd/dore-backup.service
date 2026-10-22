@@ -1,0 +1,22 @@
+[Unit]
+Description=Create a consistent DORE SQLite and uploads backup
+After=local-fs.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/local/lib/dore/backup.sh
+UMask=0077
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadOnlyPaths=/var/lib/dore
+ReadWritePaths=/var/backups/dore
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=true

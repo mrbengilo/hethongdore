@@ -1,0 +1,41 @@
+name: Finance settlement checks
+
+on:
+  pull_request:
+  push:
+    branches: [main, agent/production-update-20260811]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: finance-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run lint
+      - run: pnpm test
+      - run: pnpm run test:production-shift-swap
+      - run: pnpm run verify:selfhost
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm run test:e2e:selfhost
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: selfhost-browser-failures
+          path: |
+            test-results/
+            playwright-report/

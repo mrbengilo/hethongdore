@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable @next/next/no-img-element -- Ảnh thương hiệu tĩnh do người dùng cung cấp và được phục vụ nội bộ. */
+
 import { FormEvent, useEffect, useState } from "react";
 import { Eye, EyeOff, LockKeyhole, ShieldCheck, UserRound } from "lucide-react";
 
@@ -13,8 +15,9 @@ export default function LoginPage() {
 
   useEffect(() => {
     fetch("/api/auth/me").then((response) => response.ok ? response.json() : null).then((data) => {
-      if (["MANAGER", "STORE_MANAGER", "HTKD"].includes(data?.user?.role)) window.location.href = "/manager";
+      if (data?.user?.role === "MANAGER") window.location.href = "/manager";
       if (data?.user?.role === "EMPLOYEE") window.location.href = "/employee";
+      if (data?.user?.role === "HTKD") window.location.href = "/scheduling";
     }).catch(() => undefined);
   }, []);
 
@@ -37,7 +40,7 @@ export default function LoginPage() {
   return (
     <main className="login-page">
       <section className="login-hero">
-        <div className="brand-lockup"><img src="/dore-manager-logo.svg" alt="DORE Quản Lý" width={58} height={58}/><div><strong>DORE</strong><span>Quản Lý</span></div></div>
+        <div className="brand-lockup"><div className="brand-mark"><img className="brand-logo-image" src="/logo.jpg" alt="Logo DORE Quản Lý" width={1254} height={1254}/></div><div><strong>DORE</strong><span>đồ si đồng giá</span></div></div>
         <div className="hero-copy">
           <p className="eyebrow">DORE ĐỒ SI ĐỒNG GIÁ 20K</p>
           <h1>ĐỒ ĐẸP GIÁ RẺ</h1>
@@ -52,7 +55,7 @@ export default function LoginPage() {
       </section>
       <section className="login-panel-wrap">
         <form className="login-panel" onSubmit={submit}>
-          <div className="login-logo"><img src="/dore-manager-logo.svg" alt="DORE Quản Lý" width={84} height={84}/></div>
+          <div className="login-logo"><img className="brand-logo-image" src="/logo.jpg" alt="Logo DORE Quản Lý" width={1254} height={1254}/></div>
           <h2>Chào mừng bạn quay trở lại!</h2>
           <p className="muted">Đăng nhập để tiếp tục quản lý cửa hàng</p>
           <label>Tên đăng nhập<div className="login-input"><UserRound size={19}/><input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Nhập tên đăng nhập" autoComplete="username" required /></div></label>
@@ -60,7 +63,8 @@ export default function LoginPage() {
           <div className="login-options"><label className="check-label"><input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)}/> Ghi nhớ đăng nhập</label><button type="button" className="text-button" onClick={() => setMessage("Vui lòng liên hệ quản lý hệ thống để đặt lại mật khẩu an toàn.")}>Quên mật khẩu?</button></div>
           {message && <div className="form-message" role="alert">{message}</div>}
           <button className="primary-button login-submit" disabled={loading}>{loading ? "Đang xác thực..." : "Đăng nhập"}</button>
-          <div className="security-note"><ShieldCheck size={20}/> Mật khẩu được băm và phiên đăng nhập được bảo vệ ở máy chủ</div>
+          <div className="login-divider"><span>hoặc</span></div>
+          <div className="security-note"><ShieldCheck size={20}/> Bảo mật thông tin tuyệt đối</div>
         </form>
       </section>
     </main>

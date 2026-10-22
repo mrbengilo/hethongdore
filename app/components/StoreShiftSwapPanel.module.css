@@ -1,0 +1,54 @@
+.panel { background:#fff; border:1px solid #e2e8e4; border-radius:16px; padding:20px; min-width:0; color:#17211b; }
+.heading { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+.heading h3 { margin:0; font-size:20px; color:#075523; }
+.heading p,.rule,.hint,.submitRow p { color:#536157; font-size:13px; line-height:1.6; }
+.heading p { margin:6px 0; }
+.rule { padding:12px 14px; background:#f4f8f5; border-radius:9px; margin:14px 0; }
+.people { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+.person { min-width:0; margin:0; padding:16px; border:1px solid #dbe5de; border-radius:12px; }
+.person legend { font-weight:700; color:#075523; padding:0 6px; }
+.person > label,.reason { display:grid; gap:7px; font-size:13px; font-weight:600; }
+.person select,.reason textarea { width:100%; min-width:0; max-width:100%; border:1px solid #c8d6cd; border-radius:8px; padding:10px; font:inherit; color:#17211b; background:#fff; box-sizing:border-box; }
+.person select { min-height:44px; margin-top:7px; }
+.employeeName { font-size:13px; font-weight:600; margin:10px 0; overflow-wrap:anywhere; }
+.assignmentList { border:0; padding:0; margin:16px 0 0; min-width:0; display:grid; gap:8px; }
+.assignmentList legend { color:#536157; font-size:12px; font-weight:500; padding:0; margin-bottom:9px; }
+.assignment { display:flex; align-items:flex-start; gap:10px; padding:12px; border:1px solid #dde5df; border-radius:8px; cursor:pointer; min-width:0; }
+.assignment input { flex:none; width:17px; height:17px; margin:3px 0 0; accent-color:#07852f; }
+.assignment > span { display:grid; min-width:0; gap:4px; font-size:13px; overflow-wrap:anywhere; }
+.assignment b { font-size:14px; }
+.assignment small { color:#8a4a18; line-height:1.5; }
+.assignment:has(input:disabled) { background:#f6f7f6; color:#59665d; cursor:default; }
+.selected { border-color:#07852f; background:#eff9f1; box-shadow:0 0 0 1px #07852f; }
+.preview { margin:18px 0; padding:16px; border-radius:12px; background:#eff9f1; border:1px solid #c7e3ce; }
+.preview h4,.pending h4 { margin:0 0 12px; display:flex; align-items:center; gap:8px; color:#075523; }
+.preview > div { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+.preview p { display:grid; gap:6px; margin:0; font-size:13px; overflow-wrap:anywhere; line-height:1.6; }
+.preview p > span { color:#536157; }
+.preview p > strong { color:#075523; }
+.preview small { display:block; margin-top:14px; color:#536157; line-height:1.6; }
+.reason { margin-top:18px; }
+.reason textarea { min-height:82px; resize:vertical; line-height:1.5; }
+.submitRow { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-top:16px; }
+.primary,.secondary { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:44px; border-radius:8px; padding:10px 15px; font:inherit; font-weight:600; font-size:13px; cursor:pointer; white-space:normal; }
+.primary { background:#07852f; color:#fff; border:1px solid #07852f; }
+.secondary { background:#fff; color:#075523; border:1px solid #c8d6cd; }
+.primary:disabled,.secondary:disabled { cursor:not-allowed; opacity:.55; }
+.status { outline:none; }
+.status:focus-visible { outline:2px solid #07852f; outline-offset:4px; }
+.error { color:#9f2525; background:#fff2f1; border:1px solid #f4cdca; padding:12px; border-radius:8px; font-size:13px; line-height:1.6; overflow-wrap:anywhere; }
+.empty { background:#f4f8f5; color:#536157; border:1px dashed #c8d6cd; padding:18px; border-radius:9px; font-size:13px; line-height:1.6; }
+.pending { padding:16px; margin:16px 0; border:1px solid #e3c98c; background:#fffaed; border-radius:10px; font-size:13px; line-height:1.6; overflow-wrap:anywhere; }
+.success { margin:14px 0; padding:16px; border:1px solid #badcc3; border-radius:10px; background:#eff9f1; color:#075523; line-height:1.6; font-size:13px; overflow-wrap:anywhere; }
+.success b { display:flex; align-items:center; gap:8px; }
+.success p { margin:7px 0; }
+.panel select:focus-visible,.panel textarea:focus-visible,.panel button:focus-visible,.panel input:focus-visible { outline:3px solid #91c8a4; outline-offset:3px; }
+@media(max-width:700px) {
+  .panel { padding:14px; }
+  .heading { flex-direction:column; gap:8px; }
+  .people,.preview > div { grid-template-columns:minmax(0,1fr); }
+  .person { padding:12px; }
+  .submitRow { flex-direction:column; align-items:stretch; gap:8px; }
+  .submitRow p { margin:0; }
+  .primary { width:100%; }
+}
